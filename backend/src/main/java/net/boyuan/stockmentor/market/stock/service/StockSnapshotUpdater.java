@@ -28,7 +28,6 @@ public class StockSnapshotUpdater {
             return;
         }
         JsonNode latest = newValues.get(newValues.size() - 1);
-
         BigDecimal close = new BigDecimal(latest.get("close").asText());
 
         LocalDateTime marketTime = LocalDateTime.parse(
@@ -37,7 +36,6 @@ public class StockSnapshotUpdater {
         LocalDate currentDate = marketTime.toLocalDate();
 
         boolean isNewDay = stock.getLastUpdated() == null || !stock.getLastUpdated().toLocalDate().equals(currentDate);
-
         if (isNewDay) {
             stock.setDayHigh(null);
             stock.setDayLow(null);

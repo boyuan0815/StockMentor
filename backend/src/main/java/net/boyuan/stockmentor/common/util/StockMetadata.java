@@ -4,7 +4,6 @@ import java.util.Map;
 
 //@NoArgsConstructor
 public class StockMetadata {
-
     // since this is utility / constant class, use "private constructor" is better instead of @NoArgsConstructor
     private StockMetadata(){}
 

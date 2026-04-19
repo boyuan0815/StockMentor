@@ -1,5 +1,6 @@
 package net.boyuan.stockmentor.market.stock.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -10,14 +11,13 @@ import org.springframework.web.reactive.function.client.WebClient;
 @Service
 @RequiredArgsConstructor
 public class StockApiClient {
-
     @Value("${twelvedata.api.key}")
     private String apiKey;
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
 
-    public JsonNode fetchTimeSeries(String symbols, int outputSize) throws Exception {
+    public JsonNode fetchTimeSeries(String symbols, int outputSize) throws JsonProcessingException {
         String response = webClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/time_series")

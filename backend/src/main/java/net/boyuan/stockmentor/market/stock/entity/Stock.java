@@ -46,9 +46,6 @@ public class Stock {
     @Column(name = "percent_change", precision = 5, scale = 2)
     private BigDecimal percentChange;
 
-//    determine whether data is new or not (now - lastUpdated > x min)
-//    ui : last updated: 15:59
-//    avoid duplicate fetch
     @Column(name = "last_updated")
     private LocalDateTime lastUpdated;
 
@@ -67,6 +64,4 @@ public class Stock {
     // for debugging & audittrail purpose
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-
-
 }

@@ -4,12 +4,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.reactive.function.client.WebClient;
 
-// let Spring will scan this class at startup, then will look inside @Bean methods...
 @Configuration
 public class WebClientConfig {
 
-//  run this task once, then get the returned object, register this returned object into Spring container
-//  then later in other class with @Repository,
     @Bean
     public WebClient webClient() {
 

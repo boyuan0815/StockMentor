@@ -31,7 +31,6 @@
             }
     )
     public class StockPriceHistory {
-
         @Id
         @GeneratedValue(strategy = GenerationType.IDENTITY)
         private Long historyId;

@@ -9,17 +9,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHistory, Long> {
-//    boolean existsBySymbolAndTimestampAndTimeInterval(
-//            String symbol,
-//            LocalDateTime timestamp,
-//            String timeInterval
-//    );
 
 //    every table must put alias because it is a standard practice
 //    JPQL must use the EXACT CLASSNAME: StockPriceHistory
 //    JPQL DOESN'T use classname in lower case: stockpricehistory
 //    JPQL DOESN'T use database table name: stock_price_history
-
     @Query("""
         select h.timestamp
         from StockPriceHistory h

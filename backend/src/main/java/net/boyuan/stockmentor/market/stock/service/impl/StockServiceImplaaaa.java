@@ -108,9 +108,10 @@
 //            if (root.has("code")) {
 ////                "get" is less safer compare to "path" if the field is missing
 ////                log.error("API Error: {}" , root.get("message").asText());
-//                log.error("API Error: code={}, message={}",
-//                        root.path("code").asText(),
-//                        root.path("message").asText());
+//                String code = root.path("code").asText();
+//                String message = root.path("message").asText("Unknown error");
+//
+//                log.error("API Error: code={}, message={}", code, message);
 //                return;
 //            }
 //
@@ -141,7 +142,8 @@
 //
 //            List<StockPriceHistory> stockPriceHistoriesToSave = new ArrayList<>();
 ////            JsonNode object's .fields() means return KEY + VALUE pairs: "NVDA" -> {meta, values}, "TSLA" -> {meta, values}
-//            root.fields().forEachRemaining(entry -> {
+//              JsonNode object's .properties().forEach(entry -> ...) is the latest writing style
+//            root.properties().forEach(entry -> {
 //
 //                String symbol = entry.getKey();
 //                JsonNode stockNode = entry.getValue();

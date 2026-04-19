@@ -1,7 +1,6 @@
 package net.boyuan.stockmentor.market.stock.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import lombok.AllArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import net.boyuan.stockmentor.market.stock.service.StockApiClient;
 import net.boyuan.stockmentor.market.stock.service.StockHistoryBuilder;
@@ -49,10 +48,10 @@ public class StockServiceImpl implements StockService {
             JsonNode root = stockApiClient.fetchTimeSeries(symbols, outputSize);
 
             if (root.has("code")) {
-                log.error("API Error: code={}, message={}",
-                        root.path("code").asText(),
-                        root.path("message").asText());
-                return;
+                String code = root.path("code").asText();
+                String message = root.path("message").asText("Unknown error");
+
+                log.error("API Error: code={}, message={}", code, message);
             }
 
             List<String> symbolList = new ArrayList<>();
@@ -65,7 +64,7 @@ public class StockServiceImpl implements StockService {
             List<StockPriceHistory> stockPriceHistoriesToSave = new ArrayList<>();
             LocalDate marketDate = LocalDate.now(NY_ZONE);
 
-            root.fields().forEachRemaining(entry -> {
+            root.properties().forEach(entry -> {
                 String symbol = entry.getKey();
                 JsonNode stockNode = entry.getValue();
 

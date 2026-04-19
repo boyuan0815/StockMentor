@@ -23,6 +23,7 @@ public class StockHistoryBuilder {
             );
             boolean isDuplicate = existingTimestampSet.contains(marketTime);
             boolean isToday = marketTime.toLocalDate().equals(marketDate);
+//            will not catch up the data from yesterday even though stock data missing
             if (isDuplicate || !isToday) {
                 continue;
             }

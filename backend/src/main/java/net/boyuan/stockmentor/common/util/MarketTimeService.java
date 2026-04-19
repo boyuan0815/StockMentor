@@ -9,7 +9,6 @@ import java.time.ZoneId;
 import java.util.Set;
 
 @Component
-//@AllArgsConstructor
 public class MarketTimeService {
     private static final ZoneId NY_ZONE = ZoneId.of("America/New_York");
     private static final int CURRENT_YEAR = LocalDate.now(NY_ZONE).getYear();
@@ -28,21 +27,21 @@ public class MarketTimeService {
 
     }
 
-    private static Set<LocalDate> HOLIDAYS = Set.of(
+    private static final Set<LocalDate> HOLIDAYS = Set.of(
             LocalDate.of(CURRENT_YEAR, 1, 1),
             LocalDate.of(CURRENT_YEAR, 7, 4),
             LocalDate.of(CURRENT_YEAR, 12, 25)
     );
 
-    public boolean isHoliday() {
-        return HOLIDAYS.contains(LocalDate.now(NY_ZONE));
+    public boolean isNonHoliday() {
+        return !HOLIDAYS.contains(LocalDate.now(NY_ZONE));
     }
 
     public boolean isTradingDay(){
-        return isWeekday() && !isHoliday();
+        return isWeekday() && isNonHoliday();
     }
 
     public boolean isMarketOpen() {
-        return isMarketTradingTime() && isWeekday() && !isHoliday();
+        return isMarketTradingTime() && isWeekday() && isNonHoliday();
     }
 }
