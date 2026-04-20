@@ -2,12 +2,12 @@ package net.boyuan.stockmentor.market.stock.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
-import net.boyuan.stockmentor.market.stock.service.StockApiClient;
-import net.boyuan.stockmentor.market.stock.service.StockHistoryBuilder;
-import net.boyuan.stockmentor.market.stock.service.StockSnapshotUpdater;
 import net.boyuan.stockmentor.market.stock.entity.Stock;
 import net.boyuan.stockmentor.market.stock.repository.StockRepository;
+import net.boyuan.stockmentor.market.stock.service.StockApiClient;
+import net.boyuan.stockmentor.market.stock.service.StockHistoryBuilder;
 import net.boyuan.stockmentor.market.stock.service.StockService;
+import net.boyuan.stockmentor.market.stock.service.StockSnapshotUpdater;
 import net.boyuan.stockmentor.market.stockpricehistory.entity.StockPriceHistory;
 import net.boyuan.stockmentor.market.stockpricehistory.repository.StockPriceHistoryRepository;
 import org.slf4j.Logger;
@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -76,7 +77,7 @@ public class StockServiceImpl implements StockService {
                 JsonNode values = stockNode.get("values");
 
                 Stock stock = stockMap.computeIfAbsent(symbol, key -> {
-                   Stock s = new Stock();
+                    Stock s = new Stock();
                     s.setSymbol(symbol);
                     s.setCreatedAt(LocalDateTime.now());
                     s.setSource("TwelveData");
@@ -123,15 +124,13 @@ public class StockServiceImpl implements StockService {
                 log.info("No new stock history rows to save");
             }
         } catch (WebClientRequestException e) {
-                log.error("TwelveData connection error: {}", e.getMessage(), e);
+            log.error("TwelveData connection error: {}", e.getMessage(), e);
         } catch (WebClientResponseException e) {
-                log.error("TwelveData HTTP error: status={}, body={}",
+            log.error("TwelveData HTTP error: status={}, body={}",
                     e.getStatusCode(),
                     e.getResponseBodyAsString());
         } catch (Exception e) {
-                log.error("Failed to fetch and save stock data for symbols={}", symbols, e);
+            log.error("Failed to fetch and save stock data for symbols={}", symbols, e);
         }
     }
-
-
 }
