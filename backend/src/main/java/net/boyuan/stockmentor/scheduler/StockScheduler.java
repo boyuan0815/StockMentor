@@ -43,32 +43,32 @@ public class StockScheduler {
         }
     }
 
-    //  16:30
-    @Scheduled(cron = "0 30 16 * * MON-FRI", zone = "America/New_York")
+    //  16:50, 18:50
+    @Scheduled(cron = "0 50 16,18 * * MON-FRI", zone = "America/New_York")
     private void backfillGroup1() {
         if (marketTimeService.isTradingDay()) {
             stockService.fetchAndSave(BACKFILL_GROUP_1, 390);
         }
     }
 
-    //  16:33
-    @Scheduled(cron = "0 33 16 * * MON-FRI", zone = "America/New_York")
+    //  16:53, 18:53
+    @Scheduled(cron = "0 53 16,18 * * MON-FRI", zone = "America/New_York")
     private void backfillGroup2() {
         if (marketTimeService.isTradingDay()) {
             stockService.fetchAndSave(BACKFILL_GROUP_2, 390);
         }
     }
 
-    //  16:36
-    @Scheduled(cron = "0 36 16 * * MON-FRI", zone = "America/New_York")
+    //  16:56, 18:56
+    @Scheduled(cron = "0 56 16,18 * * MON-FRI", zone = "America/New_York")
     private void backfillGroup3() {
         if (marketTimeService.isTradingDay()) {
             stockService.fetchAndSave(BACKFILL_GROUP_3, 390);
         }
     }
 
-    //  16:39
-    @Scheduled(cron = "0 39 16 * * MON-FRI", zone = "America/New_York")
+    //  16:59, 18:59
+    @Scheduled(cron = "0 59 16,18 * * MON-FRI", zone = "America/New_York")
     private void backfillGroup4() {
         if (marketTimeService.isTradingDay()) {
             stockService.fetchAndSave(BACKFILL_GROUP_4, 390);
