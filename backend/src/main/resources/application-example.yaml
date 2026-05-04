@@ -1,0 +1,10 @@
+openai:
+  api:
+    key: your-openai-api-key
+
+twelvedata:
+  api:
+    key: your-twelvedata-api-key
+
+admin:
+  token: your-admin-token
