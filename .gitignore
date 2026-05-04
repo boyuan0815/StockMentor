@@ -103,3 +103,5 @@ HELP.md
 build/
 !**/src/main/**/build/
 !**/src/test/**/build/
+
+AGENTS.md
