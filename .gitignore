@@ -68,6 +68,7 @@ application.properties
 
 # Build output
 target/
+backend/.m2/
 *.jar
 *.class
 
