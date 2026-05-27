@@ -14,6 +14,7 @@ import net.boyuan.stockmentor.market.stockdaily.entity.StockPriceDaily;
 import net.boyuan.stockmentor.market.stockdaily.repository.StockPriceDailyRepository;
 import net.boyuan.stockmentor.market.stockpricehistory.entity.StockPriceHistory;
 import net.boyuan.stockmentor.market.stockpricehistory.repository.StockPriceHistoryRepository;
+import net.boyuan.stockmentor.market.stockpricehistory.repository.SkippedIntradayCleanupRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -24,7 +25,6 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.*;
@@ -159,47 +159,35 @@ public class StockServiceImpl implements StockService {
     @Transactional
     public BackfillResultDto cleanupOldIntradayData(int retentionDays) {
         LocalDate cutoffDate = LocalDate.now(NY_ZONE).minusDays(retentionDays);
-        List<StockPriceDaily> safeDailyCandles = dailyRepository.findByTradingDateBefore(cutoffDate);
+        LocalDateTime cutoffTimestamp = cutoffDate.atStartOfDay();
+        List<StockPriceDaily> dailyCandlesAvailableForCleanup = dailyRepository.findByTradingDateBefore(cutoffDate);
         BackfillResultDto.Builder result = BackfillResultDto.builder("intraday-cleanup")
                 .startDate(cutoffDate);
 
         long deletedRows = 0;
-        long skippedRows = 0;
 
-        for (StockPriceDaily daily : safeDailyCandles) {
-            LocalDateTime start = daily.getTradingDate().atStartOfDay();
-            LocalDateTime end = daily.getTradingDate().atTime(LocalTime.MAX);
-            long existingRows = historyRepository.countBySymbolAndTimestampBetween(daily.getSymbol(), start, end);
-            if (existingRows == 0) {
-                continue;
-            }
-
-            deletedRows += historyRepository.deleteBySymbolAndTimestampBetween(daily.getSymbol(), start, end);
+        for (StockPriceDaily daily : dailyCandlesAvailableForCleanup) {
+            deletedRows += historyRepository.deleteBySymbolAndTradingDate(daily.getSymbol(), daily.getTradingDate());
         }
 
-        List<String> symbols = stockRepository.findAll()
-                .stream()
-                .map(Stock::getSymbol)
+        List<SkippedIntradayCleanupRow> skippedGroups = historyRepository.findSkippedCleanupRows(cutoffTimestamp);
+        long skippedRows = skippedGroups.stream()
+                .map(SkippedIntradayCleanupRow::getRowCount)
                 .filter(Objects::nonNull)
-                .toList();
+                .mapToLong(Long::longValue)
+                .sum();
 
-        for (String symbol : symbols) {
-            for (LocalDate date : marketTimeService.tradingDaysBetween(cutoffDate.minusMonths(6), cutoffDate.minusDays(1))) {
-                long count = historyRepository.countBySymbolAndTimestampBetween(
-                        symbol,
-                        date.atStartOfDay(),
-                        date.atTime(LocalTime.MAX)
-                );
-                if (count > 0 && !dailyRepository.existsBySymbolAndTradingDate(symbol, date)) {
-                    skippedRows += count;
-                    log.info("Skipped 1min cleanup for symbol={}, date={} because daily candle is missing", symbol, date);
-                }
-            }
+        for (SkippedIntradayCleanupRow skippedGroup : skippedGroups) {
+            log.info(
+                    "Skipped 1min cleanup for symbol={}, date={} because daily candle is missing",
+                    skippedGroup.getSymbol(),
+                    skippedGroup.getTradingDate()
+            );
         }
 
-        return result.savedRows((int) deletedRows)
+        return result.deletedRows((int) deletedRows)
                 .skippedRows((int) skippedRows)
-                .addMessage("Deleted rows are reported in savedRows for this cleanup job")
+                .addMessage("Deleted old 1min rows only when matching daily candles exist")
                 .build();
     }
 

@@ -89,6 +89,9 @@ public class StockAiExplanationServiceImpl implements StockAiExplanationService 
                     snapshot.getDataStartDate(),
                     snapshot.getDataEndDate(),
                     snapshot.getDataSource(),
+                    snapshot.getIsFallback(),
+                    snapshot.getBaselineRiskCategory(),
+                    snapshot.getRiskCategory(),
                     result.errorMessage()
             );
         }
@@ -121,6 +124,9 @@ public class StockAiExplanationServiceImpl implements StockAiExplanationService 
                 snapshot.getDataStartDate(),
                 snapshot.getDataEndDate(),
                 snapshot.getDataSource(),
+                snapshot.getIsFallback(),
+                snapshot.getBaselineRiskCategory(),
+                snapshot.getRiskCategory(),
                 cached ? "Returned cached AI explanation" : "Generated new AI explanation"
         );
     }

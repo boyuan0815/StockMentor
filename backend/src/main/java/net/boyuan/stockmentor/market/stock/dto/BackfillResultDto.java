@@ -11,6 +11,7 @@ public record BackfillResultDto(
         LocalDate endDate,
         int savedRows,
         int skippedRows,
+        int deletedRows,
         List<String> messages
 ) {
     public static Builder builder(String jobType) {
@@ -25,6 +26,7 @@ public record BackfillResultDto(
         private LocalDate endDate;
         private int savedRows;
         private int skippedRows;
+        private int deletedRows;
 
         public Builder(String jobType) {
             this.jobType = jobType;
@@ -56,6 +58,11 @@ public record BackfillResultDto(
             return this;
         }
 
+        public Builder deletedRows(int deletedRows) {
+            this.deletedRows = deletedRows;
+            return this;
+        }
+
         public Builder addSavedRows(int savedRows) {
             this.savedRows += savedRows;
             return this;
@@ -63,6 +70,11 @@ public record BackfillResultDto(
 
         public Builder addSkippedRows(int skippedRows) {
             this.skippedRows += skippedRows;
+            return this;
+        }
+
+        public Builder addDeletedRows(int deletedRows) {
+            this.deletedRows += deletedRows;
             return this;
         }
 
@@ -79,6 +91,7 @@ public record BackfillResultDto(
                     endDate,
                     savedRows,
                     skippedRows,
+                    deletedRows,
                     List.copyOf(messages)
             );
         }

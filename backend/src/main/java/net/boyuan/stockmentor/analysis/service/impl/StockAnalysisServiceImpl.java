@@ -7,6 +7,7 @@ import net.boyuan.stockmentor.analysis.model.PriceCandle;
 import net.boyuan.stockmentor.analysis.repository.StockAnalysisSnapshotRepository;
 import net.boyuan.stockmentor.analysis.service.StockAnalysisService;
 import net.boyuan.stockmentor.common.exception.ResourceNotFoundException;
+import net.boyuan.stockmentor.common.util.MarketTimeService;
 import net.boyuan.stockmentor.market.stockdaily.entity.StockPriceDaily;
 import net.boyuan.stockmentor.market.stockdaily.repository.StockPriceDailyRepository;
 import net.boyuan.stockmentor.market.stockpricehistory.entity.StockPriceHistory;
@@ -19,9 +20,11 @@ import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -36,8 +39,10 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
     private final StockAnalysisSnapshotRepository snapshotRepository;
     private final StockPriceDailyRepository dailyRepository;
     private final StockPriceHistoryRepository historyRepository;
+    private final MarketTimeService marketTimeService;
 
-    private static final int COMPLETE_INTRADAY_THRESHOLD = 380;
+    private static final ZoneId NY_ZONE = ZoneId.of("America/New_York");
+    private static final BigDecimal INTRADAY_COMPLETENESS_RATIO = BigDecimal.valueOf(0.9);
 
     @Override
     public StockAnalysisSnapshot createOrReuseSnapshot(String symbol, String timeframeValue) {
@@ -55,6 +60,10 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
 
     @Override
     public String buildPromptUserContent(StockAnalysisSnapshot snapshot) {
+        String dataNote = Boolean.TRUE.equals(snapshot.getIsFallback())
+                ? "\nData note: This analysis uses daily candle fallback because complete 1-minute intraday data was unavailable."
+                : "";
+
         return """
                 Symbol: %s
                 Time frame: %s
@@ -66,7 +75,7 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
                 Period high: %s
                 Period low: %s
                 Risk category: %s
-                Price Consistency: %s
+                Price Consistency: %s%s
                 """.formatted(
                 snapshot.getSymbol(),
                 snapshot.getTimeframe(),
@@ -79,7 +88,8 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
                 format(snapshot.getHighPrice()),
                 format(snapshot.getLowPrice()),
                 snapshot.getRiskCategory(),
-                snapshot.getPriceConsistency()
+                snapshot.getPriceConsistency(),
+                dataNote
         );
     }
 
@@ -88,7 +98,7 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
             return loadOneDayInput(symbol);
         }
 
-        List<StockPriceDaily> dailyRows = dailyRepository.findLatestBySymbol(
+        List<StockPriceDaily> dailyRows = dailyRepository.findBySymbolOrderByTradingDateDesc(
                 symbol,
                 PageRequest.of(0, timeframe.tradingDays())
         );
@@ -102,16 +112,16 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
                 .toList();
 
         int missingDataCount = Math.max(0, timeframe.tradingDays() - candles.size());
-        return new SnapshotInput(candles, "stock_price_daily", missingDataCount);
+        return new SnapshotInput(candles, "stock_price_daily", missingDataCount, false);
     }
 
     private SnapshotInput loadOneDayInput(String symbol) {
         StockPriceDaily latestDaily = dailyRepository.findTopBySymbolOrderByTradingDateDesc(symbol).orElse(null);
-        LocalDate candidateDate = latestDaily == null
-                ? historyRepository.findTopBySymbolOrderByTimestampDesc(symbol)
+        LocalDate latestDailyDate = latestDaily == null ? null : latestDaily.getTradingDate();
+        LocalDate latestIntradayDate = historyRepository.findTopBySymbolOrderByTimestampDesc(symbol)
                 .map(row -> row.getTimestamp().toLocalDate())
-                .orElse(null)
-                : latestDaily.getTradingDate();
+                .orElse(null);
+        LocalDate candidateDate = maxDate(latestDailyDate, latestIntradayDate);
 
         if (candidateDate == null) {
             throw new ResourceNotFoundException("No price data found for symbol=" + symbol);
@@ -119,19 +129,114 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
 
         LocalDateTime start = candidateDate.atStartOfDay();
         LocalDateTime end = candidateDate.atTime(LocalTime.MAX);
-        long intradayRows = historyRepository.countBySymbolAndTimestampBetween(symbol, start, end);
+        List<StockPriceHistory> intradayRows = historyRepository.findBySymbolAndTimestampBetweenOrderByTimestampAsc(symbol, start, end);
 
-        if (intradayRows >= COMPLETE_INTRADAY_THRESHOLD) {
-            List<StockPriceHistory> rows = historyRepository.findBySymbolAndTimestampBetweenOrderByTimestampAsc(symbol, start, end);
-            return new SnapshotInput(List.of(toCandle(candidateDate, rows)), "stock_price_history_1min", 0);
+        if (isCompleteEnoughIntraday(candidateDate, intradayRows.size())) {
+            return new SnapshotInput(List.of(toCandle(candidateDate, intradayRows)), "stock_price_history_1min", 0, false);
         }
 
-        if (latestDaily == null) {
-            throw new ResourceNotFoundException("No complete 1D data found for symbol=" + symbol);
+        StockPriceDaily candidateDaily = dailyRepository.findBySymbolAndTradingDate(symbol, candidateDate).orElse(null);
+        if (candidateDaily != null) {
+            return new SnapshotInput(List.of(toCandle(candidateDaily)), "stock_price_daily", estimatedMissingIntradayCount(intradayRows), true);
         }
 
-        int missingDataCount = intradayRows > 0 ? 0 : 1;
-        return new SnapshotInput(List.of(toCandle(latestDaily)), "stock_price_daily", missingDataCount);
+        if (latestDaily != null) {
+            return new SnapshotInput(List.of(toCandle(latestDaily)), "stock_price_daily", 0, true);
+        }
+
+        if (!intradayRows.isEmpty()) {
+            throw new ResourceNotFoundException("Latest 1D intraday data is incomplete and no daily fallback exists for symbol=" + symbol);
+        }
+
+        throw new ResourceNotFoundException("No complete 1D data found for symbol=" + symbol);
+    }
+
+    private LocalDate maxDate(LocalDate first, LocalDate second) {
+        if (first == null) {
+            return second;
+        }
+        if (second == null) {
+            return first;
+        }
+        return first.isAfter(second) ? first : second;
+    }
+
+    private boolean isCompleteEnoughIntraday(LocalDate date, int actualRows) {
+        int expectedRows = expectedIntradayRows(date);
+        if (expectedRows <= 0) {
+            return false;
+        }
+
+        int requiredRows = BigDecimal.valueOf(expectedRows)
+                .multiply(INTRADAY_COMPLETENESS_RATIO)
+                .setScale(0, RoundingMode.CEILING)
+                .intValue();
+
+        return actualRows >= requiredRows;
+    }
+
+    private int expectedIntradayRows(LocalDate date) {
+        if (!marketTimeService.isTradingDay(date)) {
+            return 0;
+        }
+
+        LocalDate todayNy = LocalDate.now(NY_ZONE);
+        if (date.isBefore(todayNy)) {
+            return 390;
+        }
+        if (date.isAfter(todayNy)) {
+            return 0;
+        }
+
+        LocalTime nowNy = LocalTime.now(NY_ZONE);
+        LocalTime marketOpen = LocalTime.of(9, 30);
+        LocalTime marketClose = LocalTime.of(16, 0);
+
+        if (nowNy.isBefore(marketOpen)) {
+            return 0;
+        }
+        if (!nowNy.isBefore(marketClose)) {
+            return 390;
+        }
+
+        return (int) Duration.between(marketOpen, nowNy).toMinutes();
+    }
+
+    private int estimatedMissingIntradayCount(List<StockPriceHistory> intradayRows) {
+        if (intradayRows.isEmpty()) {
+            return 1;
+        }
+        LocalDate date = intradayRows.get(0).getTimestamp().toLocalDate();
+        int expectedRows = expectedIntradayRows(date);
+        if (expectedRows <= 0) {
+            return 0;
+        }
+        return Math.max(0, expectedRows - intradayRows.size());
+    }
+
+    private String adjustedRiskCategory(String baselineRiskCategory, BigDecimal volatilityScore, BigDecimal trendStrength, RiskSignals riskSignals) {
+        int riskLevel = switch (baselineRiskCategory) {
+            case "aggressive" -> 3;
+            case "conservative" -> 1;
+            default -> 2;
+        };
+
+        if (riskSignals.erratic()) {
+            riskLevel++;
+        }
+        if (volatilityScore.compareTo(BigDecimal.valueOf(1.5)) < 0 && riskSignals.smooth()) {
+            riskLevel--;
+        }
+        if (trendStrength.compareTo(BigDecimal.valueOf(8)) >= 0 && !riskSignals.smooth()) {
+            riskLevel++;
+        }
+
+        int boundedRiskLevel = Math.max(1, Math.min(3, riskLevel));
+        return switch (boundedRiskLevel) {
+            case 1 -> "conservative";
+            case 3 -> "aggressive";
+            default -> "moderate";
+        };
     }
 
     private StockAnalysisSnapshot calculateSnapshot(String symbol, AnalysisTimeframe timeframe, SnapshotInput input) {
@@ -158,6 +263,7 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal avgRange = totalRange.divide(BigDecimal.valueOf(candles.size()), 6, RoundingMode.HALF_UP);
 
+        validatePositivePrice(first.openPrice(), "open", symbol);
         BigDecimal percentChange = last.closePrice()
                 .subtract(first.openPrice())
                 .divide(first.openPrice(), 6, RoundingMode.HALF_UP)
@@ -166,10 +272,12 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
                 .map(PriceCandle::closePrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .divide(BigDecimal.valueOf(candles.size()), 6, RoundingMode.HALF_UP);
+        validatePositivePrice(avgClose, "average close", symbol);
         BigDecimal volatilityScore = avgRange
                 .divide(avgClose, 6, RoundingMode.HALF_UP)
                 .multiply(BigDecimal.valueOf(100));
         BigDecimal trendStrength = percentChange.abs();
+        RiskSignals riskSignals = calculateRiskSignals(candles, percentChange, volatilityScore);
 
         StockAnalysisSnapshot snapshot = new StockAnalysisSnapshot();
         snapshot.setSymbol(symbol);
@@ -184,16 +292,27 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
         snapshot.setPercentChange(percentChange);
         snapshot.setHighPrice(highPrice);
         snapshot.setLowPrice(lowPrice);
-        snapshot.setTrend(labelTrend(percentChange));
+        String priceConsistency = labelPriceConsistency(percentChange, volatilityScore, riskSignals);
+        String baselineRiskCategory = RISK_CATEGORY_MAP.getOrDefault(symbol, "moderate");
+
+        snapshot.setTrend(labelTrend(percentChange, priceConsistency));
         snapshot.setVolatilityLabel(labelVolatility(volatilityScore));
         snapshot.setVolumeTrend(labelVolumeTrend(candles));
-        snapshot.setPriceConsistency(labelPriceConsistency(candles, percentChange));
-        snapshot.setRiskCategory(RISK_CATEGORY_MAP.getOrDefault(symbol, "moderate"));
+        snapshot.setPriceConsistency(priceConsistency);
+        snapshot.setBaselineRiskCategory(baselineRiskCategory);
+        snapshot.setRiskCategory(adjustedRiskCategory(baselineRiskCategory, volatilityScore, trendStrength, riskSignals));
         snapshot.setDataSource(input.dataSource());
+        snapshot.setIsFallback(input.isFallback());
         snapshot.setMissingDataCount(input.missingDataCount());
         snapshot.setCreatedAt(LocalDateTime.now());
         snapshot.setSnapshotHash(hash(snapshot));
         return snapshot;
+    }
+
+    private void validatePositivePrice(BigDecimal value, String priceName, String symbol) {
+        if (value == null || value.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalStateException("Invalid " + priceName + " price for symbol=" + symbol);
+        }
     }
 
     private PriceCandle toCandle(StockPriceDaily daily) {
@@ -234,21 +353,28 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
         );
     }
 
-    private String labelTrend(BigDecimal percentChange) {
+    private String labelTrend(BigDecimal percentChange, String priceConsistency) {
         if (percentChange.compareTo(BigDecimal.ONE) > 0) {
-            return "uptrend";
+            return priceConsistency.contains("choppy") || priceConsistency.contains("erratic")
+                    ? "volatile uptrend"
+                    : "strong uptrend";
         }
         if (percentChange.compareTo(BigDecimal.ONE.negate()) < 0) {
-            return "downtrend";
+            return priceConsistency.contains("choppy") || priceConsistency.contains("erratic")
+                    ? "volatile downtrend"
+                    : "strong downtrend";
         }
         return "sideways";
     }
 
     private String labelVolatility(BigDecimal volatilityScore) {
-        if (volatilityScore.compareTo(BigDecimal.valueOf(2)) < 0) {
+        if (volatilityScore.compareTo(BigDecimal.valueOf(1.5)) < 0) {
+            return "very low";
+        }
+        if (volatilityScore.compareTo(BigDecimal.valueOf(3)) < 0) {
             return "low";
         }
-        if (volatilityScore.compareTo(BigDecimal.valueOf(5)) < 0) {
+        if (volatilityScore.compareTo(BigDecimal.valueOf(6)) < 0) {
             return "moderate";
         }
         return "high";
@@ -259,18 +385,19 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
             return "normal volume";
         }
 
-        int midpoint = candles.size() / 2;
-        BigDecimal earlier = averageVolume(candles.subList(0, midpoint));
-        BigDecimal recent = averageVolume(candles.subList(midpoint, candles.size()));
-        BigDecimal change = recent.subtract(earlier)
-                .divide(earlier.max(BigDecimal.ONE), 4, RoundingMode.HALF_UP)
-                .multiply(BigDecimal.valueOf(100));
+        int recentSize = Math.max(1, (int) Math.ceil(candles.size() * 0.2));
+        BigDecimal recentAverage = averageVolume(candles.subList(candles.size() - recentSize, candles.size()));
+        BigDecimal overallAverage = averageVolume(candles);
+        BigDecimal ratio = recentAverage.divide(overallAverage.max(BigDecimal.ONE), 4, RoundingMode.HALF_UP);
 
-        if (change.compareTo(BigDecimal.TEN) > 0) {
-            return "above average";
+        if (ratio.compareTo(BigDecimal.valueOf(1.5)) > 0) {
+            return "unusually high";
         }
-        if (change.compareTo(BigDecimal.TEN.negate()) < 0) {
-            return "below average";
+        if (ratio.compareTo(BigDecimal.valueOf(1.1)) > 0) {
+            return "increasing";
+        }
+        if (ratio.compareTo(BigDecimal.valueOf(0.8)) < 0) {
+            return "decreasing";
         }
         return "stable";
     }
@@ -282,9 +409,11 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
                 .divide(BigDecimal.valueOf(candles.size()), 2, RoundingMode.HALF_UP);
     }
 
-    private String labelPriceConsistency(List<PriceCandle> candles, BigDecimal percentChange) {
+    private RiskSignals calculateRiskSignals(List<PriceCandle> candles, BigDecimal percentChange, BigDecimal volatilityScore) {
         if (candles.size() <= 2) {
-            return percentChange.signum() >= 0 ? "steady upward movement" : "steady downward movement";
+            boolean sideways = percentChange.signum() == 0;
+            boolean smooth = volatilityScore.compareTo(BigDecimal.valueOf(6)) < 0;
+            return new RiskSignals(0, smooth, false, sideways);
         }
 
         List<Integer> directions = new ArrayList<>();
@@ -300,13 +429,43 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
         }
 
         double reversalRatio = reversals / (double) Math.max(1, directions.size() - 1);
-        if (reversalRatio <= 0.25 && percentChange.signum() >= 0) {
+        boolean sideways = percentChange.abs().compareTo(BigDecimal.ONE) < 0;
+        boolean smooth = reversalRatio <= 0.25;
+        boolean erratic = reversalRatio > 0.6 || volatilityScore.compareTo(BigDecimal.valueOf(6)) >= 0;
+
+        return new RiskSignals(reversalRatio, smooth, erratic, sideways);
+    }
+
+    private String labelPriceConsistency(BigDecimal percentChange, BigDecimal volatilityScore, RiskSignals riskSignals) {
+        if (riskSignals.reversalRatio() == 0) {
+            if (percentChange.signum() > 0) {
+                return "steady upward movement";
+            }
+            if (percentChange.signum() < 0) {
+                return "steady downward movement";
+            }
+            return "sideways movement";
+        }
+
+        if (riskSignals.sideways() && volatilityScore.compareTo(BigDecimal.valueOf(1.5)) < 0) {
+            return "stable sideways movement";
+        }
+        if (riskSignals.erratic()) {
+            return "highly erratic movement";
+        }
+        if (riskSignals.smooth() && percentChange.signum() > 0) {
             return "smooth upward movement";
         }
-        if (reversalRatio <= 0.25) {
+        if (riskSignals.smooth() && percentChange.signum() < 0) {
             return "smooth downward movement";
         }
-        if (reversalRatio <= 0.5) {
+        if (percentChange.signum() > 0) {
+            return "choppy upward movement";
+        }
+        if (percentChange.signum() < 0) {
+            return "choppy downward movement";
+        }
+        if (riskSignals.reversalRatio() <= 0.5) {
             return "moderately consistent movement";
         }
         return "mixed movement";
@@ -330,7 +489,10 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
                 snapshot.getVolumeTrend(),
                 snapshot.getPriceConsistency(),
                 snapshot.getRiskCategory(),
-                String.valueOf(snapshot.getMissingDataCount())
+                snapshot.getBaselineRiskCategory(),
+                String.valueOf(snapshot.getMissingDataCount()),
+                snapshot.getDataSource(),
+                String.valueOf(snapshot.getIsFallback())
         );
 
         try {
@@ -360,7 +522,16 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
     private record SnapshotInput(
             List<PriceCandle> candles,
             String dataSource,
-            int missingDataCount
+            int missingDataCount,
+            boolean isFallback
+    ) {
+    }
+
+    private record RiskSignals(
+            double reversalRatio,
+            boolean smooth,
+            boolean erratic,
+            boolean sideways
     ) {
     }
 }

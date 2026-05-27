@@ -12,6 +12,9 @@ public record StockExplanationResponse(
         LocalDate dataStartDate,
         LocalDate dataEndDate,
         String dataSource,
+        Boolean isFallback,
+        String baselineRiskCategory,
+        String riskCategory,
         String message
 ) {
 }

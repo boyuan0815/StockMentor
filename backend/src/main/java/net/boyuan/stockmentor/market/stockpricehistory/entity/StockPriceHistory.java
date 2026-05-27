@@ -8,6 +8,7 @@
     import net.boyuan.stockmentor.market.stock.entity.Stock;
 
     import java.math.BigDecimal;
+    import java.time.LocalDate;
     import java.time.LocalDateTime;
 
     @Getter
@@ -27,6 +28,10 @@
                     @Index(
                             name = "idx_1min_symbol_timestamp",
                             columnList = "symbol, timestamp"
+                    ),
+                    @Index(
+                            name = "idx_1min_symbol_trading_date",
+                            columnList = "symbol, trading_date"
                     )
             }
     )
@@ -47,6 +52,9 @@
         // stock market time
         @Column(name = "timestamp")
         private LocalDateTime timestamp;
+
+        @Column(name = "trading_date")
+        private LocalDate tradingDate;
 
         @Column(name = "open_price", precision = 19, scale = 6)
         private BigDecimal openPrice;

@@ -44,6 +44,23 @@ public class StockScheduler {
         }
     }
 
+    // 16:50 and 18:50: Twelve Data free-tier data may lag, so repair the full trading day.
+    @Scheduled(cron = "0 50 16,18 * * MON-FRI", zone = "America/New_York")
+    private void backfillPostMarketIntradayData() {
+        if (marketTimeService.isTradingDay()) {
+            stockService.backfillIntradayForDate(SYMBOLS, LocalDate.now(NY_ZONE));
+        }
+    }
+
+    // 20:30: update daily candles soon after each trading day instead of waiting for weekend catch-up.
+    @Scheduled(cron = "0 30 20 * * MON-FRI", zone = "America/New_York")
+    private void fetchDailyAfterMarketClose() {
+        if (marketTimeService.isTradingDay()) {
+            LocalDate today = LocalDate.now(NY_ZONE);
+            stockService.backfillMissingDaily(SYMBOLS, today, today);
+        }
+    }
+
     // Weekend catch-up: fill missing daily candles for the last 3 months, then safely clean old 1min rows.
     @Scheduled(cron = "0 15 2 * * SAT", zone = "America/New_York")
     private void weekendMissingDailyBackfill() {

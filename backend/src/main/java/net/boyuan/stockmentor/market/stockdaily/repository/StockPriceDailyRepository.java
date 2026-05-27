@@ -24,6 +24,8 @@ public interface StockPriceDailyRepository extends JpaRepository<StockPriceDaily
 
     Optional<StockPriceDaily> findTopBySymbolOrderByTradingDateDesc(String symbol);
 
+    Optional<StockPriceDaily> findBySymbolAndTradingDate(String symbol, LocalDate tradingDate);
+
     @Query("""
         select d.tradingDate
         from StockPriceDaily d
@@ -36,16 +38,7 @@ public interface StockPriceDailyRepository extends JpaRepository<StockPriceDaily
             @Param("endDate") LocalDate endDate
     );
 
-    @Query("""
-        select d
-        from StockPriceDaily d
-        where d.symbol = :symbol
-        order by d.tradingDate desc
-    """)
-    List<StockPriceDaily> findLatestBySymbol(
-            @Param("symbol") String symbol,
-            Pageable pageable
-    );
+    List<StockPriceDaily> findBySymbolOrderByTradingDateDesc(String symbol, Pageable pageable);
 
     List<StockPriceDaily> findBySymbolInAndTradingDateBetween(
             Collection<String> symbols,

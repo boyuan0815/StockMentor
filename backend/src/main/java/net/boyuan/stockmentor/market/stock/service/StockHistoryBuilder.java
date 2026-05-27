@@ -45,6 +45,7 @@ public class StockHistoryBuilder {
             history.setStock(stock);
             history.setSymbol(symbol);
             history.setTimestamp(marketTime);
+            history.setTradingDate(marketTime.toLocalDate());
             history.setOpenPrice(new BigDecimal(v.get("open").asText()));
             history.setHighPrice(new BigDecimal(v.get("high").asText()));
             history.setLowPrice(new BigDecimal(v.get("low").asText()));

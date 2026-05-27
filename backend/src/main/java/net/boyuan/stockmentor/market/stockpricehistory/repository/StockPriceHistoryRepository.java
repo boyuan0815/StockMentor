@@ -51,4 +51,27 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
             LocalDateTime end
     );
 
+    @Modifying
+    long deleteBySymbolAndTradingDate(
+            String symbol,
+            java.time.LocalDate tradingDate
+    );
+
+    @Query("""
+        select h.symbol as symbol,
+               h.tradingDate as tradingDate,
+               count(h) as rowCount
+        from StockPriceHistory h
+        left join StockPriceDaily d
+            on d.symbol = h.symbol
+            and d.tradingDate = h.tradingDate
+        where h.timestamp < :cutoffTimestamp
+        and h.tradingDate is not null
+        and d.dailyId is null
+        group by h.symbol, h.tradingDate
+    """)
+    List<SkippedIntradayCleanupRow> findSkippedCleanupRows(
+            @Param("cutoffTimestamp") LocalDateTime cutoffTimestamp
+    );
+
 }

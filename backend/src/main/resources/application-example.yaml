@@ -1,6 +1,7 @@
 openai:
   api:
     key: your-openai-api-key
+  model: gpt-4o-mini
 
 twelvedata:
   api:

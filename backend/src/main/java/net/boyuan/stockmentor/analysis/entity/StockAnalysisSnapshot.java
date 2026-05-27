@@ -86,8 +86,14 @@ public class StockAnalysisSnapshot {
     @Column(name = "risk_category")
     private String riskCategory;
 
+    @Column(name = "baseline_risk_category")
+    private String baselineRiskCategory;
+
     @Column(name = "data_source")
     private String dataSource;
+
+    @Column(name = "is_fallback")
+    private Boolean isFallback;
 
     @Column(name = "missing_data_count")
     private Integer missingDataCount;
