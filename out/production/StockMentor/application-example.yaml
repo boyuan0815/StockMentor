@@ -1,0 +1,11 @@
+openai:
+  api:
+    key: your-openai-api-key
+
+twelvedata:
+  api:
+    key: your-twelvedata-api-key
+
+stockmentor:
+  admin:
+    token: your-admin-token
