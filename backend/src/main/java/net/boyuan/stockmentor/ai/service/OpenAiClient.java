@@ -1,7 +1,7 @@
 package net.boyuan.stockmentor.ai.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import lombok.RequiredArgsConstructor;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import net.boyuan.stockmentor.ai.dto.OpenAiExplanationResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +16,7 @@ import java.util.Map;
 @Service
 public class OpenAiClient {
     private final WebClient webClient;
+    private final ObjectMapper objectMapper;
 
     @Value("${openai.api.key:}")
     private String apiKey;
@@ -25,8 +26,12 @@ public class OpenAiClient {
 
     private static final Logger log = LoggerFactory.getLogger(OpenAiClient.class);
 
-    public OpenAiClient(@Qualifier("openAiWebClient") WebClient webClient) {
+    public OpenAiClient(
+            @Qualifier("openAiWebClient") WebClient webClient,
+            ObjectMapper objectMapper
+    ) {
         this.webClient = webClient;
+        this.objectMapper = objectMapper;
     }
 
     public String getModel() {
@@ -48,14 +53,15 @@ public class OpenAiClient {
                     )
             );
 
-            JsonNode response = webClient.post()
+            String responseBody = webClient.post()
                     .uri("/v1/chat/completions")
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .bodyValue(request)
                     .retrieve()
-                    .bodyToMono(JsonNode.class)
+                    .bodyToMono(String.class)
                     .block();
+            JsonNode response = objectMapper.readTree(responseBody);
 
             if (response == null || !response.has("choices") || response.get("choices").isEmpty()) {
                 return OpenAiExplanationResult.failure("OpenAI returned no choices");

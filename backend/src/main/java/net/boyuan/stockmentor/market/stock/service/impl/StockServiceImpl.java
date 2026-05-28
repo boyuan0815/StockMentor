@@ -102,7 +102,7 @@ public class StockServiceImpl implements StockService {
                 return result.addMessage(apiErrorMessage(root)).build();
             }
 
-            SaveDailyStats stats = saveDailyCandles(root);
+            SaveDailyStats stats = saveDailyCandles(root, startDate, endDate);
             return result.savedRows(stats.savedRows())
                     .skippedRows(stats.skippedRows())
                     .addMessage("Daily range backfill completed")
@@ -278,7 +278,7 @@ public class StockServiceImpl implements StockService {
         return new IntradaySaveStats(0, 0);
     }
 
-    private SaveDailyStats saveDailyCandles(JsonNode root) {
+    private SaveDailyStats saveDailyCandles(JsonNode root, LocalDate startDate, LocalDate endDate) {
         List<String> symbolList = new ArrayList<>();
         root.fieldNames().forEachRemaining(symbol -> symbolList.add(symbol.trim().toUpperCase()));
         Map<String, Stock> stockMap = getOrCreateStockMap(symbolList);
@@ -304,6 +304,10 @@ public class StockServiceImpl implements StockService {
             Stock stock = stockMap.get(symbol);
             for (JsonNode value : values) {
                 LocalDate tradingDate = LocalDate.parse(value.get("datetime").asText());
+                if (tradingDate.isBefore(startDate) || tradingDate.isAfter(endDate)) {
+                    continue;
+                }
+
                 if (dailyRepository.existsBySymbolAndTradingDate(symbol, tradingDate)) {
                     skippedRows++;
                     continue;

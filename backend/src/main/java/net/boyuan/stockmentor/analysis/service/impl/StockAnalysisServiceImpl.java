@@ -221,13 +221,13 @@ public class StockAnalysisServiceImpl implements StockAnalysisService {
             default -> 2;
         };
 
-        if (riskSignals.erratic()) {
+        if (riskSignals.erratic() && volatilityScore.compareTo(BigDecimal.valueOf(3)) >= 0) {
             riskLevel++;
         }
         if (volatilityScore.compareTo(BigDecimal.valueOf(1.5)) < 0 && riskSignals.smooth()) {
             riskLevel--;
         }
-        if (trendStrength.compareTo(BigDecimal.valueOf(8)) >= 0 && !riskSignals.smooth()) {
+        if (trendStrength.compareTo(BigDecimal.valueOf(8)) >= 0 && !riskSignals.smooth() && volatilityScore.compareTo(BigDecimal.valueOf(3)) >= 0) {
             riskLevel++;
         }
 

@@ -3,6 +3,7 @@ package net.boyuan.stockmentor.market.stock.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.slf4j.Logger;
@@ -13,6 +14,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 
 import java.time.LocalDate;
+import java.util.Arrays;
+import java.util.List;
 
 @Service
 public class StockApiClient {
@@ -41,7 +44,9 @@ public class StockApiClient {
     }
 
     public JsonNode fetchDailyRange(String symbols, LocalDate startDate, LocalDate endDate) throws JsonProcessingException {
-        return fetchTimeSeries(symbols, "1day", null, null, startDate, endDate);
+        // TwelveData's 1day range behaves like end_date is exclusive, so keep our service API inclusive
+        // and ask the upstream API for one extra day.
+        return fetchTimeSeries(symbols, "1day", null, null, startDate, endDate.plusDays(1));
     }
 
     public JsonNode fetchTimeSeries(
@@ -85,7 +90,8 @@ public class StockApiClient {
                         .bodyToMono(String.class)
                         .block();
 
-                return objectMapper.readTree(response);
+                JsonNode root = objectMapper.readTree(response);
+                return normalizeTimeSeriesResponse(symbols, root);
             } catch (WebClientRequestException e) {
                 log.warn("TwelveData connection attempt {} failed for symbols={}: {}", attempt, symbols, e.getMessage());
 
@@ -98,6 +104,26 @@ public class StockApiClient {
         }
 
         throw new IllegalStateException("Unexpected retry flow termination");
+    }
+
+    private JsonNode normalizeTimeSeriesResponse(String symbols, JsonNode root) {
+        if (root == null) {
+            return root;
+        }
+
+        List<String> symbolList = Arrays.stream(symbols.split(","))
+                .map(String::trim)
+                .filter(symbol -> !symbol.isBlank())
+                .map(String::toUpperCase)
+                .toList();
+
+        if (symbolList.size() == 1 && root.has("values")) {
+            ObjectNode wrapped = objectMapper.createObjectNode();
+            wrapped.set(symbolList.get(0), root);
+            return wrapped;
+        }
+
+        return root;
     }
 
     private void sleepBeforeRetry(int attempt) {
