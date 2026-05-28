@@ -18,4 +18,17 @@ public class StockMetadata {
             "JNJ", "Johnson & Johnson"
     );
 
+    public static final Map<String, String> RISK_CATEGORY_MAP = Map.of(
+            "NVDA", "aggressive",
+            "TSLA", "aggressive",
+            "AMD", "aggressive",
+            "AAPL", "moderate",
+            "MSFT", "moderate",
+            "GOOG", "moderate",
+            "KO", "conservative",
+            "JNJ", "conservative"
+    );
+
+    public static final String SYMBOLS = "NVDA,TSLA,AMD,AAPL,MSFT,GOOG,KO,JNJ";
+
 }
