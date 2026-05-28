@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -42,6 +43,11 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
             LocalDateTime end
     );
 
+    List<StockPriceHistory> findBySymbolAndTradingDateOrderByTimestampAsc(
+            String symbol,
+            LocalDate tradingDate
+    );
+
     Optional<StockPriceHistory> findTopBySymbolOrderByTimestampDesc(String symbol);
 
     @Modifying
@@ -54,7 +60,7 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
     @Modifying
     long deleteBySymbolAndTradingDate(
             String symbol,
-            java.time.LocalDate tradingDate
+            LocalDate tradingDate
     );
 
     @Query("""

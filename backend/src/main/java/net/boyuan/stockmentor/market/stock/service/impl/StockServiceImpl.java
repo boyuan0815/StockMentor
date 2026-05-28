@@ -13,8 +13,8 @@ import net.boyuan.stockmentor.market.stock.service.StockSnapshotUpdater;
 import net.boyuan.stockmentor.market.stockdaily.entity.StockPriceDaily;
 import net.boyuan.stockmentor.market.stockdaily.repository.StockPriceDailyRepository;
 import net.boyuan.stockmentor.market.stockpricehistory.entity.StockPriceHistory;
-import net.boyuan.stockmentor.market.stockpricehistory.repository.StockPriceHistoryRepository;
 import net.boyuan.stockmentor.market.stockpricehistory.repository.SkippedIntradayCleanupRow;
+import net.boyuan.stockmentor.market.stockpricehistory.repository.StockPriceHistoryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -220,6 +220,7 @@ public class StockServiceImpl implements StockService {
             List<String> symbolList = splitSymbols(symbols);
             Map<String, Stock> stockMap = getOrCreateStockMap(symbolList);
             List<StockPriceHistory> historiesToSave = new ArrayList<>();
+            Map<String, Stock> stocksToRefresh = new LinkedHashMap<>();
             int skippedRows = 0;
 
             for (Map.Entry<String, JsonNode> entry : root.properties()) {
@@ -238,6 +239,15 @@ public class StockServiceImpl implements StockService {
                 }
 
                 Stock stock = stockMap.get(symbol);
+                if (stock == null) {
+                    log.warn("Skipping symbol={} because it was not requested in this batch", symbol);
+                    continue;
+                }
+
+                if (updateSnapshot || shouldRefreshSnapshot(stock, targetDate)) {
+                    stocksToRefresh.put(symbol, stock);
+                }
+
                 LocalDateTime start = parseDateTime(values.get(0).get("datetime").asText());
                 LocalDateTime end = parseDateTime(values.get(values.size() - 1).get("datetime").asText());
 
@@ -249,10 +259,6 @@ public class StockServiceImpl implements StockService {
                 skippedRows += values.size() - newValues.size();
 
                 historiesToSave.addAll(stockHistoryBuilder.buildHistoryEntities(stock, symbol, newValues));
-
-                if (updateSnapshot && !newValues.isEmpty()) {
-                    stockSnapshotUpdater.updateStock(stock, newValues);
-                }
             }
 
             if (!stockMap.isEmpty()) {
@@ -266,6 +272,17 @@ public class StockServiceImpl implements StockService {
                 log.info("No new 1min rows to save");
             }
 
+            if (!stocksToRefresh.isEmpty()) {
+                for (Map.Entry<String, Stock> entry : stocksToRefresh.entrySet()) {
+                    List<StockPriceHistory> dayRows = historyRepository.findBySymbolAndTradingDateOrderByTimestampAsc(
+                            entry.getKey(),
+                            targetDate
+                    );
+                    stockSnapshotUpdater.recomputeStockFromIntradayHistory(entry.getValue(), dayRows);
+                }
+                stockRepository.saveAll(stocksToRefresh.values());
+            }
+
             return new IntradaySaveStats(historiesToSave.size(), skippedRows);
         } catch (WebClientRequestException e) {
             log.error("TwelveData intraday connection error: {}", e.getMessage(), e);
@@ -276,6 +293,16 @@ public class StockServiceImpl implements StockService {
         }
 
         return new IntradaySaveStats(0, 0);
+    }
+
+    private boolean shouldRefreshSnapshot(Stock stock, LocalDate targetDate) {
+        if (stock.getLastUpdated() == null) {
+            return true;
+        }
+
+        LocalDate currentSnapshotDate = stock.getLastUpdated().toLocalDate();
+
+        return !targetDate.isBefore(currentSnapshotDate);
     }
 
     private SaveDailyStats saveDailyCandles(JsonNode root, LocalDate startDate, LocalDate endDate) {

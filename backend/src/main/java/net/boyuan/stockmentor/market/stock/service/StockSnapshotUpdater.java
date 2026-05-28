@@ -1,18 +1,17 @@
 package net.boyuan.stockmentor.market.stock.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import net.boyuan.stockmentor.common.util.MarketTimeService;
 import net.boyuan.stockmentor.market.stock.entity.Stock;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import net.boyuan.stockmentor.market.stockpricehistory.entity.StockPriceHistory;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 import static net.boyuan.stockmentor.common.util.StockMetadata.COMPANY_MAP;
 
@@ -20,69 +19,65 @@ import static net.boyuan.stockmentor.common.util.StockMetadata.COMPANY_MAP;
 @RequiredArgsConstructor
 public class StockSnapshotUpdater {
     private final MarketTimeService marketTimeService;
-    private static final Logger log = LoggerFactory.getLogger(StockSnapshotUpdater.class);
 
-    public void updateStock(Stock stock, List<JsonNode> newValues) {
-
-        if (newValues == null || newValues.isEmpty()) {
+    public void recomputeStockFromIntradayHistory(Stock stock, List<StockPriceHistory> rows) {
+        if (rows == null || rows.isEmpty()) {
             return;
         }
-        JsonNode latest = newValues.get(newValues.size() - 1);
-        BigDecimal close = new BigDecimal(latest.get("close").asText());
 
-        LocalDateTime marketTime = LocalDateTime.parse(
-                latest.get("datetime").asText().replace(" ", "T")
-        );
-        LocalDate currentDate = marketTime.toLocalDate();
+        List<StockPriceHistory> sortedRows = rows.stream()
+                .filter(row -> row.getTimestamp() != null)
+                .sorted(Comparator.comparing(StockPriceHistory::getTimestamp))
+                .toList();
 
-        boolean isNewDay = stock.getLastUpdated() == null || !stock.getLastUpdated().toLocalDate().equals(currentDate);
-        if (isNewDay) {
-            stock.setDayHigh(null);
-            stock.setDayLow(null);
-            stock.setVolume(0L);
+        if (sortedRows.isEmpty()) {
+            return;
         }
 
-        if (stock.getDayOpen() == null || isNewDay) {
-            BigDecimal dayOpen = new BigDecimal(newValues.get(0).get("open").asText());
-            stock.setDayOpen(dayOpen);
-        }
+        StockPriceHistory first = sortedRows.get(0);
+        StockPriceHistory latest = sortedRows.get(sortedRows.size() - 1);
+
+        BigDecimal dayHigh = sortedRows.stream()
+                .map(StockPriceHistory::getHighPrice)
+                .filter(Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElse(latest.getHighPrice());
+
+        BigDecimal dayLow = sortedRows.stream()
+                .map(StockPriceHistory::getLowPrice)
+                .filter(Objects::nonNull)
+                .min(Comparator.naturalOrder())
+                .orElse(latest.getLowPrice());
+
+        long volume = sortedRows.stream()
+                .map(StockPriceHistory::getVolume)
+                .filter(Objects::nonNull)
+                .mapToLong(Long::longValue)
+                .sum();
 
         String companyName = COMPANY_MAP.getOrDefault(stock.getSymbol(), stock.getSymbol());
         if (!companyName.equals(stock.getCompanyName())) {
             stock.setCompanyName(companyName);
         }
 
-        BigDecimal batchHigh = null;
-        BigDecimal batchLow = null;
-        long batchVolume = 0L;
+        stock.setDayOpen(first.getOpenPrice());
+        stock.setDayHigh(dayHigh);
+        stock.setDayLow(dayLow);
+        stock.setVolume(volume);
+        stock.setCurrentPrice(latest.getClosePrice());
+        stock.setLastUpdated(latest.getTimestamp());
+        stock.setIsMarketOpen(marketTimeService.isMarketOpen());
+        stock.setUpdatedAt(LocalDateTime.now());
 
-        for (JsonNode v : newValues) {
-            BigDecimal high = new BigDecimal(v.get("high").asText());
-            BigDecimal low = new BigDecimal(v.get("low").asText());
-            long volume = v.get("volume").asLong();
-
-            batchHigh = (batchHigh == null) ? high : batchHigh.max(high);
-            batchLow = (batchLow == null) ? low : batchLow.min(low);
-            batchVolume += volume;
-        }
-
-        stock.setDayHigh(stock.getDayHigh() == null ? batchHigh : stock.getDayHigh().max(batchHigh));
-        stock.setDayLow(stock.getDayLow() == null ? batchLow : stock.getDayLow().min(batchLow));
-        stock.setVolume(stock.getVolume() == null ? batchVolume : stock.getVolume() + batchVolume);
-
-        if (stock.getDayOpen() != null) {
-            BigDecimal percentChange = close
-                    .subtract(stock.getDayOpen())
-                    .divide(stock.getDayOpen(), 4, RoundingMode.HALF_UP)
+        if (first.getOpenPrice() != null && BigDecimal.ZERO.compareTo(first.getOpenPrice()) != 0
+                && latest.getClosePrice() != null) {
+            BigDecimal percentChange = latest.getClosePrice()
+                    .subtract(first.getOpenPrice())
+                    .divide(first.getOpenPrice(), 4, RoundingMode.HALF_UP)
                     .multiply(BigDecimal.valueOf(100));
             stock.setPercentChange(percentChange);
         } else {
-            log.warn("dayOpen is null for symbol = {}, skipping percentChange", stock.getSymbol());
+            stock.setPercentChange(null);
         }
-
-        stock.setIsMarketOpen(marketTimeService.isMarketOpen());
-        stock.setCurrentPrice(close);
-        stock.setLastUpdated(marketTime);
-        stock.setUpdatedAt(LocalDateTime.now());
     }
 }
