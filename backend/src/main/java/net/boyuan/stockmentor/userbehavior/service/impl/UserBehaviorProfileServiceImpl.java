@@ -4,8 +4,19 @@ import lombok.RequiredArgsConstructor;
 import net.boyuan.stockmentor.auth.entity.AppUser;
 import net.boyuan.stockmentor.auth.model.AppUserStatus;
 import net.boyuan.stockmentor.auth.repository.AppUserRepository;
+import net.boyuan.stockmentor.common.util.StockMetadata;
+import net.boyuan.stockmentor.market.stock.entity.Stock;
+import net.boyuan.stockmentor.market.stock.repository.StockRepository;
+import net.boyuan.stockmentor.papertrading.entity.PaperPosition;
+import net.boyuan.stockmentor.papertrading.entity.PaperTradeTransaction;
+import net.boyuan.stockmentor.papertrading.model.PaperTradeSide;
+import net.boyuan.stockmentor.papertrading.repository.PaperPositionRepository;
+import net.boyuan.stockmentor.papertrading.repository.PaperTradeTransactionRepository;
 import net.boyuan.stockmentor.userbehavior.dto.BehaviorSummaryForSuggestion;
 import net.boyuan.stockmentor.userbehavior.entity.UserBehaviorProfile;
+import net.boyuan.stockmentor.userbehavior.model.ConcentrationLevel;
+import net.boyuan.stockmentor.userbehavior.model.HighVolatilityExposure;
+import net.boyuan.stockmentor.userbehavior.model.TurnoverLevel;
 import net.boyuan.stockmentor.userbehavior.model.UserBehaviorStyle;
 import net.boyuan.stockmentor.userbehavior.repository.UserBehaviorProfileRepository;
 import net.boyuan.stockmentor.userbehavior.service.UserBehaviorProfileService;
@@ -15,17 +26,30 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileService {
     private static final Logger log = LoggerFactory.getLogger(UserBehaviorProfileServiceImpl.class);
-    private static final String LOW_CONFIDENCE_NOTE = "No paper-trading transaction source exists yet; behavior is LOW confidence and informational only.";
+    private static final String LOW_CONFIDENCE_NOTE = "Paper-trading behavior has LOW confidence and should be treated as informational only.";
+    private static final int ANALYSIS_WINDOW_DAYS = 30;
 
     private final UserBehaviorProfileRepository behaviorProfileRepository;
     private final AppUserRepository appUserRepository;
+    private final PaperTradeTransactionRepository transactionRepository;
+    private final PaperPositionRepository positionRepository;
+    private final StockRepository stockRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -60,8 +84,25 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
     public UserBehaviorProfile recalculateBehaviorProfile(Long userId) {
         AppUser user = appUserRepository.findByUserIdAndStatusAndIsDeletedFalse(userId, AppUserStatus.ACTIVE)
                 .orElseThrow(() -> new IllegalArgumentException("Active user not found for behavior profile"));
-        log.info("No paper-trading transaction source exists; returning LOW confidence behavior profile for userId={}", userId);
-        return createLowConfidenceProfileIfMissing(user);
+        LocalDate analysisEnd = LocalDate.now();
+        LocalDate analysisStart = analysisEnd.minusDays(ANALYSIS_WINDOW_DAYS - 1L);
+        LocalDateTime startAt = analysisStart.atStartOfDay();
+        LocalDateTime endAt = analysisEnd.atTime(LocalTime.MAX);
+        List<PaperTradeTransaction> transactions = transactionRepository
+                .findByUserUserIdAndExecutedAtBetweenOrderByExecutedAtDesc(userId, startAt, endAt);
+        UserBehaviorProfile profile = behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(userId)
+                .orElseGet(() -> {
+                    UserBehaviorProfile created = new UserBehaviorProfile();
+                    created.setUser(user);
+                    created.setCreatedAt(LocalDateTime.now());
+                    return created;
+                });
+
+        applyBehaviorMetrics(profile, user, analysisStart, analysisEnd, transactions);
+        UserBehaviorProfile saved = behaviorProfileRepository.save(profile);
+        log.info("Recalculated paper-trading behavior profile userId={}, behaviorProfileId={}, confidence={}, style={}",
+                userId, saved.getBehaviorProfileId(), saved.getBehaviorConfidence(), saved.getBehaviorStyle());
+        return saved;
     }
 
     @Override
@@ -110,5 +151,188 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
                 profile.getUpdatedAt(),
                 LOW_CONFIDENCE_NOTE
         );
+    }
+
+    private void applyBehaviorMetrics(
+            UserBehaviorProfile profile,
+            AppUser user,
+            LocalDate analysisStart,
+            LocalDate analysisEnd,
+            List<PaperTradeTransaction> transactions
+    ) {
+        LocalDateTime now = LocalDateTime.now();
+        profile.setUser(user);
+        profile.setAnalysisStartDate(analysisStart);
+        profile.setAnalysisEndDate(analysisEnd);
+        profile.setUpdatedAt(now);
+        if (profile.getCreatedAt() == null) {
+            profile.setCreatedAt(now);
+        }
+
+        int transactionCount = transactions.size();
+        long distinctSymbols = transactions.stream().map(PaperTradeTransaction::getSymbol).distinct().count();
+        BehaviorConfidence confidence = confidence(transactionCount, distinctSymbols);
+        profile.setBehaviorConfidence(confidence);
+
+        RiskMetrics riskMetrics = riskMetrics(transactions);
+        PositionMetrics positionMetrics = positionMetrics(user.getUserId());
+        int turnoverScore = Math.min(100, transactionCount * 10);
+
+        if (riskMetrics.hasBuyData()) {
+            profile.setStockRiskExposureScore(riskMetrics.score());
+            profile.setBehaviorRiskScore(riskMetrics.score());
+            profile.setVolatilityExposureScore(riskMetrics.score());
+            profile.setHighVolatilityExposure(highVolatilityExposure(riskMetrics.score()));
+            profile.setBehaviorStyle(behaviorStyle(riskMetrics.score(), confidence, transactionCount));
+        } else {
+            profile.setStockRiskExposureScore(null);
+            profile.setBehaviorRiskScore(null);
+            profile.setVolatilityExposureScore(null);
+            profile.setHighVolatilityExposure(null);
+            profile.setBehaviorStyle(UserBehaviorStyle.INSUFFICIENT_DATA);
+        }
+
+        if (confidence == BehaviorConfidence.LOW) {
+            profile.setBehaviorStyle(UserBehaviorStyle.INSUFFICIENT_DATA);
+        }
+
+        profile.setAveragePositionSizePercent(positionMetrics.averagePositionSizePercent());
+        profile.setConcentrationScore(positionMetrics.concentrationScore());
+        profile.setConcentrationLevel(positionMetrics.concentrationLevel());
+        profile.setTurnoverScore(turnoverScore);
+        profile.setTurnoverLevel(turnoverLevel(transactionCount));
+        profile.setHoldingPeriodScore(null);
+    }
+
+    private BehaviorConfidence confidence(int transactionCount, long distinctSymbols) {
+        if (transactionCount >= 10 && distinctSymbols >= 3) {
+            return BehaviorConfidence.HIGH;
+        }
+        if (transactionCount >= 3 && distinctSymbols >= 2) {
+            return BehaviorConfidence.MEDIUM;
+        }
+        return BehaviorConfidence.LOW;
+    }
+
+    private RiskMetrics riskMetrics(List<PaperTradeTransaction> transactions) {
+        BigDecimal weightedRisk = BigDecimal.ZERO;
+        BigDecimal totalBuyGross = BigDecimal.ZERO;
+        for (PaperTradeTransaction transaction : transactions) {
+            if (transaction.getSide() != PaperTradeSide.BUY) {
+                continue;
+            }
+            BigDecimal grossAmount = transaction.getGrossAmount() == null ? BigDecimal.ZERO : transaction.getGrossAmount();
+            if (grossAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            int riskWeight = riskWeight(transaction.getSymbol());
+            weightedRisk = weightedRisk.add(grossAmount.multiply(BigDecimal.valueOf(riskWeight)));
+            totalBuyGross = totalBuyGross.add(grossAmount);
+        }
+        if (totalBuyGross.compareTo(BigDecimal.ZERO) <= 0) {
+            return new RiskMetrics(false, null);
+        }
+        int score = weightedRisk.divide(totalBuyGross, 0, RoundingMode.HALF_UP).intValue();
+        return new RiskMetrics(true, score);
+    }
+
+    private PositionMetrics positionMetrics(Long userId) {
+        List<PaperPosition> positions = positionRepository.findByUserUserId(userId);
+        if (positions.isEmpty()) {
+            return new PositionMetrics(null, 0, null);
+        }
+        Map<String, Stock> stockBySymbol = stockRepository.findBySymbolIn(symbols(positions)).stream()
+                .collect(Collectors.toMap(Stock::getSymbol, Function.identity(), (first, second) -> first));
+        List<BigDecimal> marketValues = positions.stream()
+                .map(position -> marketValue(position, stockBySymbol.get(position.getSymbol())))
+                .filter(value -> value.compareTo(BigDecimal.ZERO) > 0)
+                .toList();
+        BigDecimal totalMarketValue = marketValues.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (totalMarketValue.compareTo(BigDecimal.ZERO) <= 0) {
+            return new PositionMetrics(null, 0, null);
+        }
+        BigDecimal largest = marketValues.stream().max(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
+        int concentrationScore = largest.multiply(BigDecimal.valueOf(100))
+                .divide(totalMarketValue, 0, RoundingMode.HALF_UP)
+                .intValue();
+        BigDecimal averagePositionSize = BigDecimal.valueOf(100)
+                .divide(BigDecimal.valueOf(marketValues.size()), 2, RoundingMode.HALF_UP);
+        return new PositionMetrics(
+                averagePositionSize,
+                concentrationScore,
+                concentrationLevel(concentrationScore)
+        );
+    }
+
+    private Collection<String> symbols(List<PaperPosition> positions) {
+        return positions.stream().map(PaperPosition::getSymbol).distinct().toList();
+    }
+
+    private BigDecimal marketValue(PaperPosition position, Stock stock) {
+        if (stock == null || stock.getCurrentPrice() == null || stock.getCurrentPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return stock.getCurrentPrice().multiply(BigDecimal.valueOf(position.getQuantity()));
+    }
+
+    private int riskWeight(String symbol) {
+        return switch (StockMetadata.RISK_CATEGORY_MAP.getOrDefault(symbol, "moderate").toLowerCase()) {
+            case "conservative" -> 25;
+            case "aggressive" -> 85;
+            default -> 55;
+        };
+    }
+
+    private TurnoverLevel turnoverLevel(int transactionCount) {
+        if (transactionCount >= 10) {
+            return TurnoverLevel.HIGH;
+        }
+        if (transactionCount >= 3) {
+            return TurnoverLevel.MEDIUM;
+        }
+        return TurnoverLevel.LOW;
+    }
+
+    private ConcentrationLevel concentrationLevel(int score) {
+        if (score >= 70) {
+            return ConcentrationLevel.CONCENTRATED;
+        }
+        if (score >= 40) {
+            return ConcentrationLevel.MODERATE;
+        }
+        return ConcentrationLevel.DIVERSIFIED;
+    }
+
+    private HighVolatilityExposure highVolatilityExposure(int riskScore) {
+        if (riskScore >= 70) {
+            return HighVolatilityExposure.HIGH;
+        }
+        if (riskScore >= 45) {
+            return HighVolatilityExposure.MEDIUM;
+        }
+        return HighVolatilityExposure.LOW;
+    }
+
+    private UserBehaviorStyle behaviorStyle(int riskScore, BehaviorConfidence confidence, int transactionCount) {
+        if (riskScore >= 75) {
+            return UserBehaviorStyle.AGGRESSIVE;
+        }
+        if (riskScore >= 60 || (confidence == BehaviorConfidence.HIGH && transactionCount >= 10)) {
+            return UserBehaviorStyle.ACTIVE_TRADER;
+        }
+        if (riskScore >= 40) {
+            return UserBehaviorStyle.BALANCED;
+        }
+        return UserBehaviorStyle.CONSERVATIVE;
+    }
+
+    private record RiskMetrics(boolean hasBuyData, Integer score) {
+    }
+
+    private record PositionMetrics(
+            BigDecimal averagePositionSizePercent,
+            Integer concentrationScore,
+            ConcentrationLevel concentrationLevel
+    ) {
     }
 }
