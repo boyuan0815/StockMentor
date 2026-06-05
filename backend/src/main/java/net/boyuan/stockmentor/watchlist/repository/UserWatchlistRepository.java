@@ -12,5 +12,7 @@ public interface UserWatchlistRepository extends JpaRepository<UserWatchlist, Lo
 
     boolean existsByUserUserIdAndSymbol(Long userId, String symbol);
 
+    List<UserWatchlist> findByUserUserId(Long userId);
+
     List<UserWatchlist> findByUserUserIdAndSymbolIn(Long userId, Collection<String> symbols);
 }

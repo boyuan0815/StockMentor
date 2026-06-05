@@ -26,9 +26,13 @@ import net.boyuan.stockmentor.userprofile.model.BehaviorConfidence;
 import net.boyuan.stockmentor.userprofile.model.PreferredVolatility;
 import net.boyuan.stockmentor.userprofile.model.RiskTolerance;
 import net.boyuan.stockmentor.userprofile.repository.UserInvestmentProfileRepository;
+import net.boyuan.stockmentor.userbehavior.dto.BehaviorSummaryForSuggestion;
+import net.boyuan.stockmentor.userbehavior.service.UserBehaviorProfileService;
 import net.boyuan.stockmentor.watchlist.entity.UserWatchlist;
 import net.boyuan.stockmentor.watchlist.model.WatchlistSource;
 import net.boyuan.stockmentor.watchlist.repository.UserWatchlistRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,6 +47,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
+    private static final Logger log = LoggerFactory.getLogger(StockAiSuggestionServiceImpl.class);
+
     private final CurrentUserService currentUserService;
     private final UserInvestmentProfileRepository profileRepository;
     private final StockAiSuggestionBatchRepository batchRepository;
@@ -52,6 +58,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
     private final StockAnalysisSnapshotRepository snapshotRepository;
     private final StockAnalysisService stockAnalysisService;
     private final OpenAiClient openAiClient;
+    private final UserBehaviorProfileService behaviorProfileService;
     private final ObjectMapper objectMapper;
 
     private static final String PROMPT_VERSION = "stock-suggestion-v1";
@@ -66,6 +73,10 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
     private static final List<StockAiSuggestionBatchStatus> READABLE_BATCH_STATUSES = List.of(
             StockAiSuggestionBatchStatus.SUCCESS,
             StockAiSuggestionBatchStatus.FALLBACK_CACHED,
+            StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED
+    );
+    private static final List<StockAiSuggestionBatchStatus> REUSABLE_INPUT_STATUSES = List.of(
+            StockAiSuggestionBatchStatus.SUCCESS,
             StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED
     );
     private static final List<StockAiSuggestionItemStatus> TOP_ITEM_STATUSES = List.of(
@@ -119,11 +130,23 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
     @Transactional
     public StockAiSuggestionResponse refreshSuggestionsForCurrentUser() {
         AppUser user = currentUserService.getCurrentUser();
+        return generateSuggestionsForUser(user, StockAiSuggestionTriggerReason.MANUAL_REFRESH, true);
+    }
+
+    @Override
+    @Transactional
+    public StockAiSuggestionResponse generateSuggestionsForUser(
+            AppUser user,
+            StockAiSuggestionTriggerReason triggerReason,
+            boolean enforceManualCooldown
+    ) {
         LocalDateTime now = LocalDateTime.now();
         Optional<UserInvestmentProfile> profileOptional = profileRepository
                 .findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(user.getUserId());
 
         if (profileOptional.isEmpty()) {
+            log.info("AI suggestion generation skipped for userId={} triggerReason={} because no investment profile exists",
+                    user.getUserId(), triggerReason);
             return buildEmptyResponse(user, null, "Please complete onboarding before requesting AI stock suggestions.");
         }
 
@@ -134,52 +157,66 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                         READABLE_BATCH_STATUSES,
                         now
                 );
-        Optional<StockAiSuggestionBatch> latestManualRefresh = batchRepository
-                .findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(
-                        user.getUserId(),
-                        StockAiSuggestionTriggerReason.MANUAL_REFRESH
-                );
-        RefreshCooldown refreshCooldown = calculateRefreshCooldown(user.getUserId(), latestManualRefresh.orElse(null));
+        if (enforceManualCooldown) {
+            Optional<StockAiSuggestionBatch> latestManualRefresh = batchRepository
+                    .findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(
+                            user.getUserId(),
+                            StockAiSuggestionTriggerReason.MANUAL_REFRESH
+                    );
+            RefreshCooldown refreshCooldown = calculateRefreshCooldown(user.getUserId(), latestManualRefresh.orElse(null));
 
-        if (!refreshCooldown.refreshAllowed()) {
-            return latestBatch
-                    .map(batch -> buildResponse(
-                            user,
-                            batch,
-                            "Please wait until the refresh cooldown ends.",
-                            true,
-                            false,
-                            refreshCooldown.nextRefreshAllowedAt()
-                    ))
-                    .orElseGet(() -> buildEmptyResponse(
-                            user,
-                            null,
-                            false,
-                            refreshCooldown.nextRefreshAllowedAt(),
-                            "Please wait until the refresh cooldown ends."
-                    ));
+            if (!refreshCooldown.refreshAllowed()) {
+                log.info("AI suggestion refresh blocked by cooldown for userId={} nextRefreshAllowedAt={}",
+                        user.getUserId(), refreshCooldown.nextRefreshAllowedAt());
+                return latestBatch
+                        .map(batch -> buildResponse(
+                                user,
+                                batch,
+                                "Please wait until the refresh cooldown ends.",
+                                false,
+                                false,
+                                refreshCooldown.nextRefreshAllowedAt()
+                        ))
+                        .orElseGet(() -> buildEmptyResponse(
+                                user,
+                                null,
+                                false,
+                                refreshCooldown.nextRefreshAllowedAt(),
+                                "Please wait until the refresh cooldown ends."
+                        ));
+            }
         }
 
         List<StockAnalysisSnapshot> snapshots = loadUsableSnapshots();
         if (snapshots.isEmpty()) {
+            log.info("AI suggestion generation skipped for userId={} triggerReason={} because no usable snapshots exist",
+                    user.getUserId(), triggerReason);
             return buildEmptyResponse(user, null, "No usable stock analysis data is available for suggestions yet.");
         }
 
+        behaviorProfileService.createLowConfidenceProfileIfMissing(user);
+        BehaviorSummaryForSuggestion behaviorSummary = behaviorProfileService.getBehaviorSummaryForSuggestion(user.getUserId());
+        log.info("AI suggestion generation using behaviorConfidence={} behaviorProfileId={} for userId={} triggerReason={}",
+                behaviorSummary.behaviorConfidence(), behaviorSummary.behaviorProfileId(), user.getUserId(), triggerReason);
+
         String model = openAiClient.getModel();
-        String inputHash = hashInput(user, profile, snapshots, model);
+        String inputHash = hashInput(user, profile, behaviorSummary, snapshots, model);
         Optional<StockAiSuggestionBatch> existingInputBatch = batchRepository
-                .findTopByUserUserIdAndModelAndPromptVersionAndInputHashOrderByCreatedAtDesc(
+                .findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(
                         user.getUserId(),
                         model,
                         PROMPT_VERSION,
-                        inputHash
+                        inputHash,
+                        REUSABLE_INPUT_STATUSES
                 );
 
-        if (existingInputBatch.isPresent() && existingInputBatch.get().getStatus() != StockAiSuggestionBatchStatus.FAILED) {
+        if (existingInputBatch.isPresent()) {
+            log.info("AI suggestion generation skipped for userId={} triggerReason={} because input_hash is unchanged batchId={}",
+                    user.getUserId(), triggerReason, existingInputBatch.get().getSuggestionBatchId());
             return buildResponse(user, existingInputBatch.get(), "Returned existing suggestions because your profile and stock data are unchanged.", false);
         }
 
-        GenerationResult generationResult = generateWithOpenAi(profile, snapshots);
+        GenerationResult generationResult = generateWithOpenAi(profile, behaviorSummary, snapshots);
         if (generationResult.success()) {
             StockAiSuggestionBatch saved = saveBatchAndItems(
                     user,
@@ -188,14 +225,18 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                     inputHash,
                     model,
                     StockAiSuggestionBatchStatus.SUCCESS,
-                    StockAiSuggestionTriggerReason.MANUAL_REFRESH,
+                    triggerReason,
                     generationResult.content(),
                     generationResult.openAiResult(),
                     null
             );
+            log.info("Generated AI suggestion batch userId={} batchId={} triggerReason={}",
+                    user.getUserId(), saved.getSuggestionBatchId(), triggerReason);
             return buildResponse(user, saved, "Generated new AI stock suggestions", false);
         }
 
+        log.info("AI suggestion OpenAI generation failed for userId={} triggerReason={} error={}",
+                user.getUserId(), triggerReason, generationResult.errorMessage());
         Optional<StockAiSuggestionBatch> cached = batchRepository
                 .findTopByUserUserIdAndStatusAndCreatedAtAfterOrderByCreatedAtDesc(
                         user.getUserId(),
@@ -203,6 +244,8 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                         now.minusDays(3)
                 );
         if (cached.isPresent()) {
+            log.info("AI suggestion fallback cache used for userId={} cachedBatchId={}",
+                    user.getUserId(), cached.get().getSuggestionBatchId());
             return buildResponse(user, cached.get(), "AI suggestions are temporarily unavailable, so the latest cached suggestions are shown.", true);
         }
 
@@ -214,11 +257,13 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 inputHash,
                 model,
                 StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED,
-                StockAiSuggestionTriggerReason.MANUAL_REFRESH,
+                triggerReason,
                 fallback,
                 null,
                 generationResult.errorMessage()
         );
+        log.info("AI suggestion rule-based fallback saved for userId={} batchId={} triggerReason={}",
+                user.getUserId(), fallbackBatch.getSuggestionBatchId(), triggerReason);
         return buildResponse(user, fallbackBatch, "AI suggestions are temporarily unavailable, so a simple rule-based fallback is shown.", true);
     }
 
@@ -286,15 +331,20 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         return snapshots;
     }
 
-    private GenerationResult generateWithOpenAi(UserInvestmentProfile profile, List<StockAnalysisSnapshot> snapshots) {
-        String userContent = buildPromptInput(profile, snapshots, null);
+    private GenerationResult generateWithOpenAi(
+            UserInvestmentProfile profile,
+            BehaviorSummaryForSuggestion behaviorSummary,
+            List<StockAnalysisSnapshot> snapshots
+    ) {
+        String userContent = buildPromptInput(profile, behaviorSummary, snapshots, null);
         OpenAiSuggestionResult firstResult = openAiClient.generateSuggestion(SYSTEM_PROMPT, userContent);
         GenerationResult firstParsed = parseAndValidate(firstResult, profile, snapshots);
         if (firstParsed.success()) {
             return firstParsed;
         }
 
-        String retryContent = buildPromptInput(profile, snapshots, firstParsed.errorMessage());
+        log.info("AI suggestion validation failed before retry: {}", firstParsed.errorMessage());
+        String retryContent = buildPromptInput(profile, behaviorSummary, snapshots, firstParsed.errorMessage());
         OpenAiSuggestionResult retryResult = openAiClient.generateSuggestion(SYSTEM_PROMPT, retryContent);
         return parseAndValidate(retryResult, profile, snapshots);
     }
@@ -780,7 +830,12 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 .toList();
     }
 
-    private String buildPromptInput(UserInvestmentProfile profile, List<StockAnalysisSnapshot> snapshots, String validationError) {
+    private String buildPromptInput(
+            UserInvestmentProfile profile,
+            BehaviorSummaryForSuggestion behaviorSummary,
+            List<StockAnalysisSnapshot> snapshots,
+            String validationError
+    ) {
         Map<String, Object> input = new LinkedHashMap<>();
         Map<String, Object> userProfile = new LinkedHashMap<>();
         userProfile.put("riskTolerance", profile.getRiskTolerance());
@@ -795,6 +850,28 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         userProfile.put("behaviorStyle", valueOrBlank(profile.getBehaviorStyle()));
         userProfile.put("behaviorConfidence", profile.getBehaviorConfidence() == null ? BehaviorConfidence.LOW : profile.getBehaviorConfidence());
         input.put("userProfile", userProfile);
+
+        Map<String, Object> behaviorProfile = new LinkedHashMap<>();
+        behaviorProfile.put("behaviorProfileId", valueOrBlank(behaviorSummary.behaviorProfileId()));
+        behaviorProfile.put("analysisStartDate", valueOrBlank(toText(behaviorSummary.analysisStartDate())));
+        behaviorProfile.put("analysisEndDate", valueOrBlank(toText(behaviorSummary.analysisEndDate())));
+        behaviorProfile.put("behaviorRiskScore", valueOrBlank(behaviorSummary.behaviorRiskScore()));
+        behaviorProfile.put("behaviorStyle", valueOrBlank(behaviorSummary.behaviorStyle()));
+        behaviorProfile.put("behaviorConfidence", behaviorSummary.behaviorConfidence() == null ? BehaviorConfidence.LOW : behaviorSummary.behaviorConfidence());
+        behaviorProfile.put("averagePositionSizePercent", valueOrBlank(behaviorSummary.averagePositionSizePercent()));
+        behaviorProfile.put("turnoverLevel", valueOrBlank(behaviorSummary.turnoverLevel()));
+        behaviorProfile.put("concentrationLevel", valueOrBlank(behaviorSummary.concentrationLevel()));
+        behaviorProfile.put("highVolatilityExposure", valueOrBlank(behaviorSummary.highVolatilityExposure()));
+        behaviorProfile.put("stockRiskExposureScore", valueOrBlank(behaviorSummary.stockRiskExposureScore()));
+        behaviorProfile.put("concentrationScore", valueOrBlank(behaviorSummary.concentrationScore()));
+        behaviorProfile.put("turnoverScore", valueOrBlank(behaviorSummary.turnoverScore()));
+        behaviorProfile.put("holdingPeriodScore", valueOrBlank(behaviorSummary.holdingPeriodScore()));
+        behaviorProfile.put("volatilityExposureScore", valueOrBlank(behaviorSummary.volatilityExposureScore()));
+        behaviorProfile.put("updatedAt", valueOrBlank(toText(behaviorSummary.updatedAt())));
+        behaviorProfile.put("sourceNote", valueOrBlank(behaviorSummary.sourceNote()));
+        behaviorProfile.put("personalizationRule", "LOW confidence is informational only; MEDIUM confidence may mildly adjust fit; HIGH confidence may meaningfully influence ranking. Conservative onboarding cannot be overridden by aggressive behavior unless behavior confidence is HIGH.");
+        input.put("behaviorProfile", behaviorProfile);
+
         input.put("analysisTimeframe", ANALYSIS_TIMEFRAME);
         input.put("maxSuggestions", Math.min(MAX_SUGGESTIONS, snapshots.size()));
         input.put("supportedSymbols", SUPPORTED_SYMBOLS);
@@ -833,7 +910,17 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         return value == null ? "" : value;
     }
 
-    private String hashInput(AppUser user, UserInvestmentProfile profile, List<StockAnalysisSnapshot> snapshots, String model) {
+    private String toText(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private String hashInput(
+            AppUser user,
+            UserInvestmentProfile profile,
+            BehaviorSummaryForSuggestion behaviorSummary,
+            List<StockAnalysisSnapshot> snapshots,
+            String model
+    ) {
         String snapshotHashPart = snapshots.stream()
                 .sorted(Comparator.comparing(StockAnalysisSnapshot::getSymbol))
                 .map(snapshot -> snapshot.getSymbol() + ":" + snapshot.getSnapshotHash())
@@ -845,6 +932,20 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 String.valueOf(profile.getBehaviorRiskScore()),
                 String.valueOf(profile.getBehaviorStyle()),
                 String.valueOf(profile.getBehaviorConfidence()),
+                String.valueOf(behaviorSummary.behaviorProfileId()),
+                String.valueOf(behaviorSummary.behaviorRiskScore()),
+                String.valueOf(behaviorSummary.behaviorStyle()),
+                String.valueOf(behaviorSummary.behaviorConfidence()),
+                String.valueOf(behaviorSummary.averagePositionSizePercent()),
+                String.valueOf(behaviorSummary.turnoverLevel()),
+                String.valueOf(behaviorSummary.concentrationLevel()),
+                String.valueOf(behaviorSummary.highVolatilityExposure()),
+                String.valueOf(behaviorSummary.stockRiskExposureScore()),
+                String.valueOf(behaviorSummary.concentrationScore()),
+                String.valueOf(behaviorSummary.turnoverScore()),
+                String.valueOf(behaviorSummary.holdingPeriodScore()),
+                String.valueOf(behaviorSummary.volatilityExposureScore()),
+                String.valueOf(behaviorSummary.updatedAt()),
                 snapshotHashPart,
                 model,
                 PROMPT_VERSION,

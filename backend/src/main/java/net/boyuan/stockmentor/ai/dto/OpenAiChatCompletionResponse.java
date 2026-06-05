@@ -18,6 +18,7 @@ public record OpenAiChatCompletionResponse(
         @JsonProperty("system_fingerprint")
         String systemFingerprint
 ) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Choice(
             Integer index,
             Message message,
@@ -27,6 +28,7 @@ public record OpenAiChatCompletionResponse(
     ) {
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Message(
             String role,
             String content,
@@ -35,6 +37,7 @@ public record OpenAiChatCompletionResponse(
     ) {
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Usage(
             @JsonProperty("prompt_tokens")
             Integer promptTokens,

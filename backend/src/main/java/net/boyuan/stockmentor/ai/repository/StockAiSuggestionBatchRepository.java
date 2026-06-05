@@ -48,6 +48,14 @@ public interface StockAiSuggestionBatchRepository extends JpaRepository<StockAiS
             String inputHash
     );
 
+    Optional<StockAiSuggestionBatch> findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(
+            Long userId,
+            String model,
+            String promptVersion,
+            String inputHash,
+            Collection<StockAiSuggestionBatchStatus> statuses
+    );
+
     Optional<StockAiSuggestionBatch> findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(
             Long userId,
             StockAiSuggestionTriggerReason triggerReason
