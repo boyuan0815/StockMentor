@@ -1,9 +1,11 @@
 package net.boyuan.stockmentor.ai.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record OpenAiChatCompletionResponse(
         String id,
         String object,
