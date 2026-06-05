@@ -19,6 +19,19 @@ binary workaround used during V2 verification.
 ```powershell
 $base = "http://localhost:8080"
 $beginnerAuth = "demo@stockmentor.local:Demo@12345"
+# Use a request-body file or Invoke-RestMethod for JSON bodies in PowerShell.
+# Avoid passing JSON directly to curl.exe with --data-raw $body because native
+# command quoting can strip JSON quotes on some Windows shells.
+```
+
+Optional local dev DB reset before a clean paper-trading demo:
+
+```sql
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE paper_trade_transaction;
+TRUNCATE TABLE paper_position;
+TRUNCATE TABLE paper_trading_account;
+SET FOREIGN_KEY_CHECKS = 1;
 ```
 
 ## 2. Account
@@ -31,7 +44,7 @@ Expected:
 
 - `HTTP/1.1 200`
 - `cashBalance` and `startingCash` use `stockmentor.paper-trading.initial-cash`
-- default is `10000.0000`
+- default is `1000000.0000`
 - `status` is `ACTIVE`
 
 ## 3. Portfolio
@@ -50,9 +63,12 @@ Expected:
 ## 4. Buy
 
 ```powershell
+$body = @{ symbol = "MSFT"; quantity = 3 } | ConvertTo-Json -Compress
+$body | Set-Content -Encoding utf8 .\paper-trade-request.json
+
 curl.exe -i -u $beginnerAuth `
   -H "Content-Type: application/json" `
-  -d "{\"symbol\":\"MSFT\",\"quantity\":3}" `
+  --data-binary "@paper-trade-request.json" `
   "$base/api/paper-trading/buy"
 ```
 
@@ -67,9 +83,12 @@ Expected:
 ## 5. Sell
 
 ```powershell
+$body = @{ symbol = "MSFT"; quantity = 1 } | ConvertTo-Json -Compress
+$body | Set-Content -Encoding utf8 .\paper-trade-request.json
+
 curl.exe -i -u $beginnerAuth `
   -H "Content-Type: application/json" `
-  -d "{\"symbol\":\"MSFT\",\"quantity\":1}" `
+  --data-binary "@paper-trade-request.json" `
   "$base/api/paper-trading/sell"
 ```
 
@@ -100,18 +119,24 @@ Expected:
 Unsupported symbol:
 
 ```powershell
+$body = @{ symbol = "META"; quantity = 1 } | ConvertTo-Json -Compress
+$body | Set-Content -Encoding utf8 .\paper-trade-request.json
+
 curl.exe -i -u $beginnerAuth `
   -H "Content-Type: application/json" `
-  -d "{\"symbol\":\"META\",\"quantity\":1}" `
+  --data-binary "@paper-trade-request.json" `
   "$base/api/paper-trading/buy"
 ```
 
 Invalid quantity:
 
 ```powershell
+$body = @{ symbol = "MSFT"; quantity = 0 } | ConvertTo-Json -Compress
+$body | Set-Content -Encoding utf8 .\paper-trade-request.json
+
 curl.exe -i -u $beginnerAuth `
   -H "Content-Type: application/json" `
-  -d "{\"symbol\":\"MSFT\",\"quantity\":0}" `
+  --data-binary "@paper-trade-request.json" `
   "$base/api/paper-trading/buy"
 ```
 
@@ -148,6 +173,22 @@ Expected:
 - manual cooldown still applies
 - unchanged input hashes are reused
 - changed behavior profile timestamp/summary is included through the existing V2 behavior path
+
+## 8a. Invoke-RestMethod examples
+
+```powershell
+$pair = "demo@stockmentor.local:Demo@12345"
+$encoded = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair))
+$headers = @{ Authorization = "Basic $encoded" }
+$body = @{ symbol = "MSFT"; quantity = 3 } | ConvertTo-Json -Compress
+
+Invoke-RestMethod `
+  -Uri "$base/api/paper-trading/buy" `
+  -Method Post `
+  -Headers $headers `
+  -ContentType "application/json" `
+  -Body $body
+```
 
 ## 9. MySQL Checks
 

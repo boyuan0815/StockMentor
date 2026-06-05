@@ -45,7 +45,7 @@ public class PaperTradingServiceImpl implements PaperTradingService {
     private final StockRepository stockRepository;
     private final UserBehaviorProfileService behaviorProfileService;
 
-    @Value("${stockmentor.paper-trading.initial-cash:10000.00}")
+    @Value("${stockmentor.paper-trading.initial-cash:1000000.00}")
     private BigDecimal initialCash;
 
     @Override

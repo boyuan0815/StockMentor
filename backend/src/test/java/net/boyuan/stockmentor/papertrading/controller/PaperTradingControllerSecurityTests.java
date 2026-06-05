@@ -6,7 +6,10 @@ import net.boyuan.stockmentor.auth.model.AppUserStatus;
 import net.boyuan.stockmentor.auth.repository.AppUserRepository;
 import net.boyuan.stockmentor.market.stock.entity.Stock;
 import net.boyuan.stockmentor.market.stock.repository.StockRepository;
+import net.boyuan.stockmentor.papertrading.repository.PaperPositionRepository;
+import net.boyuan.stockmentor.papertrading.repository.PaperTradeTransactionRepository;
 import net.boyuan.stockmentor.papertrading.repository.PaperTradingAccountRepository;
+import net.boyuan.stockmentor.userbehavior.repository.UserBehaviorProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,12 +44,22 @@ class PaperTradingControllerSecurityTests {
     private StockRepository stockRepository;
     @Autowired
     private PaperTradingAccountRepository accountRepository;
+    @Autowired
+    private PaperPositionRepository positionRepository;
+    @Autowired
+    private PaperTradeTransactionRepository transactionRepository;
+    @Autowired
+    private UserBehaviorProfileRepository behaviorProfileRepository;
 
     private AppUser authUser;
     private AppUser otherUser;
 
     @BeforeEach
     void setUp() {
+        transactionRepository.deleteAll();
+        positionRepository.deleteAll();
+        accountRepository.deleteAll();
+        behaviorProfileRepository.deleteAll();
         authUser = ensureUser("paper-auth@example.com", "paper-auth");
         otherUser = ensureUser("paper-other@example.com", "paper-other");
         ensureStock("MSFT", "100.00");
@@ -85,12 +98,60 @@ class PaperTradingControllerSecurityTests {
     }
 
     @Test
-    void invalidRequestBodyReturnsBadRequest() throws Exception {
+    void malformedJsonReturnsBadRequestWithClearMessage() throws Exception {
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-auth@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{quantity:3,symbol:MSFT}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Invalid JSON request body"));
+    }
+
+    @Test
+    void invalidRequestBodyReturnsBadRequestWithValidationMessage() throws Exception {
         mockMvc.perform(post("/api/paper-trading/buy")
                         .with(httpBasic("paper-auth@example.com", "password"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"symbol\":\"MSFT\",\"quantity\":0}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Quantity must be positive"));
+    }
+
+    @Test
+    void unsupportedSymbolReturnsBadRequestWithServiceMessageAndNoPartialTradeRows() throws Exception {
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-auth@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"META\",\"quantity\":1}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Unsupported paper-trading symbol: META"));
+
+        assertTrue(accountRepository.findByUserUserId(authUser.getUserId()).isEmpty());
+        assertTrue(positionRepository.findByUserUserId(authUser.getUserId()).isEmpty());
+        assertTrue(transactionRepository.findTop50ByUserUserIdOrderByExecutedAtDesc(authUser.getUserId()).isEmpty());
+        assertTrue(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(authUser.getUserId()).isEmpty());
+    }
+
+    @Test
+    void validBuyAndSellReturnOk() throws Exception {
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-auth@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"MSFT\",\"quantity\":3}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.transaction.side").value("BUY"))
+                .andExpect(jsonPath("$.position.quantity").value(3));
+
+        mockMvc.perform(post("/api/paper-trading/sell")
+                        .with(httpBasic("paper-auth@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"MSFT\",\"quantity\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.transaction.side").value("SELL"))
+                .andExpect(jsonPath("$.position.quantity").value(2));
     }
 
     @Test

@@ -37,6 +37,9 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class PaperTradingServiceImplTests {
+    private static final BigDecimal INITIAL_CASH = new BigDecimal("1000000.00");
+    private static final BigDecimal INITIAL_CASH_RESPONSE = new BigDecimal("1000000.0000");
+
     @Mock
     private CurrentUserService currentUserService;
     @Mock
@@ -63,7 +66,7 @@ class PaperTradingServiceImplTests {
                 stockRepository,
                 behaviorProfileService
         );
-        ReflectionTestUtils.setField(service, "initialCash", BigDecimal.valueOf(10000));
+        ReflectionTestUtils.setField(service, "initialCash", INITIAL_CASH);
         user = user(1L);
         when(currentUserService.getCurrentUser()).thenReturn(user);
     }
@@ -80,14 +83,14 @@ class PaperTradingServiceImplTests {
         PaperTradingAccountResponse response = service.getCurrentUserAccount();
 
         assertEquals(11L, response.accountId());
-        assertEquals(new BigDecimal("10000.0000"), response.cashBalance());
-        assertEquals(new BigDecimal("10000.0000"), response.startingCash());
+        assertEquals(INITIAL_CASH_RESPONSE, response.cashBalance());
+        assertEquals(INITIAL_CASH_RESPONSE, response.startingCash());
         assertEquals("ACTIVE", response.status());
     }
 
     @Test
     void existingAccountIsReused() {
-        PaperTradingAccount existing = account(user, "10000.00");
+        PaperTradingAccount existing = account(user, INITIAL_CASH.toPlainString());
         when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(existing));
 
         PaperTradingAccountResponse response = service.getCurrentUserAccount();
@@ -98,7 +101,7 @@ class PaperTradingServiceImplTests {
 
     @Test
     void buySupportedSymbolUpdatesCashPositionTransactionAndBehavior() {
-        PaperTradingAccount account = account(user, "10000.00");
+        PaperTradingAccount account = account(user, INITIAL_CASH.toPlainString());
         when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
         when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "100.00")));
         when(positionRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.empty());
@@ -115,7 +118,7 @@ class PaperTradingServiceImplTests {
 
         PaperTradeExecutionResponse response = service.buyForCurrentUser(new PaperTradeRequest("msft", 3));
 
-        assertEquals(new BigDecimal("9700.0000"), response.account().cashBalance());
+        assertEquals(INITIAL_CASH_RESPONSE.subtract(new BigDecimal("300.0000")), response.account().cashBalance());
         assertEquals(3, response.position().quantity());
         assertEquals(new BigDecimal("100.0000"), response.position().averageCost());
         assertEquals(new BigDecimal("300.0000"), response.position().totalCost());
@@ -248,7 +251,7 @@ class PaperTradingServiceImplTests {
         account.setAccountId(10L);
         account.setUser(user);
         account.setCashBalance(new BigDecimal(cashBalance));
-        account.setStartingCash(new BigDecimal("10000.00"));
+        account.setStartingCash(INITIAL_CASH);
         account.setStatus(PaperTradingAccountStatus.ACTIVE);
         account.setCreatedAt(LocalDateTime.now().minusDays(1));
         account.setUpdatedAt(LocalDateTime.now().minusDays(1));
