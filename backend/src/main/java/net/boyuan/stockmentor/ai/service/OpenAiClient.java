@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.List;
@@ -97,48 +98,142 @@ public class OpenAiClient {
         }
 
         try {
-            Map<String, Object> request = Map.of(
-                    "model", model,
-                    "temperature", 0.2,
-                    "messages", List.of(
-                            Map.of("role", "system", "content", systemContent),
-                            Map.of("role", "user", "content", userContent)
-                    )
-            );
-
-            String responseBody = webClient.post()
-                    .uri("/v1/chat/completions")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .header("Content-Type", "application/json")
-                    .bodyValue(request)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-
-            OpenAiChatCompletionResponse response = objectMapper.readValue(responseBody, OpenAiChatCompletionResponse.class);
-            if (response == null || response.choices() == null || response.choices().isEmpty()) {
-                return OpenAiSuggestionResult.failure("OpenAI returned no choices");
-            }
-
-            OpenAiChatCompletionResponse.Choice firstChoice = response.choices().get(0);
-            String content = firstChoice.message() == null ? null : firstChoice.message().content();
-            if (content == null || content.isBlank()) {
-                return OpenAiSuggestionResult.failure("OpenAI returned an empty suggestion response");
-            }
-
-            OpenAiChatCompletionResponse.Usage usage = response.usage();
-            return new OpenAiSuggestionResult(
-                    true,
-                    content,
-                    usage == null ? null : usage.promptTokens(),
-                    usage == null ? null : usage.completionTokens(),
-                    usage == null ? null : usage.totalTokens(),
-                    firstChoice.finishReason(),
-                    null
-            );
+            return executeSuggestionRequest(systemContent, userContent, true);
         } catch (Exception e) {
+            if (isSchemaRelatedFailure(e)) {
+                log.warn("OpenAI suggestion schema request failed; retrying without response_format: {}", e.getMessage());
+                try {
+                    return executeSuggestionRequest(systemContent, userContent, false);
+                } catch (Exception fallbackException) {
+                    log.error("OpenAI suggestion generation failed after schema fallback", fallbackException);
+                    return OpenAiSuggestionResult.failure(fallbackException.getMessage());
+                }
+            }
             log.error("OpenAI suggestion generation failed", e);
             return OpenAiSuggestionResult.failure(e.getMessage());
         }
+    }
+
+    private OpenAiSuggestionResult executeSuggestionRequest(String systemContent, String userContent, boolean useJsonSchema) throws Exception {
+        Map<String, Object> request = suggestionRequest(systemContent, userContent, useJsonSchema);
+
+        String responseBody = webClient.post()
+                .uri("/v1/chat/completions")
+                .header("Authorization", "Bearer " + apiKey)
+                .header("Content-Type", "application/json")
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+
+        OpenAiChatCompletionResponse response = objectMapper.readValue(responseBody, OpenAiChatCompletionResponse.class);
+        if (response == null || response.choices() == null || response.choices().isEmpty()) {
+            return OpenAiSuggestionResult.failure("OpenAI returned no choices");
+        }
+
+        OpenAiChatCompletionResponse.Choice firstChoice = response.choices().get(0);
+        if (firstChoice.message() == null) {
+            return OpenAiSuggestionResult.failure("OpenAI returned no suggestion message");
+        }
+        if (firstChoice.message().refusal() != null && !firstChoice.message().refusal().isBlank()) {
+            return OpenAiSuggestionResult.failure("OpenAI refused suggestion response");
+        }
+
+        String content = firstChoice.message().content();
+        if (content == null || content.isBlank()) {
+            return OpenAiSuggestionResult.failure("OpenAI returned an empty suggestion response");
+        }
+
+        OpenAiChatCompletionResponse.Usage usage = response.usage();
+        return new OpenAiSuggestionResult(
+                true,
+                content,
+                usage == null ? null : usage.promptTokens(),
+                usage == null ? null : usage.completionTokens(),
+                usage == null ? null : usage.totalTokens(),
+                firstChoice.finishReason(),
+                null
+        );
+    }
+
+    private Map<String, Object> suggestionRequest(String systemContent, String userContent, boolean useJsonSchema) {
+        Map<String, Object> baseRequest = Map.of(
+                "model", model,
+                "temperature", 0.2,
+                "messages", List.of(
+                        Map.of("role", "system", "content", systemContent),
+                        Map.of("role", "user", "content", userContent)
+                )
+        );
+        if (!useJsonSchema) {
+            return baseRequest;
+        }
+
+        return Map.of(
+                "model", model,
+                "temperature", 0.2,
+                "messages", baseRequest.get("messages"),
+                "response_format", suggestionResponseFormat()
+        );
+    }
+
+    private Map<String, Object> suggestionResponseFormat() {
+        Map<String, Object> suggestionItemSchema = Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "symbol", Map.of("type", "string"),
+                        "rankNo", Map.of("type", "integer"),
+                        "matchScore", Map.of("type", "integer"),
+                        "riskLevel", Map.of("type", "string"),
+                        "suggestionLabel", Map.of("type", "string"),
+                        "shortReason", Map.of("type", "string"),
+                        "detailReason", Map.of("type", "string")
+                ),
+                "required", List.of(
+                        "symbol",
+                        "rankNo",
+                        "matchScore",
+                        "riskLevel",
+                        "suggestionLabel",
+                        "shortReason",
+                        "detailReason"
+                ),
+                "additionalProperties", false
+        );
+
+        Map<String, Object> schema = Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "batchSummary", Map.of("type", "string"),
+                        "suggestedStocks", Map.of(
+                                "type", "array",
+                                "items", suggestionItemSchema,
+                                "minItems", 1,
+                                "maxItems", 3
+                        )
+                ),
+                "required", List.of("batchSummary", "suggestedStocks"),
+                "additionalProperties", false
+        );
+
+        return Map.of(
+                "type", "json_schema",
+                "json_schema", Map.of(
+                        "name", "stock_suggestions_response",
+                        "strict", true,
+                        "schema", schema
+                )
+        );
+    }
+
+    private boolean isSchemaRelatedFailure(Exception e) {
+        String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+        if (e instanceof WebClientResponseException responseException) {
+            message = message + " " + responseException.getResponseBodyAsString().toLowerCase();
+        }
+        return message.contains("response_format")
+                || message.contains("json_schema")
+                || message.contains("schema")
+                || message.contains("structured output");
     }
 }

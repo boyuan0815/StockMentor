@@ -1,5 +1,6 @@
 package net.boyuan.stockmentor.ai.service.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.boyuan.stockmentor.ai.dto.OpenAiSuggestionResult;
 import net.boyuan.stockmentor.ai.dto.StockAiSuggestionResponse;
@@ -39,9 +40,11 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -163,7 +166,7 @@ class StockAiSuggestionServiceImplTests {
                 .thenReturn(Optional.empty());
         when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
         when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
-        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v1"), anyString(), anyCollection()))
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
                 .thenReturn(Optional.of(existingBatch));
         when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(existingBatch), anyCollection()))
                 .thenReturn(List.of());
@@ -185,7 +188,7 @@ class StockAiSuggestionServiceImplTests {
                 .thenReturn(Optional.empty());
         when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
         when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
-        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v1"), anyString(), anyCollection()))
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
                 .thenReturn(Optional.empty());
         when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(OpenAiSuggestionResult.failure("OpenAI unavailable"));
         when(batchRepository.findTopByUserUserIdAndStatusAndCreatedAtAfterOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionBatchStatus.SUCCESS), any()))
@@ -234,7 +237,7 @@ class StockAiSuggestionServiceImplTests {
                 .thenReturn(Optional.empty());
         when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
         when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
-        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v1"), anyString(), anyCollection()))
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
                 .thenReturn(Optional.empty());
         when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(new OpenAiSuggestionResult(
                 true,
@@ -273,8 +276,147 @@ class StockAiSuggestionServiceImplTests {
         verify(batchRepository).save(argThat(batch ->
                 batch.getStatus() == StockAiSuggestionBatchStatus.SUCCESS
                         && batch.getErrorMessage() == null
-                        && Integer.valueOf(180).equals(batch.getTotalTokens())
+                && Integer.valueOf(180).equals(batch.getTotalTokens())
         ));
+    }
+
+    @Test
+    void existingFallbackCachedSameInputHashIsUpgradedToSuccessWithoutCreatingDuplicateBatch() {
+        UserInvestmentProfile profile = profile();
+        StockAiSuggestionBatch fallbackCached = batch(profile, StockAiSuggestionBatchStatus.FALLBACK_CACHED);
+        fallbackCached.setSuggestionBatchId(90L);
+        fallbackCached.setPromptVersion("stock-suggestion-v2");
+        fallbackCached.setTriggerReason(StockAiSuggestionTriggerReason.MANUAL_REFRESH);
+        fallbackCached.setCreatedAt(LocalDateTime.now().minusHours(2));
+        fallbackCached.setUpdatedAt(LocalDateTime.now().minusHours(2));
+        fallbackCached.setExpiresAt(LocalDateTime.now().plusHours(20));
+        StockAiSuggestionItem fallbackCachedMsft = suggestionItem(fallbackCached, StockAiSuggestionItemStatus.ACTIVE);
+        fallbackCachedMsft.setSuggestionItemId(91L);
+        fallbackCachedMsft.setAnalysisSnapshot(snapshot("MSFT"));
+        StockAiSuggestionItem fallbackCachedAapl = suggestionItem(fallbackCached, StockAiSuggestionItemStatus.ACTIVE);
+        fallbackCachedAapl.setSuggestionItemId(92L);
+        fallbackCachedAapl.setSymbol("AAPL");
+        fallbackCachedAapl.setRankNo(2);
+        fallbackCachedAapl.setAnalysisSnapshot(snapshot("AAPL"));
+        List<StockAiSuggestionItem> batchItems = new ArrayList<>(List.of(fallbackCachedMsft, fallbackCachedAapl));
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.of(fallbackCached));
+        when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionTriggerReason.MANUAL_REFRESH)))
+                .thenReturn(Optional.of(fallbackCached));
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
+                .thenReturn(Optional.empty());
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString()))
+                .thenReturn(Optional.of(fallbackCached));
+        when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(new OpenAiSuggestionResult(
+                true,
+                validSuggestionJson(),
+                100,
+                80,
+                180,
+                "stop",
+                null
+        ));
+        when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE))
+                .thenReturn(List.of(fallbackCachedMsft, fallbackCachedAapl));
+        when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(fallbackCached), anyCollection()))
+                .thenAnswer(invocation -> {
+                    @SuppressWarnings("unchecked")
+                    List<StockAiSuggestionItemStatus> statuses = new ArrayList<>((java.util.Collection<StockAiSuggestionItemStatus>) invocation.getArgument(1));
+                    return batchItems.stream()
+                            .filter(item -> statuses.contains(item.getStatus()))
+                            .toList();
+                });
+
+        StockAiSuggestionResponse response = service.refreshSuggestionsForCurrentUser();
+
+        assertEquals(90L, response.batchId());
+        assertEquals("SUCCESS", response.batchStatus());
+        assertFalse(response.fallbackUsed());
+        assertFalse(response.refreshAllowed());
+        assertNotNull(response.nextRefreshAllowedAt());
+        assertEquals(StockAiSuggestionBatchStatus.SUCCESS, fallbackCached.getStatus());
+        assertNull(fallbackCached.getErrorMessage());
+        assertEquals(Integer.valueOf(180), fallbackCached.getTotalTokens());
+        assertEquals("Microsoft is a profile-aligned paper-trading learning suggestion based on structured data.", fallbackCached.getBatchSummary());
+        assertEquals(StockAiSuggestionItemStatus.ACTIVE, fallbackCachedMsft.getStatus());
+        assertEquals(fallbackCached, fallbackCachedMsft.getSuggestionBatch());
+        assertEquals("MSFT", fallbackCachedMsft.getSymbol());
+        assertEquals(1, fallbackCachedMsft.getRankNo());
+        assertEquals(76, fallbackCachedMsft.getMatchScore());
+        assertEquals("moderate", fallbackCachedMsft.getRiskLevel());
+        assertEquals("Balanced trend learning", fallbackCachedMsft.getSuggestionLabel());
+        assertEquals("Microsoft matches your moderate learning profile.", fallbackCachedMsft.getShortReason());
+        assertEquals("Microsoft has a strong uptrend, moderate volatility, and moderate risk with complete data for beginner-friendly paper-trading practice.", fallbackCachedMsft.getDetailReason());
+        assertEquals(snapshot("MSFT").getAnalysisSnapshotId(), fallbackCachedMsft.getAnalysisSnapshot().getAnalysisSnapshotId());
+        assertEquals(StockAiSuggestionItemStatus.EXPIRED, fallbackCachedAapl.getStatus());
+        verify(batchRepository, times(1)).save(same(fallbackCached));
+        verify(itemRepository, never()).save(argThat(item -> item.getSuggestionItemId() == null));
+        verify(openAiClient, times(1)).generateSuggestion(anyString(), anyString());
+    }
+
+    @Test
+    void existingFallbackCachedSameInputHashCanUpgradeToRuleBasedFallbackWithoutDuplicateBatch() {
+        UserInvestmentProfile profile = profile();
+        StockAiSuggestionBatch fallbackCached = batch(profile, StockAiSuggestionBatchStatus.FALLBACK_CACHED);
+        fallbackCached.setSuggestionBatchId(95L);
+        fallbackCached.setPromptVersion("stock-suggestion-v2");
+        fallbackCached.setCreatedAt(LocalDateTime.now().minusHours(2));
+        fallbackCached.setExpiresAt(LocalDateTime.now().plusHours(20));
+        StockAiSuggestionItem fallbackCachedMsft = suggestionItem(fallbackCached, StockAiSuggestionItemStatus.ACTIVE);
+        fallbackCachedMsft.setSuggestionItemId(96L);
+        fallbackCachedMsft.setAnalysisSnapshot(snapshot("MSFT"));
+        List<StockAiSuggestionItem> batchItems = new ArrayList<>(List.of(fallbackCachedMsft));
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.of(fallbackCached));
+        when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionTriggerReason.MANUAL_REFRESH)))
+                .thenReturn(Optional.of(fallbackCached));
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
+                .thenReturn(Optional.empty());
+        when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(OpenAiSuggestionResult.failure("OpenAI unavailable"));
+        when(batchRepository.findTopByUserUserIdAndStatusAndCreatedAtAfterOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionBatchStatus.SUCCESS), any()))
+                .thenReturn(Optional.empty());
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString()))
+                .thenReturn(Optional.of(fallbackCached));
+        when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE))
+                .thenReturn(List.of(fallbackCachedMsft));
+        when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> {
+            StockAiSuggestionItem item = invocation.getArgument(0);
+            if (item.getSuggestionItemId() == null) {
+                item.setSuggestionItemId((long) batchItems.size() + 100L);
+                batchItems.add(item);
+            }
+            return item;
+        });
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(fallbackCached), anyCollection()))
+                .thenAnswer(invocation -> {
+                    @SuppressWarnings("unchecked")
+                    List<StockAiSuggestionItemStatus> statuses = new ArrayList<>((java.util.Collection<StockAiSuggestionItemStatus>) invocation.getArgument(1));
+                    return batchItems.stream()
+                            .filter(item -> statuses.contains(item.getStatus()))
+                            .toList();
+                });
+
+        StockAiSuggestionResponse response = service.refreshSuggestionsForCurrentUser();
+
+        assertEquals(95L, response.batchId());
+        assertEquals("FALLBACK_RULE_BASED", response.batchStatus());
+        assertTrue(response.fallbackUsed());
+        assertFalse(response.refreshAllowed());
+        assertEquals(StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED, fallbackCached.getStatus());
+        assertEquals("OpenAI unavailable", fallbackCached.getErrorMessage());
+        verify(batchRepository, times(1)).save(same(fallbackCached));
+        verify(openAiClient, times(2)).generateSuggestion(anyString(), anyString());
     }
 
     @Test
@@ -289,7 +431,7 @@ class StockAiSuggestionServiceImplTests {
                 .thenAnswer(invocation -> Optional.ofNullable(savedBatch.get()));
         when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
         when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
-        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v1"), anyString(), anyCollection()))
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
                 .thenReturn(Optional.empty());
         when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(new OpenAiSuggestionResult(
                 true,
@@ -342,7 +484,7 @@ class StockAiSuggestionServiceImplTests {
                 .thenReturn(Optional.of(recentManualBatch));
         when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
         when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
-        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v1"), anyString(), anyCollection()))
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
                 .thenReturn(Optional.of(existingBatch));
         when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(existingBatch), anyCollection()))
                 .thenReturn(List.of());
@@ -371,7 +513,7 @@ class StockAiSuggestionServiceImplTests {
                 .thenReturn(Optional.empty());
         when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
         when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
-        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v1"), anyString(), anyCollection()))
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
                 .thenReturn(Optional.empty());
         when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(OpenAiSuggestionResult.failure("OpenAI unavailable"));
         when(batchRepository.findTopByUserUserIdAndStatusAndCreatedAtAfterOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionBatchStatus.SUCCESS), any()))
@@ -392,6 +534,212 @@ class StockAiSuggestionServiceImplTests {
 
         verify(batchRepository, times(2)).save(argThat(batch -> batch.getInputHash() != null));
         verify(openAiClient, atLeastOnce()).generateSuggestion(anyString(), contains("\"behaviorProfile\""));
+        verify(openAiClient, atLeastOnce()).generateSuggestion(anyString(), contains("\"candidateFitSignals\""));
+    }
+
+    @Test
+    void promptIncludesSortedCandidateFitSignalsWithConservativeGuardrail() throws Exception {
+        UserInvestmentProfile profile = profile();
+        profile.setRiskTolerance(RiskTolerance.CONSERVATIVE);
+        profile.setPreferredVolatility(PreferredVolatility.LOW);
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.empty());
+        when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionTriggerReason.MANUAL_REFRESH)))
+                .thenReturn(Optional.empty());
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
+                .thenReturn(Optional.empty());
+        when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(OpenAiSuggestionResult.failure("OpenAI unavailable"));
+        when(batchRepository.findTopByUserUserIdAndStatusAndCreatedAtAfterOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionBatchStatus.SUCCESS), any()))
+                .thenReturn(Optional.empty());
+        when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE)).thenReturn(List.of());
+        when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> {
+            StockAiSuggestionBatch batch = invocation.getArgument(0);
+            batch.setSuggestionBatchId(21L);
+            return batch;
+        });
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(any(), anyCollection())).thenReturn(List.of());
+
+        service.refreshSuggestionsForCurrentUser();
+
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(openAiClient, atLeastOnce()).generateSuggestion(anyString(), promptCaptor.capture());
+
+        String userContent = promptCaptor.getAllValues().get(0);
+        JsonNode root = new ObjectMapper().readTree(userContent);
+        JsonNode candidateSignals = root.path("candidateFitSignals");
+
+        assertEquals(8, candidateSignals.size());
+        assertEquals("AAPL", candidateSignals.get(0).path("symbol").asText());
+        assertEquals("AMD", candidateSignals.get(1).path("symbol").asText());
+        assertEquals("MISMATCH", candidateSignals.get(1).path("riskCompatibility").asText());
+        assertEquals("INSUFFICIENT_DATA", candidateSignals.get(1).path("behaviorCompatibility").asText());
+
+        assertTrue(userContent.contains("candidateFitSignals"));
+        assertFalse(userContent.contains("backendFitHint"));
+        assertFalse(userContent.contains("backendFitScore"));
+        assertFalse(userContent.contains("watchlist"));
+
+        for (JsonNode signal : candidateSignals) {
+            assertTrue(signal.has("symbol"));
+            assertTrue(signal.has("riskCategory"));
+            assertTrue(signal.has("riskCompatibility"));
+            assertTrue(signal.has("behaviorCompatibility"));
+            assertTrue(signal.has("dataQuality"));
+            assertTrue(signal.has("dataQualityPenalty"));
+            assertTrue(signal.has("fitNotes"));
+
+            assertFalse(signal.has("backendFitHint"));
+            assertFalse(signal.has("backendFitScore"));
+        }
+    }
+
+    @Test
+    void candidateFitChangeUpdatesInputHashEvenWhenSnapshotHashIsUnchanged() {
+        UserInvestmentProfile profile = profile();
+        AtomicBoolean weakMicrosoftData = new AtomicBoolean(false);
+        List<String> savedHashes = new ArrayList<>();
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.empty());
+        when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionTriggerReason.MANUAL_REFRESH)))
+                .thenReturn(Optional.empty());
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> {
+            StockAnalysisSnapshot snapshot = snapshot(invocation.getArgument(0));
+            if (weakMicrosoftData.get() && "MSFT".equals(snapshot.getSymbol())) {
+                snapshot.setIsFallback(true);
+                snapshot.setMissingDataCount(4);
+            }
+            return snapshot;
+        });
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
+                .thenReturn(Optional.empty());
+        when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(OpenAiSuggestionResult.failure("OpenAI unavailable"));
+        when(batchRepository.findTopByUserUserIdAndStatusAndCreatedAtAfterOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionBatchStatus.SUCCESS), any()))
+                .thenReturn(Optional.empty());
+        when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE)).thenReturn(List.of());
+        when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> {
+            StockAiSuggestionBatch batch = invocation.getArgument(0);
+            batch.setSuggestionBatchId((long) savedHashes.size() + 31L);
+            savedHashes.add(batch.getInputHash());
+            return batch;
+        });
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(any(), anyCollection())).thenReturn(List.of());
+
+        service.refreshSuggestionsForCurrentUser();
+        weakMicrosoftData.set(true);
+        service.refreshSuggestionsForCurrentUser();
+
+        assertEquals(2, savedHashes.size());
+        assertNotEquals(savedHashes.get(0), savedHashes.get(1));
+    }
+
+    @Test
+    void openAiFailureWithCachedSuccessCreatesCooldownBatchAndSecondRefreshDoesNotCallOpenAiAgain() {
+        UserInvestmentProfile profile = profile();
+        StockAiSuggestionBatch cachedSuccess = batch(profile, StockAiSuggestionBatchStatus.SUCCESS);
+        cachedSuccess.setSuggestionBatchId(70L);
+        cachedSuccess.setCreatedAt(LocalDateTime.now().minusDays(1));
+        cachedSuccess.setUpdatedAt(LocalDateTime.now().minusDays(1));
+        cachedSuccess.setExpiresAt(LocalDateTime.now().plusHours(2));
+        StockAiSuggestionItem cachedItem = suggestionItem(cachedSuccess, StockAiSuggestionItemStatus.ACTIVE);
+        cachedItem.setAnalysisSnapshot(snapshot("MSFT"));
+        StockAiSuggestionItem watchlistedCachedItem = suggestionItem(cachedSuccess, StockAiSuggestionItemStatus.WATCHLISTED);
+        watchlistedCachedItem.setSuggestionItemId(21L);
+        watchlistedCachedItem.setSymbol("AAPL");
+        watchlistedCachedItem.setRankNo(2);
+        watchlistedCachedItem.setMatchScore(72);
+        watchlistedCachedItem.setRiskLevel("moderate");
+        watchlistedCachedItem.setSuggestionLabel("Watchlisted learning pick");
+        watchlistedCachedItem.setShortReason("Apple remains available from the cached suggestion.");
+        watchlistedCachedItem.setDetailReason("Apple has moderate risk and complete data in the cached suggestion.");
+        watchlistedCachedItem.setAnalysisSnapshot(snapshot("AAPL"));
+        AtomicReference<StockAiSuggestionBatch> savedFallbackCached = new AtomicReference<>();
+        List<StockAiSuggestionItem> copiedItems = new ArrayList<>();
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenAnswer(invocation -> savedFallbackCached.get() == null
+                        ? Optional.of(cachedSuccess)
+                        : Optional.of(savedFallbackCached.get()));
+        when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionTriggerReason.MANUAL_REFRESH)))
+                .thenAnswer(invocation -> Optional.ofNullable(savedFallbackCached.get()));
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
+                .thenReturn(Optional.empty());
+        when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(OpenAiSuggestionResult.failure("OpenAI unavailable"));
+        when(batchRepository.findTopByUserUserIdAndStatusAndCreatedAtAfterOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionBatchStatus.SUCCESS), any()))
+                .thenReturn(Optional.of(cachedSuccess));
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString()))
+                .thenReturn(Optional.empty());
+        when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE)).thenReturn(List.of(cachedItem));
+        when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> {
+            StockAiSuggestionBatch batch = invocation.getArgument(0);
+            batch.setSuggestionBatchId(71L);
+            savedFallbackCached.set(batch);
+            return batch;
+        });
+        when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> {
+            StockAiSuggestionItem item = invocation.getArgument(0);
+            if (item.getSuggestionBatch() != cachedSuccess) {
+                item.setSuggestionItemId((long) copiedItems.size() + 80L);
+                copiedItems.add(item);
+            }
+            return item;
+        });
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(any(), anyCollection()))
+                .thenAnswer(invocation -> {
+                    StockAiSuggestionBatch batch = invocation.getArgument(0);
+                    @SuppressWarnings("unchecked")
+                    List<StockAiSuggestionItemStatus> statuses = new ArrayList<>((java.util.Collection<StockAiSuggestionItemStatus>) invocation.getArgument(1));
+                    if (batch == cachedSuccess) {
+                        return List.of(cachedItem, watchlistedCachedItem).stream()
+                                .filter(item -> statuses.contains(item.getStatus()))
+                                .toList();
+                    }
+                    return copiedItems.stream()
+                            .filter(item -> statuses.contains(item.getStatus()))
+                            .toList();
+                });
+
+        StockAiSuggestionResponse first = service.refreshSuggestionsForCurrentUser();
+        StockAiSuggestionResponse second = service.refreshSuggestionsForCurrentUser();
+
+        assertEquals("FALLBACK_CACHED", first.batchStatus());
+        assertTrue(first.fallbackUsed());
+        assertFalse(first.refreshAllowed());
+        assertNotNull(first.nextRefreshAllowedAt());
+        assertEquals(71L, first.batchId());
+        assertEquals(first.batchId(), second.batchId());
+        assertEquals("FALLBACK_CACHED", second.batchStatus());
+        assertTrue(second.fallbackUsed());
+        assertFalse(second.refreshAllowed());
+        assertEquals(first.nextRefreshAllowedAt(), second.nextRefreshAllowedAt());
+        assertEquals(2, copiedItems.size());
+        StockAiSuggestionItem copiedActiveItem = copiedItems.get(0);
+        assertEquals(savedFallbackCached.get(), copiedActiveItem.getSuggestionBatch());
+        assertEquals("MSFT", copiedActiveItem.getSymbol());
+        assertEquals(1, copiedActiveItem.getRankNo());
+        assertEquals(80, copiedActiveItem.getMatchScore());
+        assertEquals("moderate", copiedActiveItem.getRiskLevel());
+        assertEquals("Profile-aligned learning pick", copiedActiveItem.getSuggestionLabel());
+        assertEquals("Microsoft matches your profile using risk and data completeness.", copiedActiveItem.getShortReason());
+        assertEquals("Microsoft has moderate risk with stable volatility and complete data.", copiedActiveItem.getDetailReason());
+        assertEquals(cachedItem.getAnalysisSnapshot(), copiedActiveItem.getAnalysisSnapshot());
+        assertEquals(StockAiSuggestionItemStatus.ACTIVE, copiedActiveItem.getStatus());
+        StockAiSuggestionItem copiedWatchlistedItem = copiedItems.get(1);
+        assertEquals(savedFallbackCached.get(), copiedWatchlistedItem.getSuggestionBatch());
+        assertEquals("AAPL", copiedWatchlistedItem.getSymbol());
+        assertEquals(StockAiSuggestionItemStatus.WATCHLISTED, copiedWatchlistedItem.getStatus());
+        assertEquals(StockAiSuggestionItemStatus.EXPIRED, cachedItem.getStatus());
+        assertEquals(StockAiSuggestionItemStatus.WATCHLISTED, watchlistedCachedItem.getStatus());
+        verify(openAiClient, times(2)).generateSuggestion(anyString(), anyString());
+        verify(batchRepository, times(1)).save(any(StockAiSuggestionBatch.class));
+        verify(itemRepository).save(cachedItem);
     }
 
     @Test
@@ -500,7 +848,7 @@ class StockAiSuggestionServiceImplTests {
         batch.setProfile(profile);
         batch.setProfileVersion(profile.getProfileVersion());
         batch.setModel("gpt-4o-mini");
-        batch.setPromptVersion("stock-suggestion-v1");
+        batch.setPromptVersion("stock-suggestion-v2");
         batch.setStatus(status);
         batch.setTriggerReason(StockAiSuggestionTriggerReason.MANUAL_REFRESH);
         batch.setInputHash("hash");
