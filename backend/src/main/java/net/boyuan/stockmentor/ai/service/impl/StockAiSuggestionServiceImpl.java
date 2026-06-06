@@ -1165,6 +1165,9 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         behaviorProfile.put("turnoverScore", valueOrBlank(behaviorSummary.turnoverScore()));
         behaviorProfile.put("holdingPeriodScore", valueOrBlank(behaviorSummary.holdingPeriodScore()));
         behaviorProfile.put("volatilityExposureScore", valueOrBlank(behaviorSummary.volatilityExposureScore()));
+        behaviorProfile.put("favoriteRiskCategory", valueOrBlank(behaviorSummary.favoriteRiskCategory()));
+        behaviorProfile.put("mostTradedSymbols", valueOrBlank(behaviorSummary.mostTradedSymbols()));
+        behaviorProfile.put("behaviorSummaryText", valueOrBlank(behaviorSummary.behaviorSummaryText()));
         behaviorProfile.put("updatedAt", valueOrBlank(toText(behaviorSummary.updatedAt())));
         behaviorProfile.put("sourceNote", valueOrBlank(behaviorSummary.sourceNote()));
         behaviorProfile.put("personalizationRule", "LOW confidence is informational only; MEDIUM confidence may mildly adjust fit; HIGH confidence may meaningfully influence ranking. Conservative onboarding cannot be overridden by aggressive behavior unless behavior confidence is HIGH.");
@@ -1429,6 +1432,9 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 String.valueOf(behaviorSummary.turnoverScore()),
                 String.valueOf(behaviorSummary.holdingPeriodScore()),
                 String.valueOf(behaviorSummary.volatilityExposureScore()),
+                String.valueOf(behaviorSummary.favoriteRiskCategory()),
+                String.valueOf(behaviorSummary.mostTradedSymbols()),
+                String.valueOf(behaviorSummary.behaviorSummaryText()),
                 String.valueOf(behaviorSummary.updatedAt()),
                 candidateFitPart,
                 snapshotHashPart,

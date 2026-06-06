@@ -14,6 +14,7 @@ import net.boyuan.stockmentor.papertrading.repository.PaperTradeTransactionRepos
 import net.boyuan.stockmentor.userbehavior.dto.BehaviorSummaryForSuggestion;
 import net.boyuan.stockmentor.userbehavior.entity.UserBehaviorProfile;
 import net.boyuan.stockmentor.userbehavior.model.ConcentrationLevel;
+import net.boyuan.stockmentor.userbehavior.model.HighVolatilityExposure;
 import net.boyuan.stockmentor.userbehavior.model.TurnoverLevel;
 import net.boyuan.stockmentor.userbehavior.model.UserBehaviorStyle;
 import net.boyuan.stockmentor.userbehavior.repository.UserBehaviorProfileRepository;
@@ -127,6 +128,9 @@ class UserBehaviorProfileServiceImplTests {
         assertEquals(UserBehaviorStyle.INSUFFICIENT_DATA, profile.getBehaviorStyle());
         assertNull(profile.getStockRiskExposureScore());
         assertEquals(TurnoverLevel.LOW, profile.getTurnoverLevel());
+        assertNull(profile.getFavoriteRiskCategory());
+        assertNull(profile.getMostTradedSymbols());
+        assertTrue(profile.getBehaviorSummaryText().contains("limited"));
     }
 
     @Test
@@ -189,6 +193,43 @@ class UserBehaviorProfileServiceImplTests {
     }
 
     @Test
+    void enhancedBehaviorFieldsCalculateFromPaperTrades() {
+        when(transactionRepository.findByUserUserIdAndExecutedAtBetweenOrderByExecutedAtDesc(any(), any(), any()))
+                .thenReturn(List.of(
+                        transaction("KO", PaperTradeSide.SELL, 1, "110.00"),
+                        transaction("MSFT", PaperTradeSide.BUY, 2, "100.00"),
+                        transaction("KO", PaperTradeSide.BUY, 4, "100.00"),
+                        transaction("NVDA", PaperTradeSide.BUY, 1, "100.00")
+                ));
+        when(positionRepository.findByUserUserId(1L)).thenReturn(List.of(
+                position("MSFT", 1),
+                position("KO", 3)
+        ));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(
+                stock("MSFT", "100.00"),
+                stock("KO", "100.00")
+        ));
+        when(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(1L)).thenReturn(Optional.empty());
+        when(behaviorProfileRepository.save(any(UserBehaviorProfile.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserBehaviorProfile profile = service.recalculateBehaviorProfile(1L);
+
+        assertEquals(BehaviorConfidence.MEDIUM, profile.getBehaviorConfidence());
+        assertEquals(UserBehaviorStyle.BALANCED, profile.getBehaviorStyle());
+        assertEquals(42, profile.getStockRiskExposureScore());
+        assertEquals(42, profile.getVolatilityExposureScore());
+        assertEquals(HighVolatilityExposure.LOW, profile.getHighVolatilityExposure());
+        assertEquals("conservative", profile.getFavoriteRiskCategory());
+        assertEquals("KO,MSFT,NVDA", profile.getMostTradedSymbols());
+        assertEquals(new BigDecimal("50.00"), profile.getAveragePositionSizePercent());
+        assertEquals(75, profile.getConcentrationScore());
+        assertEquals(ConcentrationLevel.CONCENTRATED, profile.getConcentrationLevel());
+        assertNull(profile.getHoldingPeriodScore());
+        assertTrue(profile.getBehaviorSummaryText().contains("KO,MSFT,NVDA"));
+        assertTrue(profile.getBehaviorSummaryText().contains("conservative risk preference"));
+    }
+
+    @Test
     void tenTransactionsWithThreeSymbolsBecomesHigh() {
         List<PaperTradeTransaction> transactions = List.of(
                 transaction("NVDA", PaperTradeSide.BUY, 1, "100.00"),
@@ -228,6 +269,37 @@ class UserBehaviorProfileServiceImplTests {
         assertEquals(40, profile.getStockRiskExposureScore());
         assertEquals(40, profile.getBehaviorRiskScore());
         assertEquals(BehaviorConfidence.MEDIUM, profile.getBehaviorConfidence());
+        assertEquals("conservative", profile.getFavoriteRiskCategory());
+    }
+
+    @Test
+    void summaryIncludesEnhancedBehaviorFields() {
+        UserBehaviorProfile existing = new UserBehaviorProfile();
+        existing.setBehaviorProfileId(99L);
+        existing.setUser(user);
+        existing.setBehaviorConfidence(BehaviorConfidence.MEDIUM);
+        existing.setBehaviorStyle(UserBehaviorStyle.BALANCED);
+        existing.setBehaviorRiskScore(42);
+        existing.setAveragePositionSizePercent(new BigDecimal("50.00"));
+        existing.setTurnoverLevel(TurnoverLevel.MEDIUM);
+        existing.setConcentrationLevel(ConcentrationLevel.CONCENTRATED);
+        existing.setHighVolatilityExposure(HighVolatilityExposure.LOW);
+        existing.setStockRiskExposureScore(42);
+        existing.setConcentrationScore(75);
+        existing.setTurnoverScore(40);
+        existing.setVolatilityExposureScore(42);
+        existing.setFavoriteRiskCategory("conservative");
+        existing.setMostTradedSymbols("KO,MSFT,NVDA");
+        existing.setBehaviorSummaryText("Recent paper trades show medium confidence behavior.");
+        existing.setUpdatedAt(LocalDateTime.now());
+        when(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(1L)).thenReturn(Optional.of(existing));
+
+        BehaviorSummaryForSuggestion summary = service.getBehaviorSummaryForSuggestion(1L);
+
+        assertEquals("conservative", summary.favoriteRiskCategory());
+        assertEquals("KO,MSFT,NVDA", summary.mostTradedSymbols());
+        assertEquals("Recent paper trades show medium confidence behavior.", summary.behaviorSummaryText());
+        assertEquals("Paper-trading behavior is calculated from recent simulated trades only.", summary.sourceNote());
     }
 
     @Test

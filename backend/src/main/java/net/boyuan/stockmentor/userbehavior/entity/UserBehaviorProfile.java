@@ -84,6 +84,15 @@ public class UserBehaviorProfile {
     @Column(name = "volatility_exposure_score")
     private Integer volatilityExposureScore;
 
+    @Column(name = "favorite_risk_category", length = 30)
+    private String favoriteRiskCategory;
+
+    @Column(name = "most_traded_symbols", length = 100)
+    private String mostTradedSymbols;
+
+    @Column(name = "behavior_summary_text", length = 600)
+    private String behaviorSummaryText;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

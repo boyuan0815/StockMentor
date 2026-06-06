@@ -534,6 +534,7 @@ class StockAiSuggestionServiceImplTests {
 
         verify(batchRepository, times(2)).save(argThat(batch -> batch.getInputHash() != null));
         verify(openAiClient, atLeastOnce()).generateSuggestion(anyString(), contains("\"behaviorProfile\""));
+        verify(openAiClient, atLeastOnce()).generateSuggestion(anyString(), contains("\"behaviorSummaryText\":\"Recent paper-trading activity is still limited.\""));
         verify(openAiClient, atLeastOnce()).generateSuggestion(anyString(), contains("\"candidateFitSignals\""));
     }
 
@@ -888,6 +889,9 @@ class StockAiSuggestionServiceImplTests {
                 null,
                 null,
                 null,
+                null,
+                null,
+                "Recent paper-trading activity is still limited.",
                 updatedAt,
                 "No paper-trading transaction source exists yet"
         );

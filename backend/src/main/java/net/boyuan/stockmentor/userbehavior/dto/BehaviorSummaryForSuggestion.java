@@ -26,6 +26,9 @@ public record BehaviorSummaryForSuggestion(
         Integer turnoverScore,
         Integer holdingPeriodScore,
         Integer volatilityExposureScore,
+        String favoriteRiskCategory,
+        String mostTradedSymbols,
+        String behaviorSummaryText,
         LocalDateTime updatedAt,
         String sourceNote
 ) {

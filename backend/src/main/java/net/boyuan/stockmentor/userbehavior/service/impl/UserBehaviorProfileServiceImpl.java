@@ -32,6 +32,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -127,6 +128,9 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
                         null,
                         null,
                         null,
+                        null,
+                        "No paper-trading behavior profile has been calculated yet.",
+                        null,
                         "Behavior profile is unavailable; no paper-trading transaction source exists yet."
                 ));
     }
@@ -148,8 +152,13 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
                 profile.getTurnoverScore(),
                 profile.getHoldingPeriodScore(),
                 profile.getVolatilityExposureScore(),
+                profile.getFavoriteRiskCategory(),
+                profile.getMostTradedSymbols(),
+                profile.getBehaviorSummaryText(),
                 profile.getUpdatedAt(),
-                LOW_CONFIDENCE_NOTE
+                profile.getBehaviorConfidence() == BehaviorConfidence.LOW
+                        ? LOW_CONFIDENCE_NOTE
+                        : "Paper-trading behavior is calculated from recent simulated trades only."
         );
     }
 
@@ -176,6 +185,7 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
 
         RiskMetrics riskMetrics = riskMetrics(transactions);
         PositionMetrics positionMetrics = positionMetrics(user.getUserId());
+        String mostTradedSymbols = mostTradedSymbols(transactions);
         int turnoverScore = Math.min(100, transactionCount * 10);
 
         if (riskMetrics.hasBuyData()) {
@@ -184,24 +194,28 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
             profile.setVolatilityExposureScore(riskMetrics.score());
             profile.setHighVolatilityExposure(highVolatilityExposure(riskMetrics.score()));
             profile.setBehaviorStyle(behaviorStyle(riskMetrics.score(), confidence, transactionCount));
+            profile.setFavoriteRiskCategory(riskMetrics.favoriteRiskCategory());
         } else {
             profile.setStockRiskExposureScore(null);
             profile.setBehaviorRiskScore(null);
             profile.setVolatilityExposureScore(null);
             profile.setHighVolatilityExposure(null);
             profile.setBehaviorStyle(UserBehaviorStyle.INSUFFICIENT_DATA);
+            profile.setFavoriteRiskCategory(null);
         }
 
         if (confidence == BehaviorConfidence.LOW) {
             profile.setBehaviorStyle(UserBehaviorStyle.INSUFFICIENT_DATA);
         }
 
+        profile.setMostTradedSymbols(mostTradedSymbols);
         profile.setAveragePositionSizePercent(positionMetrics.averagePositionSizePercent());
         profile.setConcentrationScore(positionMetrics.concentrationScore());
         profile.setConcentrationLevel(positionMetrics.concentrationLevel());
         profile.setTurnoverScore(turnoverScore);
         profile.setTurnoverLevel(turnoverLevel(transactionCount));
         profile.setHoldingPeriodScore(null);
+        profile.setBehaviorSummaryText(behaviorSummaryText(profile, transactionCount, distinctSymbols));
     }
 
     private BehaviorConfidence confidence(int transactionCount, long distinctSymbols) {
@@ -217,6 +231,14 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
     private RiskMetrics riskMetrics(List<PaperTradeTransaction> transactions) {
         BigDecimal weightedRisk = BigDecimal.ZERO;
         BigDecimal totalBuyGross = BigDecimal.ZERO;
+        Map<String, BigDecimal> grossByRiskCategory = transactions.stream()
+                .filter(transaction -> transaction.getSide() == PaperTradeSide.BUY)
+                .filter(transaction -> transaction.getGrossAmount() != null)
+                .filter(transaction -> transaction.getGrossAmount().compareTo(BigDecimal.ZERO) > 0)
+                .collect(Collectors.groupingBy(
+                        transaction -> riskCategory(transaction.getSymbol()),
+                        Collectors.reducing(BigDecimal.ZERO, PaperTradeTransaction::getGrossAmount, BigDecimal::add)
+                ));
         for (PaperTradeTransaction transaction : transactions) {
             if (transaction.getSide() != PaperTradeSide.BUY) {
                 continue;
@@ -230,10 +252,40 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
             totalBuyGross = totalBuyGross.add(grossAmount);
         }
         if (totalBuyGross.compareTo(BigDecimal.ZERO) <= 0) {
-            return new RiskMetrics(false, null);
+            return new RiskMetrics(false, null, null);
         }
         int score = weightedRisk.divide(totalBuyGross, 0, RoundingMode.HALF_UP).intValue();
-        return new RiskMetrics(true, score);
+        String favoriteRiskCategory = grossByRiskCategory.entrySet().stream()
+                .max(Map.Entry.<String, BigDecimal>comparingByValue()
+                        .thenComparing(Map.Entry.comparingByKey()))
+                .map(Map.Entry::getKey)
+                .orElse(null);
+        return new RiskMetrics(true, score, favoriteRiskCategory);
+    }
+
+    private String mostTradedSymbols(List<PaperTradeTransaction> transactions) {
+        if (transactions.isEmpty()) {
+            return null;
+        }
+        Map<String, SymbolTradeMetrics> metricsBySymbol = transactions.stream()
+                .collect(Collectors.toMap(
+                        PaperTradeTransaction::getSymbol,
+                        transaction -> new SymbolTradeMetrics(
+                                1,
+                                transaction.getGrossAmount() == null ? BigDecimal.ZERO : transaction.getGrossAmount()
+                        ),
+                        SymbolTradeMetrics::merge
+                ));
+        String symbols = metricsBySymbol.entrySet().stream()
+                .sorted(Comparator
+                        .<Map.Entry<String, SymbolTradeMetrics>>comparingInt(entry -> entry.getValue().transactionCount())
+                        .reversed()
+                        .thenComparing((first, second) -> second.getValue().grossAmount().compareTo(first.getValue().grossAmount()))
+                        .thenComparing(Map.Entry::getKey))
+                .limit(3)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.joining(","));
+        return symbols.isBlank() ? null : symbols;
     }
 
     private PositionMetrics positionMetrics(Long userId) {
@@ -276,11 +328,15 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
     }
 
     private int riskWeight(String symbol) {
-        return switch (StockMetadata.RISK_CATEGORY_MAP.getOrDefault(symbol, "moderate").toLowerCase()) {
+        return switch (riskCategory(symbol)) {
             case "conservative" -> 25;
             case "aggressive" -> 85;
             default -> 55;
         };
+    }
+
+    private String riskCategory(String symbol) {
+        return StockMetadata.RISK_CATEGORY_MAP.getOrDefault(symbol, "moderate").toLowerCase();
     }
 
     private TurnoverLevel turnoverLevel(int transactionCount) {
@@ -326,7 +382,29 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
         return UserBehaviorStyle.CONSERVATIVE;
     }
 
-    private record RiskMetrics(boolean hasBuyData, Integer score) {
+    private String behaviorSummaryText(UserBehaviorProfile profile, int transactionCount, long distinctSymbols) {
+        if (transactionCount == 0 || profile.getBehaviorConfidence() == BehaviorConfidence.LOW) {
+            return "Recent paper-trading activity is still limited, so behavior signals remain low confidence.";
+        }
+
+        String riskText = profile.getFavoriteRiskCategory() == null
+                ? "mixed-risk"
+                : profile.getFavoriteRiskCategory();
+        String symbolsText = profile.getMostTradedSymbols() == null
+                ? "supported stocks"
+                : profile.getMostTradedSymbols();
+        return "Recent paper trades show "
+                + profile.getBehaviorConfidence().name().toLowerCase()
+                + " confidence behavior across "
+                + distinctSymbols
+                + " symbols, with most activity in "
+                + symbolsText
+                + " and a "
+                + riskText
+                + " risk preference.";
+    }
+
+    private record RiskMetrics(boolean hasBuyData, Integer score, String favoriteRiskCategory) {
     }
 
     private record PositionMetrics(
@@ -334,5 +412,14 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
             Integer concentrationScore,
             ConcentrationLevel concentrationLevel
     ) {
+    }
+
+    private record SymbolTradeMetrics(int transactionCount, BigDecimal grossAmount) {
+        private SymbolTradeMetrics merge(SymbolTradeMetrics other) {
+            return new SymbolTradeMetrics(
+                    transactionCount + other.transactionCount,
+                    grossAmount.add(other.grossAmount)
+            );
+        }
     }
 }
