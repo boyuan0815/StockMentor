@@ -64,6 +64,25 @@
 - It is okay to include a short data note only when fallback data is used.
 - Reuse stored explanations for the same snapshot, model, and prompt version. If the OpenAI call fails, return the friendly unavailable response and do not insert an explanation record.
 
+## AI Stock Suggestion Rules
+- `GET /api/stocks/ai-suggestions` must stay cache-only/read-only: no OpenAI call, no behavior profile creation/recalculation, no suggestion batch creation, no snapshot creation, and no refresh job creation.
+- `POST /api/stocks/ai-suggestions/refresh` is the normal user manual refresh path and must enforce the manual cooldown.
+- Scheduled refresh, admin scheduled refresh, and profile/onboarding trigger flows bypass manual cooldown but must still compute/reuse `input_hash` before calling OpenAI unnecessarily.
+- Normal user endpoints require Basic Auth and must resolve the user through `CurrentUserService`; no endpoint should accept or trust frontend-provided `userId`.
+- AI suggestions may use onboarding profile, behavior summary, stock snapshots, and backend candidate-fit signals, but must not expose raw prompts, raw OpenAI responses, API keys, service tier, fingerprints, or secrets.
+- Behavior personalization must come through `UserBehaviorProfileService`; do not calculate behavior from watchlist rows, suggestion dismissals, page views, clicks, or browsing.
+- Paper-trading endpoints must not call OpenAI. They may update behavior profiles after successful trades through the behavior service.
+
+## Admin AI Suggestion Rules
+- Admin AI endpoints live under `/api/admin/ai-suggestions/**` and require both ADMIN role and a valid `X-Admin-Token`.
+- Current admin AI endpoints are:
+  `GET /batches`, `GET /batches/{batchId}`, `GET /failures`, `GET /usage-summary`,
+  `POST /scheduled-refresh/run`, `GET /refresh-jobs`, and `GET /refresh-jobs/{jobId}`.
+- Admin monitoring read endpoints must be read-only: no OpenAI call, no suggestion generation, no snapshot creation, no batch mutation, and no refresh job creation.
+- Only `POST /api/admin/ai-suggestions/scheduled-refresh/run` should create an `ai_suggestion_refresh_job` row.
+- The scheduled AI suggestion refresh runs after market close and should use the shared scheduled refresh service; one failed user must not stop the job.
+- Do not modify existing admin backfill behavior unless explicitly scoped; it also uses `X-Admin-Token`.
+
 ## Cleanup Rules
 - Old intraday cleanup must delete 1-minute rows only when a matching daily candle exists.
 - Do not delete intraday rows when there is no daily backup.
@@ -75,3 +94,9 @@
 - Never hardcode API keys or admin tokens.
 - Keep the namespaced admin token property as `stockmentor.admin.token`.
 - Keep `backend/src/main/resources/application-example.yaml` updated when configuration fields are added.
+
+## Known Future Work
+- Real onboarding and quiz-retake write flows should call the V5B AI suggestion trigger facade after user/profile saves complete.
+- Paper-trading completeness belongs in a separate scope: portfolio reset, transaction filters, complete realized P/L, and advanced order features are not part of the current AI suggestion worktree.
+- Advanced order features such as limit orders, stop orders, stop-limit orders, automation, margin, short selling, and brokerage integration are out of scope unless explicitly requested.
+- JWT may be added later, but backend business logic should continue to rely on `CurrentUserService` for current-user resolution.
