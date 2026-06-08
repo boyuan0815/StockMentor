@@ -110,3 +110,6 @@ out/
 application-example.yaml
 
 test/
+!backend/src/test/
+!backend/src/test/java/
+!backend/src/test/java/**

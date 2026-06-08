@@ -10,3 +10,5 @@ twelvedata:
 stockmentor:
   admin:
     token: your-admin-token
+  paper-trading:
+    initial-cash: 1000000.00
