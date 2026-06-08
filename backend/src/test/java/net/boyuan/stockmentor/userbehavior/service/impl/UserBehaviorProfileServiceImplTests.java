@@ -1,5 +1,7 @@
 package net.boyuan.stockmentor.userbehavior.service.impl;
 
+import net.boyuan.stockmentor.analysis.entity.StockAnalysisSnapshot;
+import net.boyuan.stockmentor.analysis.repository.StockAnalysisSnapshotRepository;
 import net.boyuan.stockmentor.auth.entity.AppUser;
 import net.boyuan.stockmentor.auth.model.AppUserRole;
 import net.boyuan.stockmentor.auth.model.AppUserStatus;
@@ -8,9 +10,12 @@ import net.boyuan.stockmentor.market.stock.entity.Stock;
 import net.boyuan.stockmentor.market.stock.repository.StockRepository;
 import net.boyuan.stockmentor.papertrading.entity.PaperPosition;
 import net.boyuan.stockmentor.papertrading.entity.PaperTradeTransaction;
+import net.boyuan.stockmentor.papertrading.entity.PaperTradingAccount;
 import net.boyuan.stockmentor.papertrading.model.PaperTradeSide;
+import net.boyuan.stockmentor.papertrading.model.PaperTradingAccountStatus;
 import net.boyuan.stockmentor.papertrading.repository.PaperPositionRepository;
 import net.boyuan.stockmentor.papertrading.repository.PaperTradeTransactionRepository;
+import net.boyuan.stockmentor.papertrading.repository.PaperTradingAccountRepository;
 import net.boyuan.stockmentor.userbehavior.dto.BehaviorSummaryForSuggestion;
 import net.boyuan.stockmentor.userbehavior.entity.UserBehaviorProfile;
 import net.boyuan.stockmentor.userbehavior.model.ConcentrationLevel;
@@ -33,6 +38,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -47,6 +53,10 @@ class UserBehaviorProfileServiceImplTests {
     private PaperPositionRepository positionRepository;
     @Mock
     private StockRepository stockRepository;
+    @Mock
+    private StockAnalysisSnapshotRepository snapshotRepository;
+    @Mock
+    private PaperTradingAccountRepository accountRepository;
 
     private UserBehaviorProfileServiceImpl service;
     private AppUser user;
@@ -58,7 +68,9 @@ class UserBehaviorProfileServiceImplTests {
                 appUserRepository,
                 transactionRepository,
                 positionRepository,
-                stockRepository
+                stockRepository,
+                snapshotRepository,
+                accountRepository
         );
         user = new AppUser();
         user.setUserId(1L);
@@ -70,6 +82,8 @@ class UserBehaviorProfileServiceImplTests {
         lenient().when(appUserRepository.findByUserIdAndStatusAndIsDeletedFalse(1L, AppUserStatus.ACTIVE)).thenReturn(Optional.of(user));
         lenient().when(positionRepository.findByUserUserId(1L)).thenReturn(List.of());
         lenient().when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of());
+        lenient().when(snapshotRepository.findBySymbolInAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc(anyCollection(), anyString())).thenReturn(List.of());
+        lenient().when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account("0.00")));
     }
 
     @Test
@@ -128,6 +142,8 @@ class UserBehaviorProfileServiceImplTests {
         assertEquals(UserBehaviorStyle.INSUFFICIENT_DATA, profile.getBehaviorStyle());
         assertNull(profile.getStockRiskExposureScore());
         assertEquals(TurnoverLevel.LOW, profile.getTurnoverLevel());
+        assertNull(profile.getConcentrationScore());
+        assertNull(profile.getAveragePositionSizePercent());
         assertNull(profile.getFavoriteRiskCategory());
         assertNull(profile.getMostTradedSymbols());
         assertTrue(profile.getBehaviorSummaryText().contains("limited"));
@@ -182,6 +198,7 @@ class UserBehaviorProfileServiceImplTests {
                 stock("MSFT", "100.00"),
                 stock("KO", "100.00")
         ));
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account("800.00")));
         when(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(1L)).thenReturn(Optional.empty());
         when(behaviorProfileRepository.save(any(UserBehaviorProfile.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -201,6 +218,12 @@ class UserBehaviorProfileServiceImplTests {
                         transaction("KO", PaperTradeSide.BUY, 4, "100.00"),
                         transaction("NVDA", PaperTradeSide.BUY, 1, "100.00")
                 ));
+        when(snapshotRepository.findBySymbolInAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc(anyCollection(), eq("7D")))
+                .thenReturn(List.of(
+                        snapshot("KO", "conservative", "low"),
+                        snapshot("MSFT", "moderate", "high"),
+                        snapshot("NVDA", "aggressive", "very high")
+                ));
         when(positionRepository.findByUserUserId(1L)).thenReturn(List.of(
                 position("MSFT", 1),
                 position("KO", 3)
@@ -215,18 +238,204 @@ class UserBehaviorProfileServiceImplTests {
         UserBehaviorProfile profile = service.recalculateBehaviorProfile(1L);
 
         assertEquals(BehaviorConfidence.MEDIUM, profile.getBehaviorConfidence());
-        assertEquals(UserBehaviorStyle.BALANCED, profile.getBehaviorStyle());
+        assertEquals(UserBehaviorStyle.ACTIVE_TRADER, profile.getBehaviorStyle());
         assertEquals(42, profile.getStockRiskExposureScore());
-        assertEquals(42, profile.getVolatilityExposureScore());
-        assertEquals(HighVolatilityExposure.LOW, profile.getHighVolatilityExposure());
+        assertEquals(54, profile.getVolatilityExposureScore());
+        assertEquals(62, profile.getBehaviorRiskScore());
+        assertEquals(HighVolatilityExposure.MEDIUM, profile.getHighVolatilityExposure());
         assertEquals("conservative", profile.getFavoriteRiskCategory());
         assertEquals("KO,MSFT,NVDA", profile.getMostTradedSymbols());
         assertEquals(new BigDecimal("50.00"), profile.getAveragePositionSizePercent());
         assertEquals(75, profile.getConcentrationScore());
         assertEquals(ConcentrationLevel.CONCENTRATED, profile.getConcentrationLevel());
+        assertEquals(100, profile.getTurnoverScore());
+        assertEquals(TurnoverLevel.HIGH, profile.getTurnoverLevel());
         assertNull(profile.getHoldingPeriodScore());
         assertTrue(profile.getBehaviorSummaryText().contains("KO,MSFT,NVDA"));
-        assertTrue(profile.getBehaviorSummaryText().contains("conservative risk preference"));
+        assertTrue(profile.getBehaviorSummaryText().contains("a conservative BUY-risk preference based on BUY activity"));
+        assertTrue(profile.getBehaviorSummaryText().contains("concentrated holdings"));
+        assertTrue(profile.getBehaviorSummaryText().contains("medium volatility exposure"));
+        assertFalse(profile.getBehaviorSummaryText().contains("concentrated concentration"));
+        assertFalse(profile.getBehaviorSummaryText().contains("a aggressive"));
+    }
+
+    @Test
+    void turnoverScoreUsesTradeGrossDividedByCurrentAccountEquity() {
+        when(transactionRepository.findByUserUserIdAndExecutedAtBetweenOrderByExecutedAtDesc(any(), any(), any()))
+                .thenReturn(List.of(
+                        transaction("MSFT", PaperTradeSide.BUY, 1, "100.00"),
+                        transaction("KO", PaperTradeSide.BUY, 2, "100.00"),
+                        transaction("MSFT", PaperTradeSide.SELL, 1, "100.00")
+                ));
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account("1000.00")));
+        when(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(1L)).thenReturn(Optional.empty());
+        when(behaviorProfileRepository.save(any(UserBehaviorProfile.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserBehaviorProfile profile = service.recalculateBehaviorProfile(1L);
+
+        assertEquals(40, profile.getTurnoverScore());
+        assertEquals(TurnoverLevel.MEDIUM, profile.getTurnoverLevel());
+    }
+
+    @Test
+    void turnoverScoreFallsBackToTransactionCountWhenAccountEquityUnavailable() {
+        when(transactionRepository.findByUserUserIdAndExecutedAtBetweenOrderByExecutedAtDesc(any(), any(), any()))
+                .thenReturn(List.of(
+                        transaction("MSFT", PaperTradeSide.BUY, 1, "100.00"),
+                        transaction("KO", PaperTradeSide.BUY, 2, "100.00"),
+                        transaction("MSFT", PaperTradeSide.SELL, 1, "100.00")
+                ));
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.empty());
+        when(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(1L)).thenReturn(Optional.empty());
+        when(behaviorProfileRepository.save(any(UserBehaviorProfile.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserBehaviorProfile profile = service.recalculateBehaviorProfile(1L);
+
+        assertEquals(30, profile.getTurnoverScore());
+        assertEquals(TurnoverLevel.LOW, profile.getTurnoverLevel());
+    }
+
+    @Test
+    void turnoverScoreFallsBackToTransactionCountWhenAccountEquityIsNotPositive() {
+        when(transactionRepository.findByUserUserIdAndExecutedAtBetweenOrderByExecutedAtDesc(any(), any(), any()))
+                .thenReturn(List.of(
+                        transaction("MSFT", PaperTradeSide.BUY, 1, "100.00"),
+                        transaction("KO", PaperTradeSide.BUY, 2, "100.00"),
+                        transaction("MSFT", PaperTradeSide.SELL, 1, "100.00"),
+                        transaction("KO", PaperTradeSide.SELL, 1, "100.00")
+                ));
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account("0.00")));
+        when(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(1L)).thenReturn(Optional.empty());
+        when(behaviorProfileRepository.save(any(UserBehaviorProfile.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserBehaviorProfile profile = service.recalculateBehaviorProfile(1L);
+
+        assertEquals(40, profile.getTurnoverScore());
+        assertEquals(TurnoverLevel.MEDIUM, profile.getTurnoverLevel());
+    }
+
+    @Test
+    void sameTransactionCountCanProduceDifferentTurnoverScoresBasedOnGrossAmount() {
+        when(transactionRepository.findByUserUserIdAndExecutedAtBetweenOrderByExecutedAtDesc(any(), any(), any()))
+                .thenReturn(List.of(
+                        transaction("MSFT", PaperTradeSide.BUY, 1, "10.00"),
+                        transaction("KO", PaperTradeSide.BUY, 1, "10.00"),
+                        transaction("MSFT", PaperTradeSide.SELL, 1, "10.00")
+                ))
+                .thenReturn(List.of(
+                        transaction("MSFT", PaperTradeSide.BUY, 1, "200.00"),
+                        transaction("KO", PaperTradeSide.BUY, 1, "200.00"),
+                        transaction("MSFT", PaperTradeSide.SELL, 1, "200.00")
+                ));
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account("1000.00")));
+        when(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(1L)).thenReturn(Optional.empty());
+        when(behaviorProfileRepository.save(any(UserBehaviorProfile.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserBehaviorProfile smallTrades = service.recalculateBehaviorProfile(1L);
+        UserBehaviorProfile largeTrades = service.recalculateBehaviorProfile(1L);
+
+        assertEquals(3, smallTrades.getTurnoverScore());
+        assertEquals(60, largeTrades.getTurnoverScore());
+        assertTrue(largeTrades.getTurnoverScore() > smallTrades.getTurnoverScore());
+    }
+
+    @Test
+    void snapshotRiskOverridesMetadataAndNormalizesLabels() {
+        when(transactionRepository.findByUserUserIdAndExecutedAtBetweenOrderByExecutedAtDesc(any(), any(), any()))
+                .thenReturn(List.of(
+                        transaction("KO", PaperTradeSide.BUY, 3, "100.00"),
+                        transaction("MSFT", PaperTradeSide.BUY, 1, "100.00"),
+                        transaction("AAPL", PaperTradeSide.BUY, 1, "100.00")
+                ));
+        when(snapshotRepository.findBySymbolInAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc(anyCollection(), eq("7D")))
+                .thenReturn(List.of(
+                        snapshot("KO", "AGGRESSIVE", "low"),
+                        snapshot("MSFT", "moderate-aggressive", "medium"),
+                        snapshot("AAPL", "Moderate_Aggressive", "moderate")
+                ));
+        when(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(1L)).thenReturn(Optional.empty());
+        when(behaviorProfileRepository.save(any(UserBehaviorProfile.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserBehaviorProfile profile = service.recalculateBehaviorProfile(1L);
+
+        assertEquals(79, profile.getStockRiskExposureScore());
+        assertEquals("aggressive", profile.getFavoriteRiskCategory());
+        assertEquals(43, profile.getVolatilityExposureScore());
+        assertTrue(profile.getBehaviorSummaryText().contains("an aggressive BUY-risk preference"));
+        assertFalse(profile.getBehaviorSummaryText().contains("a aggressive"));
+    }
+
+    @Test
+    void metadataRiskIsFallbackWhenSnapshotRiskIsMissing() {
+        when(transactionRepository.findByUserUserIdAndExecutedAtBetweenOrderByExecutedAtDesc(any(), any(), any()))
+                .thenReturn(List.of(
+                        transaction("KO", PaperTradeSide.BUY, 3, "100.00"),
+                        transaction("NVDA", PaperTradeSide.BUY, 1, "100.00"),
+                        transaction("MSFT", PaperTradeSide.SELL, 1, "100.00")
+                ));
+        when(snapshotRepository.findBySymbolInAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc(anyCollection(), eq("7D")))
+                .thenReturn(List.of(snapshot("KO", null, null)));
+        when(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(1L)).thenReturn(Optional.empty());
+        when(behaviorProfileRepository.save(any(UserBehaviorProfile.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserBehaviorProfile profile = service.recalculateBehaviorProfile(1L);
+
+        assertEquals(40, profile.getStockRiskExposureScore());
+        assertEquals("conservative", profile.getFavoriteRiskCategory());
+        assertNull(profile.getVolatilityExposureScore());
+        assertEquals(37, profile.getBehaviorRiskScore());
+    }
+
+    @Test
+    void positionMetricsUseCurrentPriceFallbackTotalCostAndAccountEquity() {
+        when(transactionRepository.findByUserUserIdAndExecutedAtBetweenOrderByExecutedAtDesc(any(), any(), any()))
+                .thenReturn(List.of());
+        when(positionRepository.findByUserUserId(1L)).thenReturn(List.of(
+                position("MSFT", 30, "100.00", "3000.00"),
+                position("KO", 10, "100.00", "1000.00"),
+                position("NVDA", 10, "100.00", "1000.00")
+        ));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(
+                stock("MSFT", "100.00"),
+                stock("KO", "100.00"),
+                stock("NVDA", null)
+        ));
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account("5000.00")));
+        when(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(1L)).thenReturn(Optional.empty());
+        when(behaviorProfileRepository.save(any(UserBehaviorProfile.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserBehaviorProfile profile = service.recalculateBehaviorProfile(1L);
+
+        assertEquals(60, profile.getConcentrationScore());
+        assertEquals(ConcentrationLevel.MODERATE, profile.getConcentrationLevel());
+        assertEquals(new BigDecimal("16.67"), profile.getAveragePositionSizePercent());
+        assertEquals(26, profile.getBehaviorRiskScore());
+    }
+
+    @Test
+    void positionMetricsAreNullWhenNoValidPositionValueOrEquityExists() {
+        when(transactionRepository.findByUserUserIdAndExecutedAtBetweenOrderByExecutedAtDesc(any(), any(), any()))
+                .thenReturn(List.of())
+                .thenReturn(List.of());
+        when(positionRepository.findByUserUserId(1L))
+                .thenReturn(List.of(position("MSFT", 0, "100.00", "0.00")))
+                .thenReturn(List.of(position("MSFT", 1, "100.00", "100.00")));
+        when(stockRepository.findBySymbolIn(anyCollection()))
+                .thenReturn(List.of())
+                .thenReturn(List.of(stock("MSFT", "100.00")));
+        when(accountRepository.findByUserUserId(1L))
+                .thenReturn(Optional.of(account("0.00")))
+                .thenReturn(Optional.of(account("-100.00")));
+        when(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(1L)).thenReturn(Optional.empty());
+        when(behaviorProfileRepository.save(any(UserBehaviorProfile.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserBehaviorProfile noValidPositionValue = service.recalculateBehaviorProfile(1L);
+        UserBehaviorProfile noEquity = service.recalculateBehaviorProfile(1L);
+
+        assertNull(noValidPositionValue.getConcentrationScore());
+        assertNull(noValidPositionValue.getAveragePositionSizePercent());
+        assertEquals(100, noEquity.getConcentrationScore());
+        assertNull(noEquity.getAveragePositionSizePercent());
     }
 
     @Test
@@ -267,9 +476,11 @@ class UserBehaviorProfileServiceImplTests {
         UserBehaviorProfile profile = service.recalculateBehaviorProfile(1L);
 
         assertEquals(40, profile.getStockRiskExposureScore());
-        assertEquals(40, profile.getBehaviorRiskScore());
+        assertEquals(37, profile.getBehaviorRiskScore());
+        assertNull(profile.getVolatilityExposureScore());
         assertEquals(BehaviorConfidence.MEDIUM, profile.getBehaviorConfidence());
         assertEquals("conservative", profile.getFavoriteRiskCategory());
+        assertEquals("TSLA,KO,NVDA", profile.getMostTradedSymbols());
     }
 
     @Test
@@ -336,12 +547,16 @@ class UserBehaviorProfileServiceImplTests {
     }
 
     private PaperPosition position(String symbol, int quantity) {
+        return position(symbol, quantity, "100.00", new BigDecimal("100.00").multiply(BigDecimal.valueOf(quantity)).toPlainString());
+    }
+
+    private PaperPosition position(String symbol, int quantity, String averageCost, String totalCost) {
         PaperPosition position = new PaperPosition();
         position.setUser(user);
         position.setSymbol(symbol);
         position.setQuantity(quantity);
-        position.setAverageCost(new BigDecimal("100.00"));
-        position.setTotalCost(new BigDecimal("100.00").multiply(BigDecimal.valueOf(quantity)));
+        position.setAverageCost(new BigDecimal(averageCost));
+        position.setTotalCost(new BigDecimal(totalCost));
         position.setRealizedPl(BigDecimal.ZERO);
         position.setCreatedAt(LocalDateTime.now());
         position.setUpdatedAt(LocalDateTime.now());
@@ -351,7 +566,31 @@ class UserBehaviorProfileServiceImplTests {
     private Stock stock(String symbol, String price) {
         Stock stock = new Stock();
         stock.setSymbol(symbol);
-        stock.setCurrentPrice(new BigDecimal(price));
+        stock.setCurrentPrice(price == null ? null : new BigDecimal(price));
         return stock;
+    }
+
+    private StockAnalysisSnapshot snapshot(String symbol, String riskCategory, String volatilityLabel) {
+        StockAnalysisSnapshot snapshot = new StockAnalysisSnapshot();
+        snapshot.setAnalysisSnapshotId((long) Math.abs(symbol.hashCode()));
+        snapshot.setSymbol(symbol);
+        snapshot.setTimeframe("7D");
+        snapshot.setRiskCategory(riskCategory);
+        snapshot.setVolatilityLabel(volatilityLabel);
+        snapshot.setSnapshotHash(symbol + "-hash");
+        snapshot.setCreatedAt(LocalDateTime.now());
+        return snapshot;
+    }
+
+    private PaperTradingAccount account(String cashBalance) {
+        PaperTradingAccount account = new PaperTradingAccount();
+        account.setAccountId(10L);
+        account.setUser(user);
+        account.setCashBalance(new BigDecimal(cashBalance));
+        account.setStartingCash(new BigDecimal("1000000.00"));
+        account.setStatus(PaperTradingAccountStatus.ACTIVE);
+        account.setCreatedAt(LocalDateTime.now());
+        account.setUpdatedAt(LocalDateTime.now());
+        return account;
     }
 }
