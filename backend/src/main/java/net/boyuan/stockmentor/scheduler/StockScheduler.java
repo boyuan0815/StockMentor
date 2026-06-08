@@ -52,8 +52,8 @@ public class StockScheduler {
         }
     }
 
-    // 20:30: update daily candles soon after each trading day instead of waiting for weekend catch-up.
-    @Scheduled(cron = "0 30 20 * * MON-FRI", zone = "America/New_York")
+    // 19:00: update daily candles soon after each trading day instead of waiting for weekend catch-up.
+    @Scheduled(cron = "0 00 19 * * MON-FRI", zone = "America/New_York")
     private void fetchDailyAfterMarketClose() {
         if (marketTimeService.isTradingDay()) {
             LocalDate today = LocalDate.now(NY_ZONE);
