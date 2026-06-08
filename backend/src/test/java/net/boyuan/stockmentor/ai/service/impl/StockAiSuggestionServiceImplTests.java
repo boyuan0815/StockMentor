@@ -126,6 +126,11 @@ class StockAiSuggestionServiceImplTests {
         verify(openAiClient, never()).generateSuggestion(anyString(), anyString());
         verify(behaviorProfileService, never()).createLowConfidenceProfileIfMissing(any());
         verify(behaviorProfileService, never()).getBehaviorSummaryForSuggestion(anyLong());
+        verify(batchRepository, never()).save(any(StockAiSuggestionBatch.class));
+        verify(batchRepository, never()).findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(
+                eq(1L),
+                eq(StockAiSuggestionTriggerReason.NO_ACTIVE_SUGGESTION)
+        );
     }
 
     @Test
@@ -153,6 +158,11 @@ class StockAiSuggestionServiceImplTests {
         verify(openAiClient, never()).generateSuggestion(anyString(), anyString());
         verify(behaviorProfileService, never()).createLowConfidenceProfileIfMissing(any());
         verify(behaviorProfileService, never()).getBehaviorSummaryForSuggestion(anyLong());
+        verify(batchRepository, never()).save(any(StockAiSuggestionBatch.class));
+        verify(batchRepository, never()).findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(
+                eq(1L),
+                eq(StockAiSuggestionTriggerReason.NO_ACTIVE_SUGGESTION)
+        );
     }
 
     @Test
@@ -539,6 +549,56 @@ class StockAiSuggestionServiceImplTests {
     }
 
     @Test
+    void profileFieldsAreIncludedInInputHash() {
+        LocalDateTime behaviorUpdatedAt = LocalDateTime.of(2026, 6, 8, 9, 0);
+        BehaviorSummaryForSuggestion summary = behaviorSummary(behaviorUpdatedAt);
+        String baseline = inputHashForGeneratedFallback(profile(), summary);
+
+        UserInvestmentProfile riskChanged = profile();
+        riskChanged.setRiskTolerance(RiskTolerance.CONSERVATIVE);
+        assertNotEquals(baseline, inputHashForGeneratedFallback(riskChanged, summary));
+
+        UserInvestmentProfile goalChanged = profile();
+        goalChanged.setInvestmentGoal(InvestmentGoal.STABLE);
+        assertNotEquals(baseline, inputHashForGeneratedFallback(goalChanged, summary));
+
+        UserInvestmentProfile experienceChanged = profile();
+        experienceChanged.setExperienceLevel(ExperienceLevel.INTERMEDIATE);
+        assertNotEquals(baseline, inputHashForGeneratedFallback(experienceChanged, summary));
+
+        UserInvestmentProfile volatilityChanged = profile();
+        volatilityChanged.setPreferredVolatility(PreferredVolatility.LOW);
+        assertNotEquals(baseline, inputHashForGeneratedFallback(volatilityChanged, summary));
+
+        UserInvestmentProfile horizonChanged = profile();
+        horizonChanged.setPreferredHorizon(PreferredHorizon.LONG_TERM);
+        assertNotEquals(baseline, inputHashForGeneratedFallback(horizonChanged, summary));
+
+        UserInvestmentProfile scoresChanged = profile();
+        scoresChanged.setRiskScore(80);
+        scoresChanged.setGoalScore(30);
+        scoresChanged.setExperienceScore(60);
+        assertNotEquals(baseline, inputHashForGeneratedFallback(scoresChanged, summary));
+
+        UserInvestmentProfile sourceChanged = profile();
+        sourceChanged.setProfileSource(ProfileSource.RETAKE_QUIZ);
+        assertNotEquals(baseline, inputHashForGeneratedFallback(sourceChanged, summary));
+
+        UserInvestmentProfile versionChanged = profile();
+        versionChanged.setProfileVersion(2);
+        assertNotEquals(baseline, inputHashForGeneratedFallback(versionChanged, summary));
+    }
+
+    @Test
+    void behaviorSummaryUpdatedAtRemainsIncludedInInputHash() {
+        UserInvestmentProfile profile = profile();
+        String firstHash = inputHashForGeneratedFallback(profile, behaviorSummary(LocalDateTime.of(2026, 6, 8, 9, 0)));
+        String secondHash = inputHashForGeneratedFallback(profile, behaviorSummary(LocalDateTime.of(2026, 6, 8, 10, 0)));
+
+        assertNotEquals(firstHash, secondHash);
+    }
+
+    @Test
     void promptIncludesSortedCandidateFitSignalsWithConservativeGuardrail() throws Exception {
         UserInvestmentProfile profile = profile();
         profile.setRiskTolerance(RiskTolerance.CONSERVATIVE);
@@ -840,6 +900,55 @@ class StockAiSuggestionServiceImplTests {
         profile.setCreatedAt(LocalDateTime.now().minusDays(1));
         profile.setUpdatedAt(LocalDateTime.now().minusDays(1));
         return profile;
+    }
+
+    private String inputHashForGeneratedFallback(
+            UserInvestmentProfile profile,
+            BehaviorSummaryForSuggestion behaviorSummary
+    ) {
+        reset(
+                profileRepository,
+                batchRepository,
+                itemRepository,
+                stockAnalysisService,
+                openAiClient,
+                behaviorProfileService
+        );
+
+        AtomicReference<String> inputHash = new AtomicReference<>();
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.empty());
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(
+                eq(1L),
+                eq("gpt-4o-mini"),
+                eq("stock-suggestion-v2"),
+                anyString(),
+                anyCollection()
+        )).thenReturn(Optional.empty());
+        when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(OpenAiSuggestionResult.failure("OpenAI unavailable"));
+        when(batchRepository.findTopByUserUserIdAndStatusAndCreatedAtAfterOrderByCreatedAtDesc(
+                eq(1L),
+                eq(StockAiSuggestionBatchStatus.SUCCESS),
+                any()
+        )).thenReturn(Optional.empty());
+        when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE)).thenReturn(List.of());
+        when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> {
+            StockAiSuggestionBatch batch = invocation.getArgument(0);
+            inputHash.set(batch.getInputHash());
+            batch.setSuggestionBatchId(90L);
+            return batch;
+        });
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(any(), anyCollection())).thenReturn(List.of());
+        when(behaviorProfileService.createLowConfidenceProfileIfMissing(user)).thenReturn(behaviorProfile());
+        when(behaviorProfileService.getBehaviorSummaryForSuggestion(1L)).thenReturn(behaviorSummary);
+
+        service.generateSuggestionsForUser(user, StockAiSuggestionTriggerReason.SCHEDULED_REFRESH, false);
+
+        assertNotNull(inputHash.get());
+        return inputHash.get();
     }
 
     private StockAiSuggestionBatch batch(UserInvestmentProfile profile, StockAiSuggestionBatchStatus status) {
