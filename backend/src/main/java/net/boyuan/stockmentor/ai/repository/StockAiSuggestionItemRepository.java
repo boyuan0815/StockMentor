@@ -17,6 +17,10 @@ public interface StockAiSuggestionItemRepository extends JpaRepository<StockAiSu
 
     List<StockAiSuggestionItem> findBySuggestionBatchOrderByRankNoAsc(StockAiSuggestionBatch suggestionBatch);
 
+    List<StockAiSuggestionItem> findBySuggestionBatchSuggestionBatchIdInOrderBySuggestionBatchSuggestionBatchIdAscRankNoAsc(
+            Collection<Long> suggestionBatchIds
+    );
+
     List<StockAiSuggestionItem> findByUserUserIdAndStatus(Long userId, StockAiSuggestionItemStatus status);
 
     Optional<StockAiSuggestionItem> findBySuggestionItemIdAndUserUserId(Long suggestionItemId, Long userId);
