@@ -24,3 +24,6 @@ openai:
 stockmentor:
   admin:
     token: test-admin-token
+  paper-trading:
+    initial-cash: 1000000.00
+    trade-fee: 1.00

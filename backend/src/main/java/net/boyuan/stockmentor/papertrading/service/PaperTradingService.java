@@ -9,7 +9,19 @@ public interface PaperTradingService {
 
     PaperPortfolioResponse getCurrentUserPortfolio();
 
-    List<PaperTradeTransactionResponse> getCurrentUserTransactions();
+    List<PaperTradeTransactionResponse> getCurrentUserTransactions(
+            String symbol,
+            String side,
+            String from,
+            String to,
+            Integer page,
+            Integer size,
+            Boolean currentSessionOnly
+    );
+
+    PaperTradeTransactionResponse getCurrentUserTransaction(Long transactionId);
+
+    PaperPortfolioResponse resetCurrentUserPortfolio();
 
     PaperTradeExecutionResponse buyForCurrentUser(PaperTradeRequest request);
 

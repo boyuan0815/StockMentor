@@ -9,8 +9,16 @@ public record PaperTradeTransactionResponse(
         String side,
         Integer quantity,
         BigDecimal executionPrice,
+        BigDecimal price,
         BigDecimal grossAmount,
+        BigDecimal fee,
+        BigDecimal netAmount,
+        BigDecimal totalAmount,
+        BigDecimal realizedProfitLoss,
         BigDecimal cashBalanceAfter,
-        LocalDateTime executedAt
+        Boolean isCurrentSession,
+        Integer sessionNumber,
+        LocalDateTime executedAt,
+        LocalDateTime transactionTime
 ) {
 }

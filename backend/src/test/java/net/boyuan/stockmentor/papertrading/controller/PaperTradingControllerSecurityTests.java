@@ -9,6 +9,7 @@ import net.boyuan.stockmentor.market.stock.repository.StockRepository;
 import net.boyuan.stockmentor.papertrading.repository.PaperPositionRepository;
 import net.boyuan.stockmentor.papertrading.repository.PaperTradeTransactionRepository;
 import net.boyuan.stockmentor.papertrading.repository.PaperTradingAccountRepository;
+import net.boyuan.stockmentor.papertrading.model.PaperTradeSide;
 import net.boyuan.stockmentor.userbehavior.repository.UserBehaviorProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,6 +71,8 @@ class PaperTradingControllerSecurityTests {
         mockMvc.perform(get("/api/paper-trading/account")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/paper-trading/portfolio")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/paper-trading/transactions")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/paper-trading/transactions/1")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/paper-trading/portfolio/reset")).andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/paper-trading/buy")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"symbol\":\"MSFT\",\"quantity\":1}"))
@@ -120,6 +123,36 @@ class PaperTradingControllerSecurityTests {
     }
 
     @Test
+    void fractionalQuantityReturnsBadRequestWithoutPartialTradeRows() throws Exception {
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-auth@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"MSFT\",\"quantity\":1.5}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+
+        assertTrue(accountRepository.findByUserUserId(authUser.getUserId()).isEmpty());
+        assertTrue(positionRepository.findByUserUserId(authUser.getUserId()).isEmpty());
+        assertTrue(transactionRepository.findTop50ByUserUserIdOrderByExecutedAtDesc(authUser.getUserId()).isEmpty());
+        assertTrue(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(authUser.getUserId()).isEmpty());
+    }
+
+    @Test
+    void nonNumericQuantityReturnsBadRequestWithoutPartialTradeRows() throws Exception {
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-auth@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"MSFT\",\"quantity\":\"one\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+
+        assertTrue(accountRepository.findByUserUserId(authUser.getUserId()).isEmpty());
+        assertTrue(positionRepository.findByUserUserId(authUser.getUserId()).isEmpty());
+        assertTrue(transactionRepository.findTop50ByUserUserIdOrderByExecutedAtDesc(authUser.getUserId()).isEmpty());
+        assertTrue(behaviorProfileRepository.findTopByUserUserIdOrderByUpdatedAtDesc(authUser.getUserId()).isEmpty());
+    }
+
+    @Test
     void unsupportedSymbolReturnsBadRequestWithServiceMessageAndNoPartialTradeRows() throws Exception {
         mockMvc.perform(post("/api/paper-trading/buy")
                         .with(httpBasic("paper-auth@example.com", "password"))
@@ -165,6 +198,82 @@ class PaperTradingControllerSecurityTests {
 
         assertTrue(accountRepository.findByUserUserId(authUser.getUserId()).isPresent());
         assertTrue(accountRepository.findByUserUserId(otherUser.getUserId()).isEmpty());
+    }
+
+    @Test
+    void resetClearsOnlyCurrentUserPortfolioAndCreatesResetMarker() throws Exception {
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-auth@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"MSFT\",\"quantity\":1}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-other@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"MSFT\",\"quantity\":1}"))
+                .andExpect(status().isOk());
+
+        long behaviorProfileCount = behaviorProfileRepository.count();
+
+        mockMvc.perform(post("/api/paper-trading/portfolio/reset")
+                        .with(httpBasic("paper-auth@example.com", "password")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.cashBalance").value(1000000.0000))
+                .andExpect(jsonPath("$.startingCash").value(1000000.0000))
+                .andExpect(jsonPath("$.currentSessionNumber").value(2))
+                .andExpect(jsonPath("$.positions").isEmpty());
+
+        assertTrue(positionRepository.findByUserUserId(authUser.getUserId()).isEmpty());
+        assertTrue(!positionRepository.findByUserUserId(otherUser.getUserId()).isEmpty());
+        assertTrue(transactionRepository.findTop50ByUserUserIdOrderByExecutedAtDesc(authUser.getUserId()).stream()
+                .anyMatch(transaction -> transaction.getSide() == PaperTradeSide.RESET
+                        && transaction.getSymbol() == null
+                        && Boolean.TRUE.equals(transaction.getIsCurrentSession())));
+        assertTrue(transactionRepository.findTop50ByUserUserIdOrderByExecutedAtDesc(authUser.getUserId()).stream()
+                .anyMatch(transaction -> transaction.getSide() == PaperTradeSide.BUY
+                        && Boolean.FALSE.equals(transaction.getIsCurrentSession())));
+        assertTrue(behaviorProfileRepository.count() == behaviorProfileCount);
+    }
+
+    @Test
+    void transactionDetailIsScopedToCurrentUserAndFiltersSupportReset() throws Exception {
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-auth@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"MSFT\",\"quantity\":1}"))
+                .andExpect(status().isOk());
+        Long ownTransactionId = transactionRepository.findTop50ByUserUserIdOrderByExecutedAtDesc(authUser.getUserId())
+                .get(0)
+                .getTransactionId();
+
+        mockMvc.perform(get("/api/paper-trading/transactions/" + ownTransactionId)
+                        .with(httpBasic("paper-auth@example.com", "password")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.transactionId").value(ownTransactionId))
+                .andExpect(jsonPath("$.fee").value(1.0000))
+                .andExpect(jsonPath("$.netAmount").value(101.0000));
+
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-other@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"MSFT\",\"quantity\":1}"))
+                .andExpect(status().isOk());
+        Long otherTransactionId = transactionRepository.findTop50ByUserUserIdOrderByExecutedAtDesc(otherUser.getUserId())
+                .get(0)
+                .getTransactionId();
+
+        mockMvc.perform(get("/api/paper-trading/transactions/" + otherTransactionId)
+                        .with(httpBasic("paper-auth@example.com", "password")))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(post("/api/paper-trading/portfolio/reset")
+                        .with(httpBasic("paper-auth@example.com", "password")))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/paper-trading/transactions?side=RESET&currentSessionOnly=true")
+                        .with(httpBasic("paper-auth@example.com", "password")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].side").value("RESET"))
+                .andExpect(jsonPath("$[0].symbol").doesNotExist());
     }
 
     private AppUser ensureUser(String email, String username) {

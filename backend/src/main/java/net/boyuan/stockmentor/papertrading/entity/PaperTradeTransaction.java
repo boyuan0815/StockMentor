@@ -33,7 +33,7 @@ public class PaperTradeTransaction {
     @JoinColumn(name = "user_id", nullable = false)
     private AppUser user;
 
-    @Column(name = "symbol", length = 10, nullable = false)
+    @Column(name = "symbol", length = 10)
     private String symbol;
 
     @Enumerated(EnumType.STRING)
@@ -49,8 +49,23 @@ public class PaperTradeTransaction {
     @Column(name = "gross_amount", precision = 19, scale = 4, nullable = false, updatable = false)
     private BigDecimal grossAmount;
 
+    @Column(name = "fee", precision = 19, scale = 4, updatable = false)
+    private BigDecimal fee;
+
+    @Column(name = "net_amount", precision = 19, scale = 4, updatable = false)
+    private BigDecimal netAmount;
+
+    @Column(name = "realized_profit_loss", precision = 19, scale = 4, updatable = false)
+    private BigDecimal realizedProfitLoss;
+
     @Column(name = "cash_balance_after", precision = 19, scale = 4, nullable = false, updatable = false)
     private BigDecimal cashBalanceAfter;
+
+    @Column(name = "is_current_session")
+    private Boolean isCurrentSession;
+
+    @Column(name = "session_number")
+    private Integer sessionNumber;
 
     @Column(name = "executed_at", nullable = false, updatable = false)
     private LocalDateTime executedAt;

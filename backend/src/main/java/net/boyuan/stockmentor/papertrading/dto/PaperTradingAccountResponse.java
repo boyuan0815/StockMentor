@@ -7,6 +7,8 @@ public record PaperTradingAccountResponse(
         Long accountId,
         BigDecimal cashBalance,
         BigDecimal startingCash,
+        Integer currentSessionNumber,
+        LocalDateTime lastResetAt,
         String status,
         LocalDateTime createdAt,
         LocalDateTime updatedAt

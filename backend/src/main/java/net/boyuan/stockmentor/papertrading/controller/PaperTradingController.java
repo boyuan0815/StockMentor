@@ -25,8 +25,26 @@ public class PaperTradingController {
     }
 
     @GetMapping("/transactions")
-    public List<PaperTradeTransactionResponse> getTransactions() {
-        return paperTradingService.getCurrentUserTransactions();
+    public List<PaperTradeTransactionResponse> getTransactions(
+            @RequestParam(required = false) String symbol,
+            @RequestParam(required = false) String side,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            @RequestParam(required = false) Boolean currentSessionOnly
+    ) {
+        return paperTradingService.getCurrentUserTransactions(symbol, side, from, to, page, size, currentSessionOnly);
+    }
+
+    @GetMapping("/transactions/{transactionId}")
+    public PaperTradeTransactionResponse getTransaction(@PathVariable Long transactionId) {
+        return paperTradingService.getCurrentUserTransaction(transactionId);
+    }
+
+    @PostMapping("/portfolio/reset")
+    public PaperPortfolioResponse resetPortfolio() {
+        return paperTradingService.resetCurrentUserPortfolio();
     }
 
     @PostMapping("/buy")

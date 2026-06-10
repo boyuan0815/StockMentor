@@ -101,7 +101,9 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
         LocalDateTime startAt = analysisStart.atStartOfDay();
         LocalDateTime endAt = analysisEnd.atTime(LocalTime.MAX);
         List<PaperTradeTransaction> transactions = transactionRepository
-                .findByUserUserIdAndExecutedAtBetweenOrderByExecutedAtDesc(userId, startAt, endAt);
+                .findByUserUserIdAndExecutedAtBetweenOrderByExecutedAtDesc(userId, startAt, endAt).stream()
+                .filter(this::isBehaviorTransaction)
+                .toList();
         List<PaperPosition> positions = positionRepository.findByUserUserId(userId);
         Set<String> symbols = symbols(transactions, positions);
         Map<String, StockAnalysisSnapshot> latestSnapshotBySymbol = latestSnapshots(symbols);
@@ -401,14 +403,31 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
     }
 
     private Collection<String> symbols(List<PaperPosition> positions) {
-        return positions.stream().map(PaperPosition::getSymbol).distinct().toList();
+        return positions.stream()
+                .map(PaperPosition::getSymbol)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
     }
 
     private Set<String> symbols(List<PaperTradeTransaction> transactions, List<PaperPosition> positions) {
         Set<String> symbols = new HashSet<>();
-        transactions.stream().map(PaperTradeTransaction::getSymbol).forEach(symbols::add);
-        positions.stream().map(PaperPosition::getSymbol).forEach(symbols::add);
+        transactions.stream().map(PaperTradeTransaction::getSymbol).filter(Objects::nonNull).forEach(symbols::add);
+        positions.stream().map(PaperPosition::getSymbol).filter(Objects::nonNull).forEach(symbols::add);
         return symbols;
+    }
+
+    private boolean isBehaviorTransaction(PaperTradeTransaction transaction) {
+        if (transaction.getSymbol() == null || transaction.getSymbol().isBlank()) {
+            return false;
+        }
+        if (transaction.getQuantity() == null || transaction.getQuantity() <= 0) {
+            return false;
+        }
+        if (transaction.getSide() != PaperTradeSide.BUY && transaction.getSide() != PaperTradeSide.SELL) {
+            return false;
+        }
+        return transaction.getIsCurrentSession() == null || Boolean.TRUE.equals(transaction.getIsCurrentSession());
     }
 
     private Map<String, StockAnalysisSnapshot> latestSnapshots(Set<String> symbols) {

@@ -39,6 +39,7 @@ import static org.mockito.Mockito.*;
 class PaperTradingServiceImplTests {
     private static final BigDecimal INITIAL_CASH = new BigDecimal("1000000.00");
     private static final BigDecimal INITIAL_CASH_RESPONSE = new BigDecimal("1000000.0000");
+    private static final BigDecimal TRADE_FEE = new BigDecimal("1.00");
 
     @Mock
     private CurrentUserService currentUserService;
@@ -67,6 +68,7 @@ class PaperTradingServiceImplTests {
                 behaviorProfileService
         );
         ReflectionTestUtils.setField(service, "initialCash", INITIAL_CASH);
+        ReflectionTestUtils.setField(service, "tradeFee", TRADE_FEE);
         user = user(1L);
         when(currentUserService.getCurrentUser()).thenReturn(user);
     }
@@ -85,6 +87,8 @@ class PaperTradingServiceImplTests {
         assertEquals(11L, response.accountId());
         assertEquals(INITIAL_CASH_RESPONSE, response.cashBalance());
         assertEquals(INITIAL_CASH_RESPONSE, response.startingCash());
+        assertEquals(1, response.currentSessionNumber());
+        assertNull(response.lastResetAt());
         assertEquals("ACTIVE", response.status());
     }
 
@@ -118,12 +122,17 @@ class PaperTradingServiceImplTests {
 
         PaperTradeExecutionResponse response = service.buyForCurrentUser(new PaperTradeRequest("msft", 3));
 
-        assertEquals(INITIAL_CASH_RESPONSE.subtract(new BigDecimal("300.0000")), response.account().cashBalance());
+        assertEquals(INITIAL_CASH_RESPONSE.subtract(new BigDecimal("301.0000")), response.account().cashBalance());
         assertEquals(3, response.position().quantity());
-        assertEquals(new BigDecimal("100.0000"), response.position().averageCost());
-        assertEquals(new BigDecimal("300.0000"), response.position().totalCost());
+        assertEquals(new BigDecimal("100.3333"), response.position().averageCost());
+        assertEquals(new BigDecimal("301.0000"), response.position().totalCost());
         assertEquals(PaperTradeSide.BUY.name(), response.transaction().side());
         assertEquals(new BigDecimal("300.0000"), response.transaction().grossAmount());
+        assertEquals(new BigDecimal("1.0000"), response.transaction().fee());
+        assertEquals(new BigDecimal("301.0000"), response.transaction().netAmount());
+        assertEquals(BigDecimal.ZERO.setScale(4), response.transaction().realizedProfitLoss());
+        assertTrue(response.transaction().isCurrentSession());
+        assertEquals(1, response.transaction().sessionNumber());
         verify(behaviorProfileService).recalculateBehaviorProfile(1L);
     }
 
@@ -175,10 +184,13 @@ class PaperTradingServiceImplTests {
 
         PaperTradeExecutionResponse response = service.sellForCurrentUser(new PaperTradeRequest("MSFT", 2));
 
-        assertEquals(new BigDecimal("5240.0000"), response.account().cashBalance());
+        assertEquals(new BigDecimal("5239.0000"), response.account().cashBalance());
         assertEquals(3, response.position().quantity());
         assertEquals(new BigDecimal("300.0000"), response.position().totalCost());
         assertEquals(PaperTradeSide.SELL.name(), response.transaction().side());
+        assertEquals(new BigDecimal("1.0000"), response.transaction().fee());
+        assertEquals(new BigDecimal("239.0000"), response.transaction().netAmount());
+        assertEquals(new BigDecimal("39.0000"), response.transaction().realizedProfitLoss());
         verify(positionRepository, never()).delete(any(PaperPosition.class));
         verify(behaviorProfileService).recalculateBehaviorProfile(1L);
     }
@@ -197,6 +209,23 @@ class PaperTradingServiceImplTests {
         assertNull(response.position());
         verify(positionRepository).delete(position);
         verify(positionRepository, never()).save(any(PaperPosition.class));
+    }
+
+    @Test
+    void fullSellUsesPositionTotalCostForRealizedProfitLoss() {
+        PaperTradingAccount account = account(user, "5000.00");
+        PaperPosition position = position(user, "MSFT", 7, "412.1314", "2884.9200");
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "411.76")));
+        when(positionRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.of(position));
+        when(transactionRepository.save(any(PaperTradeTransaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaperTradeExecutionResponse response = service.sellForCurrentUser(new PaperTradeRequest("MSFT", 7));
+
+        assertNull(response.position());
+        assertEquals(new BigDecimal("2881.3200"), response.transaction().netAmount());
+        assertEquals(new BigDecimal("-3.6000"), response.transaction().realizedProfitLoss());
+        verify(positionRepository).delete(position);
     }
 
     @Test
@@ -221,18 +250,72 @@ class PaperTradingServiceImplTests {
     void portfolioAndTransactionsAreScopedToCurrentUser() {
         PaperTradingAccount account = account(user, "9500.00");
         when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
-        when(positionRepository.findByUserUserId(1L)).thenReturn(List.of(position(user, "MSFT", 5, "100.00", "500.00")));
+        when(positionRepository.findByUserUserIdOrderBySymbolAsc(1L)).thenReturn(List.of(position(user, "MSFT", 5, "100.00", "500.00")));
         when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "110.00")));
+        when(transactionRepository.sumCurrentSessionRealizedProfitLossByUserIdAndSide(1L, PaperTradeSide.SELL)).thenReturn(BigDecimal.ZERO);
+        when(transactionRepository.sumCurrentSessionFeeByUserIdAndSideIn(eq(1L), anyList())).thenReturn(BigDecimal.ZERO);
         PaperTradeTransaction transaction = transaction(user, "MSFT", PaperTradeSide.BUY, 5, "100.00", "9500.00");
         when(transactionRepository.findTop50ByUserUserIdOrderByExecutedAtDesc(1L)).thenReturn(List.of(transaction));
 
         PaperPortfolioResponse portfolio = service.getCurrentUserPortfolio();
 
         assertEquals(1, portfolio.positions().size());
-        assertEquals(new BigDecimal("10050.0000"), portfolio.estimatedPortfolioValue());
-        assertEquals(1, service.getCurrentUserTransactions().size());
-        verify(positionRepository).findByUserUserId(1L);
+        assertEquals(new BigDecimal("10050.0000"), portfolio.totalPortfolioValue());
+        assertEquals(BigDecimal.ZERO.setScale(4), portfolio.realizedProfitLoss());
+        assertEquals(BigDecimal.ZERO.setScale(4), portfolio.totalFeesPaid());
+        assertEquals(1, service.getCurrentUserTransactions(null, null, null, null, null, null, null).size());
+        verify(positionRepository).findByUserUserIdOrderBySymbolAsc(1L);
         verify(transactionRepository).findTop50ByUserUserIdOrderByExecutedAtDesc(1L);
+    }
+
+    @Test
+    void resetRestoresCashClearsCurrentUserPositionsCreatesResetMarkerAndSkipsBehavior() {
+        PaperTradingAccount account = account(user, "5000.00");
+        account.setCurrentSessionNumber(2);
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+        when(transactionRepository.save(any(PaperTradeTransaction.class))).thenAnswer(invocation -> {
+            PaperTradeTransaction transaction = invocation.getArgument(0);
+            transaction.setTransactionId(51L);
+            return transaction;
+        });
+        when(transactionRepository.sumCurrentSessionRealizedProfitLossByUserIdAndSide(1L, PaperTradeSide.SELL)).thenReturn(BigDecimal.ZERO);
+        when(transactionRepository.sumCurrentSessionFeeByUserIdAndSideIn(eq(1L), anyList())).thenReturn(BigDecimal.ZERO);
+
+        PaperPortfolioResponse response = service.resetCurrentUserPortfolio();
+
+        assertEquals(INITIAL_CASH_RESPONSE, response.cashBalance());
+        assertEquals(INITIAL_CASH_RESPONSE, response.startingCash());
+        assertEquals(3, response.currentSessionNumber());
+        assertNotNull(response.lastResetAt());
+        assertTrue(response.positions().isEmpty());
+        verify(transactionRepository).markCurrentSessionFalseByUserId(1L);
+        verify(positionRepository).deleteByUserUserId(1L);
+        verify(transactionRepository).save(argThat(transaction ->
+                transaction.getSide() == PaperTradeSide.RESET
+                        && transaction.getSymbol() == null
+                        && transaction.getQuantity() == 0
+                        && Boolean.TRUE.equals(transaction.getIsCurrentSession())
+                        && transaction.getSessionNumber() == 3
+        ));
+        verify(behaviorProfileService, never()).recalculateBehaviorProfile(anyLong());
+    }
+
+    @Test
+    void buyBehaviorFailureDoesNotRollbackTradeData() {
+        PaperTradingAccount account = account(user, INITIAL_CASH.toPlainString());
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "100.00")));
+        when(positionRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.empty());
+        when(positionRepository.save(any(PaperPosition.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(transactionRepository.save(any(PaperTradeTransaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        doThrow(new IllegalStateException("analytics failed")).when(behaviorProfileService).recalculateBehaviorProfile(1L);
+
+        PaperTradeExecutionResponse response = service.buyForCurrentUser(new PaperTradeRequest("MSFT", 1));
+
+        assertEquals(new BigDecimal("999899.0000"), response.account().cashBalance());
+        assertNull(response.position().portfolioWeightPercent());
+        verify(positionRepository).save(any(PaperPosition.class));
+        verify(transactionRepository).save(any(PaperTradeTransaction.class));
     }
 
     private AppUser user(Long userId) {
@@ -252,6 +335,7 @@ class PaperTradingServiceImplTests {
         account.setUser(user);
         account.setCashBalance(new BigDecimal(cashBalance));
         account.setStartingCash(INITIAL_CASH);
+        account.setCurrentSessionNumber(1);
         account.setStatus(PaperTradingAccountStatus.ACTIVE);
         account.setCreatedAt(LocalDateTime.now().minusDays(1));
         account.setUpdatedAt(LocalDateTime.now().minusDays(1));
@@ -289,8 +373,14 @@ class PaperTradingServiceImplTests {
         transaction.setSide(side);
         transaction.setQuantity(quantity);
         transaction.setExecutionPrice(new BigDecimal(price));
-        transaction.setGrossAmount(new BigDecimal(price).multiply(BigDecimal.valueOf(quantity)));
+        BigDecimal grossAmount = new BigDecimal(price).multiply(BigDecimal.valueOf(quantity));
+        transaction.setGrossAmount(grossAmount);
+        transaction.setFee(BigDecimal.ZERO);
+        transaction.setNetAmount(grossAmount);
+        transaction.setRealizedProfitLoss(BigDecimal.ZERO);
         transaction.setCashBalanceAfter(new BigDecimal(cashAfter));
+        transaction.setIsCurrentSession(true);
+        transaction.setSessionNumber(1);
         transaction.setExecutedAt(LocalDateTime.now());
         return transaction;
     }

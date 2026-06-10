@@ -41,6 +41,12 @@ public class PaperTradingAccount {
     @Column(name = "status", length = 30, nullable = false)
     private PaperTradingAccountStatus status;
 
+    @Column(name = "current_session_number")
+    private Integer currentSessionNumber;
+
+    @Column(name = "last_reset_at")
+    private LocalDateTime lastResetAt;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

@@ -9,5 +9,9 @@ import java.util.Optional;
 public interface PaperPositionRepository extends JpaRepository<PaperPosition, Long> {
     List<PaperPosition> findByUserUserId(Long userId);
 
+    List<PaperPosition> findByUserUserIdOrderBySymbolAsc(Long userId);
+
     Optional<PaperPosition> findByUserUserIdAndSymbol(Long userId, String symbol);
+
+    void deleteByUserUserId(Long userId);
 }
