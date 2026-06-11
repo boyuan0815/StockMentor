@@ -73,6 +73,21 @@
 - Behavior personalization must come through `UserBehaviorProfileService`; do not calculate behavior from watchlist rows, suggestion dismissals, page views, clicks, or browsing.
 - Paper-trading endpoints must not call OpenAI. They may update behavior profiles after successful trades through the behavior service.
 
+## User Onboarding/Profile Rules
+- US004 onboarding/profile is backend-only under `/api/user/**`.
+- Normal user endpoints require Basic Auth and must resolve the current user through `CurrentUserService`.
+- Do not accept or trust frontend-provided `userId`, `riskScore`, `profileSource`, profile version, or behavior fields.
+- Onboarding questions are backend-owned and stable.
+- First onboarding uses `profileSource = ONBOARDING`; retake uses `profileSource = RETAKE_QUIZ`.
+- Investment profile versioning is immutable and uses max existing version + 1.
+- US004-created `UserInvestmentProfile` rows must leave behavior fields null.
+- US004 must not create, recalculate, reset, or downgrade behavior profiles.
+- Profile response may include behavior summary through read-only behavior summary retrieval.
+- First onboarding triggers AI suggestions after commit using `ONBOARDING_COMPLETED`; retake triggers after commit using `RETAKE_QUIZ`.
+- AI suggestion trigger failures must be caught/logged and must not roll back onboarding/profile saves.
+- `GET /api/user/profile` and `GET /api/user/onboarding/questions` must be read-only and must not trigger AI generation.
+- Registration is not implemented yet; do not add or expose `/api/auth/register` unless explicitly scoped later.
+
 ## Admin AI Suggestion Rules
 - Admin AI endpoints live under `/api/admin/ai-suggestions/**` and require both ADMIN role and a valid `X-Admin-Token`.
 - Current admin AI endpoints are:
@@ -96,7 +111,6 @@
 - Keep `backend/src/main/resources/application-example.yaml` updated when configuration fields are added.
 
 ## Known Future Work
-- Real onboarding and quiz-retake write flows should call the V5B AI suggestion trigger facade after user/profile saves complete.
 - Paper-trading completeness belongs in a separate scope: portfolio reset, transaction filters, complete realized P/L, and advanced order features are not part of the current AI suggestion worktree.
 - Advanced order features such as limit orders, stop orders, stop-limit orders, automation, margin, short selling, and brokerage integration are out of scope unless explicitly requested.
 - JWT may be added later, but backend business logic should continue to rely on `CurrentUserService` for current-user resolution.
