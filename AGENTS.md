@@ -88,6 +88,33 @@
 - `GET /api/user/profile` and `GET /api/user/onboarding/questions` must be read-only and must not trigger AI generation.
 - Registration is not implemented yet; do not add or expose `/api/auth/register` unless explicitly scoped later.
 
+## Paper-Trading Rules
+- Paper-trading backend lives under `backend/src/main/java/net/boyuan/stockmentor/papertrading` and uses Controller -> Service -> Repository layering.
+- Current paper-trading endpoints are:
+  `GET /api/paper-trading/account`,
+  `GET /api/paper-trading/portfolio`,
+  `POST /api/paper-trading/portfolio/reset`,
+  `POST /api/paper-trading/buy`,
+  `POST /api/paper-trading/sell`,
+  `GET /api/paper-trading/transactions`,
+  and `GET /api/paper-trading/transactions/{transactionId}`.
+- Paper-trading endpoints must resolve the authenticated user through `CurrentUserService`; never accept or trust frontend-provided `userId`.
+- BUY/SELL execution must use the latest stored `stock.currentPrice` from backend stock rows. Do not call Twelve Data, OpenAI, or any external brokerage/trading service during BUY, SELL, or RESET.
+- Supported symbols remain the StockMentor supported stock universe: `NVDA`, `TSLA`, `AMD`, `AAPL`, `MSFT`, `GOOG`, `KO`, and `JNJ`.
+- Quantities are whole integer shares only. Fractional JSON numbers such as `1.5` must be rejected instead of coerced to `1`; keep `ObjectMapperConfig` strict integer deserialization in place.
+- BUY applies the configured flat fee (`stockmentor.paper-trading.trade-fee`, default `1.00`) and includes that fee in position cost basis: `netAmount = quantity * price + fee`.
+- SELL applies the flat fee once, records realized P/L, and deletes the position on a full sell: `netAmount = quantity * price - fee`; `realizedProfitLoss = netAmount - costBasisSold`.
+- For full sells, use the position's full remaining `totalCost` as `costBasisSold` to avoid rounding drift. For partial sells, use `quantity * averageCost`.
+- Portfolio responses should expose current-session performance fields such as `totalPortfolioValue`, `realizedProfitLoss`, `returnPercentage`, `totalFeesPaid`, `currentSessionNumber`, and `lastResetAt`. Do not reintroduce duplicate aliases such as `estimatedPortfolioValue` or `initialCash` unless an API compatibility task explicitly requires it.
+- Direct BUY/SELL execution responses may return `portfolioWeightPercent = null` for the affected position because full portfolio value is not recalculated for that lightweight response. Full portfolio responses should calculate portfolio weights.
+- Transaction history supports current-user filters for `symbol`, `side`, `from`, `to`, `page`, `size`, and `currentSessionOnly`; it must still return a plain list, not a paged wrapper.
+- RESET is a backend-created transaction side only. RESET rows use `symbol = null`, zero quantity/amounts/fee/P&L, and mark the new current session. RESET must not trigger stock lookup, price lookup, OpenAI, Twelve Data, or behavior recalculation.
+- Portfolio reset increments `PaperTradingAccount.currentSessionNumber`, sets `lastResetAt`, resets cash and starting cash to configured initial cash, deletes only the current user's open positions, and marks only that user's previous current/null-session transactions as old.
+- Transaction columns added for US010 are intentionally nullable for local DB compatibility: `isCurrentSession`, `sessionNumber`, `fee`, `netAmount`, and `realizedProfitLoss`. Service/DTO logic must normalize old null values safely.
+- `PaperTradeTransaction.symbol` is nullable because RESET is not stock-specific. If an older local MySQL schema rejects RESET rows, the manual compatibility fix is `ALTER TABLE paper_trade_transaction MODIFY symbol VARCHAR(10) NULL;`; do not add Flyway/Liquibase only for this.
+- Behavior profile recalculation should run only after successful BUY/SELL commits, should be best-effort, and must not roll back valid trade persistence if behavior analytics fails. RESET, null-symbol rows, non BUY/SELL rows, and quantity `<= 0` rows must be ignored by behavior scoring.
+- Advanced order features remain out of scope unless explicitly requested: limit orders, stop orders, pending orders, automation, brokerage integration, margin, short selling, fractional shares, taxes, dividends, stock splits, FX conversion, lot tables, and closed-position tables.
+
 ## Admin AI Suggestion Rules
 - Admin AI endpoints live under `/api/admin/ai-suggestions/**` and require both ADMIN role and a valid `X-Admin-Token`.
 - Current admin AI endpoints are:
@@ -108,9 +135,10 @@
 ## Configuration And Secrets
 - Never hardcode API keys or admin tokens.
 - Keep the namespaced admin token property as `stockmentor.admin.token`.
+- Keep paper-trading config under `stockmentor.paper-trading`, currently including `initial-cash` and `trade-fee`.
 - Keep `backend/src/main/resources/application-example.yaml` updated when configuration fields are added.
 
 ## Known Future Work
 - Paper-trading completeness belongs in a separate scope: portfolio reset, transaction filters, complete realized P/L, and advanced order features are not part of the current AI suggestion worktree.
-- Advanced order features such as limit orders, stop orders, stop-limit orders, automation, margin, short selling, and brokerage integration are out of scope unless explicitly requested.
+- Advanced paper-trading order features such as limit orders, stop orders, stop-limit orders, automation, margin, short selling, and brokerage integration are out of scope unless explicitly requested.
 - JWT may be added later, but backend business logic should continue to rely on `CurrentUserService` for current-user resolution.
