@@ -71,6 +71,10 @@
 - Normal user endpoints require Basic Auth and must resolve the user through `CurrentUserService`; no endpoint should accept or trust frontend-provided `userId`.
 - AI suggestions may use onboarding profile, behavior summary, stock snapshots, and backend candidate-fit signals, but must not expose raw prompts, raw OpenAI responses, API keys, service tier, fingerprints, or secrets.
 - Behavior personalization must come through `UserBehaviorProfileService`; do not calculate behavior from watchlist rows, suggestion dismissals, page views, clicks, or browsing.
+- US006 suggestion generation must not create, insert, or recalculate `user_behavior_profile`; it may only read `BehaviorSummaryForSuggestion`.
+- US006 must combine declared onboarding preference and observed paper-trading behavior with explicit confidence-based weighting:
+  LOW/missing = onboarding 80 / behavior 20, MEDIUM = onboarding 40 / behavior 60, HIGH = onboarding 10 / behavior 90.
+- Behavior recalculation belongs to US010 after successful paper-trading BUY/SELL commits, not to US006 suggestion generation.
 - Paper-trading endpoints must not call OpenAI. They may update behavior profiles after successful trades through the behavior service.
 
 ## User Onboarding/Profile Rules
