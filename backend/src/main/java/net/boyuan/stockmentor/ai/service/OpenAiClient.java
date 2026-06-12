@@ -159,7 +159,7 @@ public class OpenAiClient {
     private Map<String, Object> suggestionRequest(String systemContent, String userContent, boolean useJsonSchema) {
         Map<String, Object> baseRequest = Map.of(
                 "model", model,
-                "temperature", 0.2,
+                "temperature", 0.1,
                 "messages", List.of(
                         Map.of("role", "system", "content", systemContent),
                         Map.of("role", "user", "content", userContent)
@@ -171,7 +171,7 @@ public class OpenAiClient {
 
         return Map.of(
                 "model", model,
-                "temperature", 0.2,
+                "temperature", 0.1,
                 "messages", baseRequest.get("messages"),
                 "response_format", suggestionResponseFormat()
         );
@@ -181,13 +181,34 @@ public class OpenAiClient {
         Map<String, Object> suggestionItemSchema = Map.of(
                 "type", "object",
                 "properties", Map.of(
-                        "symbol", Map.of("type", "string"),
-                        "rankNo", Map.of("type", "integer"),
-                        "matchScore", Map.of("type", "integer"),
-                        "riskLevel", Map.of("type", "string"),
-                        "suggestionLabel", Map.of("type", "string"),
-                        "shortReason", Map.of("type", "string"),
-                        "detailReason", Map.of("type", "string")
+                        "symbol", Map.of(
+                                "type", "string",
+                                "description", "One supported stock symbol from the provided stockSnapshots only."
+                        ),
+                        "rankNo", Map.of(
+                                "type", "integer",
+                                "description", "Sequential rank starting from 1. Rank 1 must be the strongest suggestion."
+                        ),
+                        "matchScore", Map.of(
+                                "type", "integer",
+                                "description", "Educational suitability score from 0 to 100. Scores must follow rank order."
+                        ),
+                        "riskLevel", Map.of(
+                                "type", "string",
+                                "description", "Must exactly match the selected stock snapshot riskCategory."
+                        ),
+                        "suggestionLabel", Map.of(
+                                "type", "string",
+                                "description", "Short educational label, not a company name and not investment advice."
+                        ),
+                        "shortReason", Map.of(
+                                "type", "string",
+                                "description", "One beginner-friendly sentence explaining the educational fit."
+                        ),
+                        "detailReason", Map.of(
+                                "type", "string",
+                                "description", "A 40 to 70 word beginner-friendly explanation grounded in at least two provided factors such as risk, volatility, trend, price consistency, behavior confidence, volume, or data quality."
+                        )
                 ),
                 "required", List.of(
                         "symbol",

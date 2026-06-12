@@ -62,7 +62,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
     private final UserBehaviorProfileService behaviorProfileService;
     private final ObjectMapper objectMapper;
 
-    private static final String PROMPT_VERSION = "stock-suggestion-v2";
+    private static final String PROMPT_VERSION = "stock-suggestion-v3";
     private static final String ANALYSIS_TIMEFRAME = "7D";
     private static final int MAX_SUGGESTIONS = 3;
     private static final int MANUAL_REFRESH_COOLDOWN_HOURS = 1;
@@ -78,8 +78,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED
     );
     private static final List<StockAiSuggestionBatchStatus> REUSABLE_INPUT_STATUSES = List.of(
-            StockAiSuggestionBatchStatus.SUCCESS,
-            StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED
+            StockAiSuggestionBatchStatus.SUCCESS
     );
     private static final List<StockAiSuggestionItemStatus> TOP_ITEM_STATUSES = List.of(
             StockAiSuggestionItemStatus.ACTIVE,
@@ -133,8 +132,8 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             * Use the behavior summary as a secondary adjustment, not as the only decision factor.
             * If behaviorConfidence is LOW or MEDIUM, do not let behavior summary override the user's main risk tolerance, experience level, and preferred volatility.
             * If behaviorConfidence is HIGH, behavior summary may have stronger influence, but the explanation must clearly state why.
-            * When two stocks have similar risk and volatility fit, rank the stock with clearer trend and smoother price consistency higher.
-            * For growth-oriented users, an uptrend or steady uptrend is preferred over sideways movement when risk and volatility are still suitable.
+            * When two stocks have similar risk and volatility fit, rank the stock with better-supported movement evidence and less erratic price consistency higher.
+            * For growth-oriented users, an uptrend can be preferred over sideways movement when risk and volatility are still suitable.
             * If the user has moderate risk tolerance, avoid ranking highly aggressive stocks too high unless behavior data strongly supports it.
             * If experienceLevel is BEGINNER and riskTolerance is MODERATE, do not suggest stocks with final risk category above moderate unless behaviorConfidence is HIGH or there are fewer than 3 suitable moderate or conservative stocks.
             * If the user has conservative risk tolerance, prefer lower volatility and conservative or moderate risk categories.
@@ -145,7 +144,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             * Data quality must affect ranking strongly. If two stocks both match the user profile, prefer the stock with Fallback = false and lower Missing data count.
             * A stock with Fallback = true or Missing data count greater than 0 may still be suggested, but it should normally rank below a similar-fit stock with complete data.
             * Do not rely only on risk category when ranking. If several stocks share the same risk category, compare their movement quality and data quality.
-            * A stock with highly erratic price consistency should normally rank below a similar stock with smoother price consistency for beginner users.
+            * A stock with highly erratic price consistency should normally rank below a similar stock with less erratic price consistency for beginner users.
             * A stock with clearer movement and complete data should normally rank above a similar stock with unclear or erratic movement.
             * Do not describe a stock as steady, smooth, or consistent unless the provided trend or priceConsistency clearly supports that wording.
             * If priceConsistency is "choppy", "choppy upward movement", "choppy downward movement", or "highly erratic movement", describe it honestly as choppy or erratic.
@@ -160,6 +159,9 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             * Rank 1 should normally have the highest matchScore.
             * Rank 2 should normally have the same or lower matchScore than rank 1.
             * Rank 3 should normally have the same or lower matchScore than rank 2.
+            * This score order is mandatory: rank 1 matchScore must be greater than or equal to rank 2, and rank 2 must be greater than or equal to rank 3.
+            * If two stocks have the same score, the stock with stronger behavior fit, clearer movement, or better data quality should be ranked first.
+            * Do not place a lower-score stock above a higher-score stock.
             * Small score differences are enough. Use differences such as 2 to 5 points when stocks are close.
             * Do not create artificial large score gaps when stocks are similar.
             * 90 to 100 means very strong educational fit.
@@ -179,8 +181,11 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             * If Missing data count is greater than 0, reduce matchScore based on severity.
             * If Fallback is true and Missing data count is 3 or higher, matchScore should normally be below 80 unless there are fewer than 3 suitable alternatives.
             * The score must be explainable using risk category, volatility, trend, price consistency, volume trend, behavior summary, and data quality.
-            * candidateFitSignals provide non-numeric compatibility context only. They do not provide the final score.
-            * Do not infer matchScore from any backend-calculated numeric score.
+            * candidateFitSignals.combinedFitScore is backend ranking guidance created from onboarding fit, behavior fit, data quality, and movement quality.
+            * Use candidateFitSignals.combinedFitScore as the primary ranking anchor unless the stockSnapshots clearly justify a small adjustment.
+            * The final selected stocks should normally follow combinedFitScore order.
+            * matchScore should be close to the candidateFitSignals.combinedFitScore, but may be adjusted by about 0 to 5 points when the explanation clearly supports the adjustment.
+            * Do not select a stock with combinedFitScore below 60 when at least 3 stocks have combinedFitScore 60 or above.
             * If several stocks have similar risk compatibility, differentiate their matchScore using trend clarity, price consistency, volatility fit, volume trend, and data quality.
             * Do not give identical matchScore values unless the selected stocks are truly almost identical across the provided stock snapshot fields.
             * If priceConsistency is highly erratic, matchScore should normally be below 80 unless the user profile or behavior summary strongly justifies a higher score.
@@ -194,18 +199,24 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             * Avoid abbreviations such as "vol", "mid-vol", or "tech" unless they appear in the input.
             * suggestionLabel must describe the educational reason why the stock is suggested.
             * suggestionLabel must not be the company name, stock symbol, or duplicated shortReason.
-            * Good suggestionLabel examples: "Balanced growth practice", "Smooth trend learning", "Stable medium-risk practice", "Controlled higher-volatility learning" and others.
-            * detailReason should normally mention at least three provided factors when available, such as risk category, volatility, trend, volume trend, price consistency, and data quality.
+            * Good suggestionLabel examples: "Risk-aligned paper-trading practice", "Choppy movement observation", "Volatility comparison practice", "Data-quality-aware practice", "Lower-risk behavior fit" and others.
+            * detailReason should be around 40 to 70 words.
+            * detailReason must mention at least two provided factors, ideally three or more, such as risk category, volatility, trend, price consistency, volume trend, behavior confidence, or data quality.
+            * Natural synonyms are allowed. Do not force a checklist sentence.
             * Avoid phrases like "growth-oriented trading", "stable learning environment", and "good choice".
             * Prefer "paper-trading practice", "educational example", "observing movement", and "matches the provided profile".
             * Do not make the reason sound like real trading advice.
             * Use wording such as "paper-trading practice", "learning example", "easier to observe", "matches the provided profile", and "educational fit".
             * Avoid trading-strategy terms such as "range trading", "trend-following", or "breakout" unless they are provided in the input.
-            * Use simpler wording such as "sideways movement practice", "observing steady movement", or "learning from clearer price movement".
+            * Use simpler wording such as "sideways movement practice", "observing choppy movement", or "learning from provided price movement".
             * The reason must not contradict the provided trend, volatilityLabel, volumeTrend, or priceConsistency.
             * Do not say "consistent", "smooth", or "steady" when the provided priceConsistency is choppy or highly erratic.
             * If the stock has choppy or erratic movement, clearly mention that as a learning factor.
+            * Do not write awkward repeated wording such as "uptrend trend" or "downtrend trend"; use "trend is ..." or "trend label is ..." instead.
             * detailReason must be specific and factor-based; mention enough provided factors for backend validation.
+            * Do not expose backend field names in user-facing explanations. Avoid raw terms such as riskCategory, volatilityLabel, priceConsistency, volumeTrend, dataQualityLabel, behaviorCompatibility, behaviorFitScore, combinedFitScore, MATCH, PARTIAL_MATCH, COMPLETE, or LOW/HIGH as technical labels.
+            * Convert backend fields into natural beginner wording. For example, write "conservative risk level" instead of "riskCategory is conservative", "low volatility" instead of "volatilityLabel is low", and "complete data" instead of "dataQuality is COMPLETE".
+            * You may mention behavior confidence naturally, such as "recent paper-trading behavior is strong enough to influence this suggestion", but do not write raw backend terms like behaviorConfidence HIGH.
             
             Output format rules:
             
@@ -224,7 +235,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                   "rankNo": 1,
                   "matchScore": 85,
                   "riskLevel": "moderate",
-                  "suggestionLabel": "Smooth trend learning",
+                  "suggestionLabel": "Risk-aligned paper-trading practice",
                   "shortReason": "One sentence reason.",
                   "detailReason": "Beginner-friendly explanation using at least three provided factors."
                 }
@@ -348,24 +359,23 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 );
 
         if (existingInputBatch.isPresent()) {
+            StockAiSuggestionBatch reusableBatch = refreshReusableInputBatchIfNeeded(existingInputBatch.get(), now);
             log.info("AI suggestion generation skipped for userId={} triggerReason={} promptVersion={} because input_hash is unchanged batchId={}",
-                    user.getUserId(), triggerReason, PROMPT_VERSION, existingInputBatch.get().getSuggestionBatchId());
-            return buildResponse(user, existingInputBatch.get(), "Returned existing suggestions because your profile and stock data are unchanged.", false);
+                    user.getUserId(), triggerReason, PROMPT_VERSION, reusableBatch.getSuggestionBatchId());
+            return buildResponse(user, reusableBatch, "Returned existing suggestions because your profile and stock data are unchanged.", false);
         }
 
         GenerationResult generationResult = generateWithOpenAi(profile, behaviorSummary, personalizationWeight, snapshots, candidateFitSignals);
         if (generationResult.success()) {
-            StockAiSuggestionBatch saved = saveBatchAndItems(
+            StockAiSuggestionBatch saved = saveOrUpdateSuccessBatch(
                     user,
                     profile,
                     snapshots,
                     inputHash,
                     model,
-                    StockAiSuggestionBatchStatus.SUCCESS,
                     triggerReason,
                     generationResult.content(),
-                    generationResult.openAiResult(),
-                    null
+                    generationResult.openAiResult()
             );
             log.info("Generated AI suggestion batch userId={} batchId={} triggerReason={} promptVersion={}",
                     user.getUserId(), saved.getSuggestionBatchId(), triggerReason, PROMPT_VERSION);
@@ -374,41 +384,24 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
 
         log.info("AI suggestion OpenAI generation failed for userId={} triggerReason={} error={}",
                 user.getUserId(), triggerReason, generationResult.errorMessage());
-        Optional<StockAiSuggestionBatch> cached = latestReusableSuccessBatch(user.getUserId(), now);
-        if (cached.isPresent()) {
-            StockAiSuggestionBatch fallbackCachedBatch = saveOrReuseFallbackCachedBatch(
-                    user,
-                    profile,
-                    inputHash,
-                    model,
-                    triggerReason,
-                    cached.get(),
-                    generationResult.errorMessage()
-            );
-            log.info("AI suggestion fallback cache used for userId={} cachedBatchId={} fallbackCachedBatchId={} triggerReason={}",
-                    user.getUserId(),
-                    cached.get().getSuggestionBatchId(),
-                    fallbackCachedBatch.getSuggestionBatchId(),
-                    triggerReason);
-            return buildResponse(fallbackCachedBatch.getUser(), fallbackCachedBatch, "AI suggestions are temporarily unavailable, so the latest cached suggestions are shown.", true);
-        }
-
         AiSuggestionContentDto fallback = buildRuleBasedFallback(profile, behaviorSummary, personalizationWeight, snapshots, candidateFitSignals);
-        StockAiSuggestionBatch fallbackBatch = saveBatchAndItems(
+        StockAiSuggestionBatch fallbackBatch = saveOrUpdateRuleBasedFallbackBatch(
                 user,
                 profile,
                 snapshots,
                 inputHash,
                 model,
-                StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED,
                 triggerReason,
                 fallback,
-                null,
                 generationResult.errorMessage()
         );
         log.info("AI suggestion rule-based fallback saved for userId={} batchId={} triggerReason={}",
                 user.getUserId(), fallbackBatch.getSuggestionBatchId(), triggerReason);
-        return buildResponse(user, fallbackBatch, "AI suggestions are temporarily unavailable, so a simple rule-based fallback is shown.", true);
+        boolean fallbackUsed = fallbackBatch.getStatus() != StockAiSuggestionBatchStatus.SUCCESS;
+        String message = fallbackUsed
+                ? "AI suggestions are temporarily unavailable, so a simple rule-based fallback is shown."
+                : "Returned existing suggestions because your profile and stock data are unchanged.";
+        return buildResponse(user, fallbackBatch, message, fallbackUsed);
     }
 
     @Override
@@ -506,9 +499,10 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         }
 
         try {
-            AiSuggestionContentDto content = objectMapper.readValue(cleanJson(result.content()), AiSuggestionContentDto.class);
-            validateAiContent(content, profile, behaviorSummary, snapshots);
-            return GenerationResult.success(content, result);
+            AiSuggestionContentDto rawContent = objectMapper.readValue(cleanJson(result.content()), AiSuggestionContentDto.class);
+            AiSuggestionContentDto normalizedContent = normalizeAiContent(rawContent, profile, behaviorSummary, snapshots);
+            validateAiContent(normalizedContent, profile, behaviorSummary, snapshots);
+            return GenerationResult.success(normalizedContent, result);
         } catch (Exception e) {
             return GenerationResult.failure(e.getMessage());
         }
@@ -526,6 +520,204 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         return value;
     }
 
+    private AiSuggestionContentDto normalizeAiContent(
+            AiSuggestionContentDto content,
+            UserInvestmentProfile profile,
+            BehaviorSummaryForSuggestion behaviorSummary,
+            List<StockAnalysisSnapshot> snapshots
+    ) {
+        if (content == null || content.suggestedStocks() == null) {
+            return content;
+        }
+
+        Map<String, StockAnalysisSnapshot> snapshotBySymbol = snapshots.stream()
+                .collect(Collectors.toMap(
+                        snapshot -> normalizeSymbol(snapshot.getSymbol()),
+                        Function.identity(),
+                        (first, second) -> first
+                ));
+
+        List<AiSuggestedStockDto> normalizedStocks = content.suggestedStocks().stream()
+                .map(stock -> {
+                    StockAnalysisSnapshot snapshot = snapshotBySymbol.get(normalizeSymbol(stock.symbol()));
+                    if (snapshot == null) {
+                        return stock;
+                    }
+                    return normalizeSuggestedStock(stock, profile, behaviorSummary, snapshot);
+                })
+                .toList();
+
+        return new AiSuggestionContentDto(
+                sanitizeReasonText(content.batchSummary()),
+                normalizedStocks
+        );
+    }
+
+    private String appendBehaviorContextIfNeeded(
+            String detailReason,
+            String shortReason,
+            UserInvestmentProfile profile,
+            BehaviorSummaryForSuggestion behaviorSummary,
+            AiSuggestedStockDto stock,
+            StockAnalysisSnapshot snapshot
+    ) {
+        if (!shouldAppendBehaviorContext(profile, behaviorSummary, stock, snapshot)) {
+            return detailReason;
+        }
+
+        String combined = valueOrBlank(shortReason) + " " + valueOrBlank(detailReason);
+        if (mentionsOnboardingBehaviorConflictText(combined)) {
+            return detailReason;
+        }
+
+        return appendSentence(detailReason, behaviorContextSentence(profile, behaviorSummary, snapshot));
+    }
+
+    private boolean shouldAppendBehaviorContext(
+            UserInvestmentProfile profile,
+            BehaviorSummaryForSuggestion behaviorSummary,
+            AiSuggestedStockDto stock,
+            StockAnalysisSnapshot snapshot
+    ) {
+        if (behaviorConfidence(behaviorSummary) != BehaviorConfidence.HIGH) {
+            return false;
+        }
+
+        String declaredPreference = declaredRiskPreference(profile);
+        String observedPreference = behaviorRiskPreference(behaviorSummary);
+
+        if (declaredPreference.equals(observedPreference)) {
+            return false;
+        }
+
+        int score = stock.matchScore() == null ? 0 : stock.matchScore();
+        boolean selectedFollowsBehavior = "MATCH".equals(riskPreferenceAlignment(observedPreference, snapshot));
+        boolean selectedConflictsWithOnboarding = "MISMATCH".equals(riskPreferenceAlignment(declaredPreference, snapshot));
+
+        if (selectedFollowsBehavior && selectedConflictsWithOnboarding) {
+            return true;
+        }
+
+        return score >= 80
+                && "MISMATCH".equals(riskPreferenceAlignment(observedPreference, snapshot))
+                && "MATCH".equals(riskPreferenceAlignment(declaredPreference, snapshot));
+    }
+
+    private String behaviorContextSentence(
+            UserInvestmentProfile profile,
+            BehaviorSummaryForSuggestion behaviorSummary,
+            StockAnalysisSnapshot snapshot
+    ) {
+        String declaredPreference = declaredRiskPreference(profile);
+        String observedPreference = behaviorRiskPreference(behaviorSummary);
+
+        if ("conservative".equals(observedPreference) && "aggressive".equals(declaredPreference)) {
+            return "Your recent paper-trading behavior leans lower-risk than your onboarding profile, so this suggestion gives more weight to observed practice behavior.";
+        }
+
+        if ("aggressive".equals(observedPreference) && "conservative".equals(declaredPreference)) {
+            return "Your recent paper-trading behavior leans higher-risk than your onboarding profile, so this is presented only as an educational paper-trading example.";
+        }
+
+        return "Your observed paper-trading behavior differs from your onboarding profile, so this suggestion separates the declared preference from recent practice behavior.";
+    }
+
+    private String declaredRiskPreference(UserInvestmentProfile profile) {
+        RiskTolerance riskTolerance = profile.getRiskTolerance() == null
+                ? RiskTolerance.MODERATE
+                : profile.getRiskTolerance();
+
+        return switch (riskTolerance) {
+            case CONSERVATIVE -> "conservative";
+            case AGGRESSIVE -> "aggressive";
+            default -> "moderate";
+        };
+    }
+
+    private String appendSentence(String base, String sentence) {
+        if (isBlank(sentence)) {
+            return base;
+        }
+        if (isBlank(base)) {
+            return sentence.trim();
+        }
+
+        String trimmedBase = base.trim();
+        String trimmedSentence = sentence.trim();
+
+        if (trimmedBase.contains(trimmedSentence)) {
+            return trimmedBase;
+        }
+
+        if (trimmedBase.endsWith(".") || trimmedBase.endsWith("!") || trimmedBase.endsWith("?")) {
+            return trimmedBase + " " + trimmedSentence;
+        }
+
+        return trimmedBase + ". " + trimmedSentence;
+    }
+
+    private AiSuggestedStockDto normalizeSuggestedStock(
+            AiSuggestedStockDto stock,
+            UserInvestmentProfile profile,
+            BehaviorSummaryForSuggestion behaviorSummary,
+            StockAnalysisSnapshot snapshot
+    ) {
+        String suggestionLabel = sanitizeReasonText(stock.suggestionLabel());
+        String shortReason = sanitizeReasonText(stock.shortReason());
+        String detailReason = sanitizeReasonText(stock.detailReason());
+
+        detailReason = appendBehaviorContextIfNeeded(
+                detailReason,
+                shortReason,
+                profile,
+                behaviorSummary,
+                stock,
+                snapshot
+        );
+
+        return new AiSuggestedStockDto(
+                normalizeSymbol(stock.symbol()),
+                stock.rankNo(),
+                stock.matchScore(),
+                stock.riskLevel(),
+                suggestionLabel,
+                shortReason,
+                detailReason
+        );
+    }
+
+    private String sanitizeReasonText(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String cleaned = value.replaceAll("\\s+", " ").trim();
+
+        cleaned = cleaned.replaceAll("(?i)\\bvolatile downtrend trend\\b", "volatile downtrend");
+        cleaned = cleaned.replaceAll("(?i)\\bvolatile uptrend trend\\b", "volatile uptrend");
+        cleaned = cleaned.replaceAll("(?i)\\bdowntrend trend\\b", "downtrend");
+        cleaned = cleaned.replaceAll("(?i)\\buptrend trend\\b", "uptrend");
+        cleaned = cleaned.replaceAll("(?i)\\btrend is sideways\\b", "sideways movement");
+        cleaned = cleaned.replaceAll("(?i)\\btrend is volatile downtrend\\b", "volatile downtrend");
+        cleaned = cleaned.replaceAll("(?i)\\btrend is volatile uptrend\\b", "volatile uptrend");
+
+        cleaned = cleaned.replaceAll("(?i)\\briskCategory\\b", "risk category");
+        cleaned = cleaned.replaceAll("(?i)\\bvolatilityLabel\\b", "volatility");
+        cleaned = cleaned.replaceAll("(?i)\\bpriceConsistency\\b", "price consistency");
+        cleaned = cleaned.replaceAll("(?i)\\bvolumeTrend\\b", "volume trend");
+        cleaned = cleaned.replaceAll("(?i)\\bdataQualityLabel\\b", "data quality");
+        cleaned = cleaned.replaceAll("(?i)\\bdataQuality\\b", "data quality");
+        cleaned = cleaned.replaceAll("(?i)\\bbehaviorCompatibility\\b", "behavior fit");
+        cleaned = cleaned.replaceAll("(?i)\\bbehaviorConfidence\\b", "behavior confidence");
+        cleaned = cleaned.replaceAll("(?i)\\bcombinedFitScore\\b", "backend fit score");
+
+        cleaned = cleaned.replaceAll("\\bCOMPLETE\\b", "complete");
+        cleaned = cleaned.replaceAll("\\bPARTIAL_MATCH\\b", "partial match");
+        cleaned = cleaned.replaceAll("\\bMATCH\\b", "match");
+
+        return cleaned;
+    }
+
     private void validateAiContent(
             AiSuggestionContentDto content,
             UserInvestmentProfile profile,
@@ -540,7 +732,11 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         }
 
         Map<String, StockAnalysisSnapshot> snapshotBySymbol = snapshots.stream()
-                .collect(Collectors.toMap(StockAnalysisSnapshot::getSymbol, Function.identity()));
+        .collect(Collectors.toMap(
+                snapshot -> normalizeSymbol(snapshot.getSymbol()),
+                Function.identity(),
+                (first, second) -> first
+        ));
         Set<String> seen = new HashSet<>();
 
         for (int i = 0; i < content.suggestedStocks().size(); i++) {
@@ -569,8 +765,37 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             validateReasonText(stock, snapshot);
             validateDataQualityScore(stock, snapshot, snapshots);
         }
-
+        validateMatchScoreOrder(content);
+        validateSuggestedScoreFloor(content, snapshots);
         validateRiskReasonableness(content, profile, behaviorSummary, snapshots);
+    }
+
+    private void validateMatchScoreOrder(AiSuggestionContentDto content) {
+        List<AiSuggestedStockDto> stocks = content.suggestedStocks();
+        for (int i = 1; i < stocks.size(); i++) {
+            Integer previousScore = stocks.get(i - 1).matchScore();
+            Integer currentScore = stocks.get(i).matchScore();
+
+            if (previousScore != null && currentScore != null && currentScore > previousScore) {
+                throw new IllegalArgumentException("AI match scores do not follow rank order");
+            }
+        }
+    }
+
+    private void validateSuggestedScoreFloor(
+            AiSuggestionContentDto content,
+            List<StockAnalysisSnapshot> snapshots
+    ) {
+        if (snapshots.size() < MAX_SUGGESTIONS || content.suggestedStocks().size() < MAX_SUGGESTIONS) {
+            return;
+        }
+
+        boolean hasWeakSuggestion = content.suggestedStocks().stream()
+                .anyMatch(stock -> stock.matchScore() != null && stock.matchScore() < 60);
+
+        if (hasWeakSuggestion) {
+            throw new IllegalArgumentException("AI suggested a weak match score despite enough alternatives");
+        }
     }
 
     private void validateReasonText(AiSuggestedStockDto stock, StockAnalysisSnapshot snapshot) {
@@ -588,18 +813,88 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         if (banned.stream().anyMatch(combined::contains)) {
             throw new IllegalArgumentException("AI returned advice, prediction, or unsupported external reason");
         }
-
-        String detail = detailReason.toLowerCase(Locale.ROOT);
-        int factorCount = 0;
-        for (String factor : List.of("trend", "volatility", "volume", "consistency", "risk", "fallback", "missing", "data")) {
-            if (detail.contains(factor)) {
-                factorCount++;
-            }
+        if (containsDebugFieldName(combined)) {
+            throw new IllegalArgumentException("AI returned backend field names in user-facing reason");
         }
-        if (factorCount < 3) {
+
+        validateDetailReasonQuality(detailReason, snapshot);
+        validateSnapshotWordingConsistency(suggestionLabel, shortReason, detailReason, snapshot);
+    }
+
+    private boolean containsDebugFieldName(String value) {
+        return containsAny(
+                value,
+                "riskcategory",
+                "volatilitylabel",
+                "priceconsistency",
+                "volumetrend",
+                "dataqualitylabel",
+                "behaviorcompatibility",
+                "behaviorfitscore",
+                "combinedfitscore"
+        );
+    }
+
+    private void validateDetailReasonQuality(String detailReason, StockAnalysisSnapshot snapshot) {
+        int wordCount = wordCount(detailReason);
+        if (wordCount < 8) {
+            throw new IllegalArgumentException("AI detail reason is too short");
+        }
+        if (wordCount > 120) {
+            throw new IllegalArgumentException("AI detail reason is too long");
+        }
+
+        Set<String> factorGroups = mentionedFactorGroups(detailReason, snapshot);
+        if (factorGroups.size() < 2) {
             throw new IllegalArgumentException("AI detail reason does not mention enough input factors");
         }
-        validateSnapshotWordingConsistency(suggestionLabel, shortReason, detailReason, snapshot);
+    }
+
+    private Set<String> mentionedFactorGroups(String detailReason, StockAnalysisSnapshot snapshot) {
+        String detail = detailReason == null ? "" : detailReason.toLowerCase(Locale.ROOT);
+        Set<String> groups = new HashSet<>();
+
+        String riskCategory = valueOrBlank(snapshot.getRiskCategory()).toString().toLowerCase(Locale.ROOT);
+        String volatility = valueOrBlank(snapshot.getVolatilityLabel()).toString().toLowerCase(Locale.ROOT);
+        String trend = valueOrBlank(snapshot.getTrend()).toString().toLowerCase(Locale.ROOT);
+        String priceConsistency = valueOrBlank(snapshot.getPriceConsistency()).toString().toLowerCase(Locale.ROOT);
+        String volumeTrend = valueOrBlank(snapshot.getVolumeTrend()).toString().toLowerCase(Locale.ROOT);
+
+        if (containsAny(detail, "risk", "risk category") || (!riskCategory.isBlank() && detail.contains(riskCategory))) {
+            groups.add("risk");
+        }
+
+        if (containsAny(detail, "volatility", "volatile") || (!volatility.isBlank() && detail.contains(volatility))) {
+            groups.add("volatility");
+        }
+
+        if (containsAny(detail, "trend", "uptrend", "downtrend", "sideways", "movement", "direction")
+                || (!trend.isBlank() && detail.contains(trend))) {
+            groups.add("trend");
+        }
+
+        if (containsAny(detail, "price consistency", "choppy", "erratic", "smooth", "steady", "consistent")
+                || (!priceConsistency.isBlank() && detail.contains(priceConsistency))) {
+            groups.add("priceConsistency");
+        }
+
+        if (containsAny(detail, "volume", "trading activity")
+                || (!volumeTrend.isBlank() && detail.contains(volumeTrend))) {
+            groups.add("volume");
+        }
+
+        if (containsAny(detail, "data", "data quality", "complete", "fallback", "missing")) {
+            groups.add("dataQuality");
+        }
+
+        return groups;
+    }
+
+    private int wordCount(String value) {
+        if (isBlank(value)) {
+            return 0;
+        }
+        return value.trim().split("\\s+").length;
     }
 
     private void validateSnapshotWordingConsistency(
@@ -626,6 +921,10 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
 
         if (combined.contains("clear trend") && !supportsClearTrendWording(trend, priceConsistency)) {
             throw new IllegalArgumentException("AI wording says clear trend without supporting snapshot data");
+        }
+
+        if (containsAny(combined, "uptrend trend", "downtrend trend")) {
+            throw new IllegalArgumentException("AI trend wording repeats the trend label awkwardly");
         }
     }
 
@@ -677,6 +976,13 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 && !highBehaviorConfidence) {
             throw new IllegalArgumentException("Conservative profile received aggressive top suggestion");
         }
+        if (profile.getRiskTolerance() == RiskTolerance.AGGRESSIVE
+                && highBehaviorConfidence
+                && equalsIgnoreCase(behaviorRiskPreference(behaviorSummary), "conservative")
+                && equalsIgnoreCase(topSnapshot.getRiskCategory(), "aggressive")
+                && saferAlternativesExist) {
+            throw new IllegalArgumentException("Aggressive profile received aggressive top suggestion despite lower-risk high-confidence behavior");
+        }
 
         for (AiSuggestedStockDto stock : content.suggestedStocks()) {
             StockAnalysisSnapshot snapshot = snapshotBySymbol.get(normalizeSymbol(stock.symbol()));
@@ -701,6 +1007,14 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                     && !mentionsOnboardingBehaviorConflict(stock)) {
                 throw new IllegalArgumentException("High-confidence behavior conflict was not explained");
             }
+            if (profile.getRiskTolerance() == RiskTolerance.AGGRESSIVE
+                    && highBehaviorConfidence
+                    && equalsIgnoreCase(behaviorRiskPreference(behaviorSummary), "conservative")
+                    && equalsIgnoreCase(snapshot.getRiskCategory(), "aggressive")
+                    && stock.matchScore() >= 80
+                    && !mentionsOnboardingBehaviorConflict(stock)) {
+                throw new IllegalArgumentException("High-confidence lower-risk behavior conflict was not explained");
+            }
         }
 
         boolean allConservative = content.suggestedStocks().stream()
@@ -709,19 +1023,38 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         if (profile.getRiskTolerance() == RiskTolerance.AGGRESSIVE && allConservative && growthAlternativesExist) {
             throw new IllegalArgumentException("Aggressive profile received only conservative suggestions");
         }
+        boolean allAggressive = content.suggestedStocks().stream()
+                .map(stock -> snapshotBySymbol.get(normalizeSymbol(stock.symbol())))
+                .allMatch(snapshot -> equalsIgnoreCase(snapshot.getRiskCategory(), "aggressive"));
+        if (profile.getRiskTolerance() == RiskTolerance.AGGRESSIVE
+                && highBehaviorConfidence
+                && equalsIgnoreCase(behaviorRiskPreference(behaviorSummary), "conservative")
+                && allAggressive
+                && saferAlternativesExist) {
+            throw new IllegalArgumentException("Aggressive profile received only aggressive suggestions despite lower-risk high-confidence behavior");
+        }
     }
 
     private boolean mentionsOnboardingBehaviorConflict(AiSuggestedStockDto stock) {
-        String text = (valueOrBlank(stock.shortReason()) + " " + valueOrBlank(stock.detailReason())).toLowerCase(Locale.ROOT);
-        boolean mentionsOnboarding = text.contains("onboarding")
-                || text.contains("declared")
-                || text.contains("conservative profile")
-                || text.contains("conservative preference");
-        boolean mentionsBehavior = text.contains("behavior")
-                || text.contains("paper-trading")
-                || text.contains("paper trading")
-                || text.contains("observed");
-        return mentionsOnboarding && mentionsBehavior;
+        return mentionsOnboardingBehaviorConflictText(
+                valueOrBlank(stock.shortReason()) + " " + valueOrBlank(stock.detailReason())
+        );
+    }
+
+    private boolean mentionsOnboardingBehaviorConflictText(String value) {
+        String text = valueOrBlank(value).toString().toLowerCase(Locale.ROOT);
+
+        boolean mentionsDeclaredProfile = text.contains("onboarding")
+                || text.contains("declared");
+
+        boolean mentionsObservedBehavior = text.contains("observed")
+                || text.contains("behavior")
+                || text.contains("recent paper-trading")
+                || text.contains("recent paper trading")
+                || text.contains("recent practice")
+                || text.contains("simulated trades");
+
+        return mentionsDeclaredProfile && mentionsObservedBehavior;
     }
 
     private AiSuggestionContentDto buildRuleBasedFallback(
@@ -733,19 +1066,25 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
     ) {
         Map<String, CandidateFitSignal> signalBySymbol = candidateFitSignals.stream()
                 .collect(Collectors.toMap(CandidateFitSignal::symbol, Function.identity(), (first, second) -> first));
-        List<AiSuggestedStockDto> suggestions = snapshots.stream()
+        List<RankedSnapshot> rankedSnapshots = snapshots.stream()
                 .map(snapshot -> new RankedSnapshot(snapshot, fallbackScore(signalBySymbol.get(snapshot.getSymbol()))))
                 .sorted(Comparator.comparing(RankedSnapshot::score).reversed())
                 .limit(Math.min(MAX_SUGGESTIONS, snapshots.size()))
-                .map(ranked -> toFallbackSuggestion(
-                        profile,
-                        behaviorSummary,
-                        personalizationWeight,
-                        signalBySymbol.get(ranked.snapshot().getSymbol()),
-                        ranked.snapshot(),
-                        ranked.score()
-                ))
                 .toList();
+
+        List<AiSuggestedStockDto> suggestions = new ArrayList<>();
+        for (int i = 0; i < rankedSnapshots.size(); i++) {
+            RankedSnapshot ranked = rankedSnapshots.get(i);
+            int displayScore = clampScore(ranked.score() - (i * 2));
+            suggestions.add(toFallbackSuggestion(
+                    profile,
+                    behaviorSummary,
+                    personalizationWeight,
+                    signalBySymbol.get(ranked.snapshot().getSymbol()),
+                    ranked.snapshot(),
+                    displayScore
+            ));
+        }
 
         List<AiSuggestedStockDto> rankedSuggestions = new ArrayList<>();
         for (int i = 0; i < suggestions.size(); i++) {
@@ -786,7 +1125,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 ? "Your paper-trading behavior is still limited, so it is treated as a secondary signal."
                 : "Your observed paper-trading behavior is included with " + confidence.name().toLowerCase(Locale.ROOT) + " confidence.";
         String conflictSentence = onboardingBehaviorConflict(profile, behaviorSummary, snapshot)
-                ? " Although your onboarding profile was conservative, your paper-trading behavior shows higher risk tolerance, so this is presented only as an educational paper-trading example."
+                ? conflictExplanation(profile, behaviorSummary)
                 : "";
         String dataQuality = signal == null ? dataQuality(snapshot) : signal.dataQualityLabel();
         return new AiSuggestedStockDto(
@@ -794,13 +1133,39 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 1,
                 score,
                 risk,
-                "Weighted paper-trading fit",
+                fallbackSuggestionLabel(signal, snapshot),
                 companyName + " is ranked using your onboarding preference, behavior confidence, and stored data quality.",
-                companyName + " has a " + risk + " risk category with " + snapshot.getVolatilityLabel()
-                        + " volatility, " + snapshot.getTrend() + " trend, and " + dataQuality.toLowerCase(Locale.ROOT)
-                        + " data quality. The fallback ranking uses onboarding weight " + personalizationWeight.onboardingWeight()
-                        + " and behavior weight " + personalizationWeight.behaviorWeight() + ". " + behaviorSentence + conflictSentence
+                companyName + " has risk category " + safeLabel(risk)
+                        + ", volatility " + safeLabel(snapshot.getVolatilityLabel())
+                        + ", trend " + safeLabel(snapshot.getTrend())
+                        + ", price consistency " + safeLabel(snapshot.getPriceConsistency())
+                        + ", volume trend " + safeLabel(snapshot.getVolumeTrend())
+                        + ", and data quality " + dataQuality.toLowerCase(Locale.ROOT)
+                        + ". The fallback ranking uses onboarding weight " + personalizationWeight.onboardingWeight()
+                        + " and behavior weight " + personalizationWeight.behaviorWeight()
+                        + " for educational paper-trading practice. " + behaviorSentence + conflictSentence
         );
+    }
+
+    private String fallbackSuggestionLabel(CandidateFitSignal signal, StockAnalysisSnapshot snapshot) {
+        if (signal != null && "MATCH".equals(signal.behaviorCompatibility())) {
+            return "Lower-risk behavior fit";
+        }
+        if ("WEAK".equals(dataQuality(snapshot)) || "PARTIAL".equals(dataQuality(snapshot))) {
+            return "Data-quality-aware practice";
+        }
+        if (isHighVolatility(snapshot)) {
+            return "Volatility comparison practice";
+        }
+        String consistency = valueOrBlank(snapshot.getPriceConsistency()).toString().toLowerCase(Locale.ROOT);
+        if (containsAny(consistency, "choppy", "erratic")) {
+            return "Choppy movement observation";
+        }
+        return "Risk-aligned paper-trading practice";
+    }
+
+    private String safeLabel(Object value) {
+        return value == null || value.toString().isBlank() ? "not available" : value.toString();
     }
 
     private StockAiSuggestionBatch saveBatchAndItems(
@@ -841,6 +1206,249 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
 
         saveOrUpdateSuggestionItems(user, snapshots, content, savedBatch, List.of(), now);
         return savedBatch;
+    }
+
+    private StockAiSuggestionBatch saveOrUpdateSuccessBatch(
+            AppUser user,
+            UserInvestmentProfile profile,
+            List<StockAnalysisSnapshot> snapshots,
+            String inputHash,
+            String model,
+            StockAiSuggestionTriggerReason triggerReason,
+            AiSuggestionContentDto content,
+            OpenAiSuggestionResult openAiResult
+    ) {
+        LocalDateTime now = LocalDateTime.now();
+        Optional<StockAiSuggestionBatch> existingSameInputHash = batchRepository
+                .findTopByUserUserIdAndModelAndPromptVersionAndInputHashOrderByCreatedAtDesc(
+                        user.getUserId(),
+                        model,
+                        PROMPT_VERSION,
+                        inputHash
+                );
+
+        if (existingSameInputHash.isEmpty()) {
+            return saveBatchAndItems(
+                    user,
+                    profile,
+                    snapshots,
+                    inputHash,
+                    model,
+                    StockAiSuggestionBatchStatus.SUCCESS,
+                    triggerReason,
+                    content,
+                    openAiResult,
+                    null
+            );
+        }
+
+        StockAiSuggestionBatch existingBatch = existingSameInputHash.get();
+        if (existingBatch.getStatus() == StockAiSuggestionBatchStatus.SUCCESS) {
+            log.info("AI suggestion success found reusable same-input success batch userId={} batchId={}",
+                    user.getUserId(), existingBatch.getSuggestionBatchId());
+            return existingBatch;
+        }
+
+        expirePreviousActiveItems(user.getUserId(), now);
+        List<StockAiSuggestionItem> existingItems = itemRepository.findBySuggestionBatchOrderByRankNoAsc(existingBatch);
+        existingBatch.setUser(user);
+        existingBatch.setProfile(profile);
+        existingBatch.setProfileVersion(profile.getProfileVersion());
+        existingBatch.setModel(model);
+        existingBatch.setPromptVersion(PROMPT_VERSION);
+        existingBatch.setStatus(StockAiSuggestionBatchStatus.SUCCESS);
+        existingBatch.setTriggerReason(triggerReason);
+        existingBatch.setInputHash(inputHash);
+        existingBatch.setBatchSummary(content.batchSummary());
+        existingBatch.setAnalysisTimeframe(ANALYSIS_TIMEFRAME);
+        existingBatch.setPromptTokens(openAiResult == null ? null : openAiResult.promptTokens());
+        existingBatch.setCompletionTokens(openAiResult == null ? null : openAiResult.completionTokens());
+        existingBatch.setTotalTokens(openAiResult == null ? null : openAiResult.totalTokens());
+        existingBatch.setFinishReason(openAiResult == null ? null : openAiResult.finishReason());
+        existingBatch.setErrorMessage(null);
+        existingBatch.setUpdatedAt(now);
+        existingBatch.setExpiresAt(now.plusHours(BATCH_EXPIRY_HOURS));
+        StockAiSuggestionBatch savedBatch = batchRepository.save(existingBatch);
+
+        saveOrUpdateSuggestionItems(user, snapshots, content, savedBatch, existingItems, now);
+        return savedBatch;
+    }
+
+    private StockAiSuggestionBatch saveOrUpdateRuleBasedFallbackBatch(
+            AppUser user,
+            UserInvestmentProfile profile,
+            List<StockAnalysisSnapshot> snapshots,
+            String inputHash,
+            String model,
+            StockAiSuggestionTriggerReason triggerReason,
+            AiSuggestionContentDto content,
+            String errorMessage
+    ) {
+        LocalDateTime now = LocalDateTime.now();
+        Optional<StockAiSuggestionBatch> existingSameInputHash = batchRepository
+                .findTopByUserUserIdAndModelAndPromptVersionAndInputHashOrderByCreatedAtDesc(
+                        user.getUserId(),
+                        model,
+                        PROMPT_VERSION,
+                        inputHash
+                );
+
+        if (existingSameInputHash.isEmpty()) {
+            return saveBatchAndItems(
+                    user,
+                    profile,
+                    snapshots,
+                    inputHash,
+                    model,
+                    StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED,
+                    triggerReason,
+                    content,
+                    null,
+                    errorMessage
+            );
+        }
+
+        StockAiSuggestionBatch existingBatch = existingSameInputHash.get();
+        if (existingBatch.getStatus() == StockAiSuggestionBatchStatus.SUCCESS) {
+            log.info("AI suggestion fallback found reusable same-input success batch during failure userId={} batchId={}",
+                    user.getUserId(), existingBatch.getSuggestionBatchId());
+            return existingBatch;
+        }
+
+        expirePreviousActiveItems(user.getUserId(), now);
+        List<StockAiSuggestionItem> existingItems = itemRepository.findBySuggestionBatchOrderByRankNoAsc(existingBatch);
+        existingBatch.setUser(user);
+        existingBatch.setProfile(profile);
+        existingBatch.setProfileVersion(profile.getProfileVersion());
+        existingBatch.setModel(model);
+        existingBatch.setPromptVersion(PROMPT_VERSION);
+        existingBatch.setStatus(StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED);
+        existingBatch.setTriggerReason(triggerReason);
+        existingBatch.setInputHash(inputHash);
+        existingBatch.setBatchSummary(content.batchSummary());
+        existingBatch.setAnalysisTimeframe(ANALYSIS_TIMEFRAME);
+        existingBatch.setPromptTokens(null);
+        existingBatch.setCompletionTokens(null);
+        existingBatch.setTotalTokens(null);
+        existingBatch.setFinishReason(null);
+        existingBatch.setErrorMessage(errorMessage);
+        existingBatch.setUpdatedAt(now);
+        existingBatch.setExpiresAt(now.plusHours(BATCH_EXPIRY_HOURS));
+        StockAiSuggestionBatch savedBatch = batchRepository.save(existingBatch);
+
+        saveOrUpdateSuggestionItems(user, snapshots, content, savedBatch, existingItems, now);
+        return savedBatch;
+    }
+
+    private StockAiSuggestionBatch refreshReusableInputBatchIfNeeded(StockAiSuggestionBatch batch, LocalDateTime now) {
+        boolean batchChanged = false;
+        if (batch.getExpiresAt() == null || !batch.getExpiresAt().isAfter(now)) {
+            batch.setExpiresAt(now.plusHours(BATCH_EXPIRY_HOURS));
+            batch.setUpdatedAt(now);
+            batchChanged = true;
+        }
+
+        List<StockAiSuggestionItem> allItems = itemRepository.findBySuggestionBatchOrderByRankNoAsc(batch);
+        boolean itemsChanged = normalizeReusableVisibleItems(allItems, now);
+        if (itemsChanged && !batchChanged) {
+            batch.setUpdatedAt(now);
+            batchChanged = true;
+        }
+
+        return batchChanged ? batchRepository.save(batch) : batch;
+    }
+
+    private boolean normalizeReusableVisibleItems(List<StockAiSuggestionItem> allItems, LocalDateTime now) {
+        boolean changed = false;
+        List<Integer> targetRanks = allItems.stream()
+                .filter(item -> item.getStatus() != StockAiSuggestionItemStatus.DISMISSED)
+                .map(StockAiSuggestionItem::getRankNo)
+                .filter(Objects::nonNull)
+                .filter(rank -> rank >= 1 && rank <= MAX_SUGGESTIONS)
+                .distinct()
+                .sorted()
+                .limit(MAX_SUGGESTIONS)
+                .toList();
+
+        Map<Integer, StockAiSuggestionItem> visibleByRank = new LinkedHashMap<>();
+        List<StockAiSuggestionItem> visibleItemsByPreference = allItems.stream()
+                .filter(this::isTopItemStatus)
+                .sorted(visibleItemPreferenceComparator())
+                .toList();
+
+        for (StockAiSuggestionItem item : visibleItemsByPreference) {
+            Integer rank = item.getRankNo();
+            if (rank == null || !targetRanks.contains(rank) || visibleByRank.containsKey(rank)) {
+                expireVisibleDuplicate(item, now);
+                changed = true;
+                continue;
+            }
+            visibleByRank.put(rank, item);
+        }
+
+        List<StockAiSuggestionItem> expiredCandidates = allItems.stream()
+                .filter(item -> item.getStatus() == StockAiSuggestionItemStatus.EXPIRED)
+                .sorted(newestItemComparator())
+                .collect(Collectors.toMap(
+                        item -> item.getRankNo() == null ? Integer.MAX_VALUE : item.getRankNo(),
+                        Function.identity(),
+                        (first, second) -> first,
+                        LinkedHashMap::new
+                ))
+                .values()
+                .stream()
+                .sorted(Comparator.comparing(
+                        StockAiSuggestionItem::getRankNo,
+                        Comparator.nullsLast(Integer::compareTo)
+                ))
+                .toList();
+
+        for (StockAiSuggestionItem item : expiredCandidates) {
+            Integer rank = item.getRankNo();
+            if (rank == null || !targetRanks.contains(rank) || visibleByRank.containsKey(rank)) {
+                continue;
+            }
+            item.setStatus(StockAiSuggestionItemStatus.ACTIVE);
+            item.setUpdatedAt(now);
+            itemRepository.save(item);
+            visibleByRank.put(rank, item);
+            changed = true;
+        }
+        return changed;
+    }
+
+    private void expireVisibleDuplicate(StockAiSuggestionItem item, LocalDateTime now) {
+        item.setStatus(StockAiSuggestionItemStatus.EXPIRED);
+        item.setUpdatedAt(now);
+        itemRepository.save(item);
+    }
+
+    private Comparator<StockAiSuggestionItem> visibleItemPreferenceComparator() {
+        return Comparator
+                .comparingInt((StockAiSuggestionItem item) ->
+                        item.getStatus() == StockAiSuggestionItemStatus.WATCHLISTED ? 0 : 1)
+                .thenComparing(newestItemComparator());
+    }
+
+    private Comparator<StockAiSuggestionItem> newestItemComparator() {
+        return Comparator
+                .comparing(
+                        this::itemUpdatedOrCreatedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())
+                )
+                .thenComparing(
+                        StockAiSuggestionItem::getSuggestionItemId,
+                        Comparator.nullsLast(Comparator.reverseOrder())
+                );
+    }
+
+    private LocalDateTime itemUpdatedOrCreatedAt(StockAiSuggestionItem item) {
+        return item.getUpdatedAt() == null ? item.getCreatedAt() : item.getUpdatedAt();
+    }
+
+    private boolean isTopItemStatus(StockAiSuggestionItem item) {
+        return item.getStatus() == StockAiSuggestionItemStatus.ACTIVE
+                || item.getStatus() == StockAiSuggestionItemStatus.WATCHLISTED;
     }
 
     private void saveOrUpdateSuggestionItems(
@@ -898,58 +1506,6 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         }
     }
 
-    private StockAiSuggestionBatch saveOrReuseFallbackCachedBatch(
-            AppUser user,
-            UserInvestmentProfile profile,
-            String inputHash,
-            String model,
-            StockAiSuggestionTriggerReason triggerReason,
-            StockAiSuggestionBatch cachedBatch,
-            String errorMessage
-    ) {
-        LocalDateTime now = LocalDateTime.now();
-        List<StockAiSuggestionItem> cachedItems = itemRepository
-                .findBySuggestionBatchAndStatusInOrderByRankNoAsc(cachedBatch, TOP_ITEM_STATUSES);
-        expirePreviousActiveItems(user.getUserId(), now);
-        StockAiSuggestionBatch batch = new StockAiSuggestionBatch();
-        batch.setUser(user);
-        batch.setProfile(profile);
-        batch.setProfileVersion(profile.getProfileVersion());
-        batch.setModel(model);
-        batch.setPromptVersion(PROMPT_VERSION);
-        batch.setStatus(StockAiSuggestionBatchStatus.FALLBACK_CACHED);
-        batch.setTriggerReason(triggerReason);
-        batch.setInputHash(inputHash);
-        batch.setBatchSummary(cachedBatch.getBatchSummary());
-        batch.setAnalysisTimeframe(ANALYSIS_TIMEFRAME);
-        batch.setErrorMessage(errorMessage);
-        batch.setCreatedAt(now);
-        batch.setUpdatedAt(now);
-        batch.setExpiresAt(now.plusHours(BATCH_EXPIRY_HOURS));
-        StockAiSuggestionBatch savedBatch = batchRepository.save(batch);
-
-        for (StockAiSuggestionItem cachedItem : cachedItems) {
-            StockAiSuggestionItem item = new StockAiSuggestionItem();
-            item.setSuggestionBatch(savedBatch);
-            item.setUser(user);
-            item.setSymbol(cachedItem.getSymbol());
-            item.setRankNo(cachedItem.getRankNo());
-            item.setMatchScore(cachedItem.getMatchScore());
-            item.setRiskLevel(cachedItem.getRiskLevel());
-            item.setSuggestionLabel(cachedItem.getSuggestionLabel());
-            item.setShortReason(cachedItem.getShortReason());
-            item.setDetailReason(cachedItem.getDetailReason());
-            item.setAnalysisSnapshot(cachedItem.getAnalysisSnapshot());
-            item.setStatus(cachedItem.getStatus() == StockAiSuggestionItemStatus.WATCHLISTED
-                    ? StockAiSuggestionItemStatus.WATCHLISTED
-                    : StockAiSuggestionItemStatus.ACTIVE);
-            item.setCreatedAt(now);
-            item.setUpdatedAt(now);
-            itemRepository.save(item);
-        }
-        return savedBatch;
-    }
-
     private void expirePreviousActiveItems(Long userId, LocalDateTime now) {
         List<StockAiSuggestionItem> activeItems = itemRepository.findByUserUserIdAndStatus(
                 userId,
@@ -960,19 +1516,6 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             item.setUpdatedAt(now);
             itemRepository.save(item);
         }
-    }
-
-    private Optional<StockAiSuggestionBatch> latestReusableSuccessBatch(Long userId, LocalDateTime now) {
-        Optional<StockAiSuggestionBatch> nonExpired = batchRepository
-                .findTopByUserUserIdAndStatusAndExpiresAtAfterOrderByCreatedAtDesc(
-                        userId,
-                        StockAiSuggestionBatchStatus.SUCCESS,
-                        now
-                );
-        return nonExpired.or(() -> batchRepository.findTopByUserUserIdAndStatusOrderByCreatedAtDesc(
-                userId,
-                StockAiSuggestionBatchStatus.SUCCESS
-        ));
     }
 
     private StockAiSuggestionResponse buildResponse(AppUser user, StockAiSuggestionBatch batch, String message, boolean fallbackUsed) {
@@ -1202,7 +1745,8 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         )).toList());
         if (!isBlank(validationError)) {
             input.put("previousValidationError", validationError);
-            input.put("retryInstruction", "Fix the validation issue and return only valid JSON.");
+            input.put("retryInstruction", retryInstruction(validationError));
+            input.put("retryConstraints", retryConstraints(validationError));
         }
 
         try {
@@ -1210,6 +1754,31 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Failed to build suggestion prompt input", e);
         }
+    }
+
+    private String retryInstruction(String validationError) {
+        return "Fix the validation issue and return only valid JSON. Keep all wording educational, paper-trading focused, and directly supported by the provided snapshot fields.";
+    }
+
+    private List<String> retryConstraints(String validationError) {
+        List<String> constraints = new ArrayList<>();
+        String error = validationError == null ? "" : validationError.toLowerCase(Locale.ROOT);
+        if (error.contains("volatile or choppy") || error.contains("stable wording") || error.contains("clear trend")) {
+            constraints.add("Do not use steady, smooth, consistent, stable, or clear trend wording for any stock whose trend contains volatile or whose priceConsistency contains choppy or erratic.");
+            constraints.add("If a stock has choppy or erratic priceConsistency, say choppy or erratic directly instead of using positive movement wording.");
+        }
+        if (error.contains("detail reason") || error.contains("input factors")) {
+            constraints.add("Each detailReason must mention at least two concrete provided factors using natural wording, such as risk, volatility, trend, price movement, volume, behavior confidence, or data quality.");
+            constraints.add("Aim for 40 to 70 words, but keep the explanation natural and beginner-friendly.");
+        }
+        if (error.contains("trend wording") || error.contains("trend label")) {
+            constraints.add("Do not write repeated trend wording such as uptrend trend or downtrend trend; use trend is or trend label is instead.");
+        }
+        constraints.add("Use safe labels such as Risk-aligned paper-trading practice, Choppy movement observation, Volatility comparison practice, Data-quality-aware practice, or Lower-risk behavior fit.");
+        constraints.add("Avoid awkward repeated trend wording such as uptrend trend or downtrend trend; write trend is or trend label is.");
+        constraints.add("Do not expose backend field names such as riskCategory, volatilityLabel, priceConsistency, volumeTrend, dataQualityLabel, behaviorCompatibility, behaviorFitScore, combinedFitScore, MATCH, PARTIAL_MATCH, COMPLETE, or behaviorConfidence HIGH. Convert them into natural beginner wording.");
+        constraints.add("Do not use real-money advice, guaranteed return wording, future price predictions, or external news.");
+        return constraints;
     }
 
     private Map<String, Object> declaredOnboardingProfile(UserInvestmentProfile profile) {
@@ -1348,7 +1917,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         BehaviorConfidence confidence = behaviorSummary.behaviorConfidence() == null
                 ? BehaviorConfidence.LOW
                 : behaviorSummary.behaviorConfidence();
-        if (confidence == BehaviorConfidence.LOW || behaviorSummary.behaviorStyle() == null) {
+        if (confidence == BehaviorConfidence.LOW || !hasBehaviorRiskSignals(behaviorSummary)) {
             return "INSUFFICIENT_DATA";
         }
         if (profile.getRiskTolerance() == RiskTolerance.CONSERVATIVE
@@ -1357,35 +1926,108 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             return "MISMATCH";
         }
 
-        String aligned = behaviorStyleAlignment(behaviorSummary, snapshot);
+        String aligned = behaviorRiskAlignment(behaviorSummary, snapshot);
         if (confidence == BehaviorConfidence.MEDIUM && "MATCH".equals(aligned)) {
             return "PARTIAL_MATCH";
         }
         return aligned;
     }
 
-    private String behaviorStyleAlignment(BehaviorSummaryForSuggestion behaviorSummary, StockAnalysisSnapshot snapshot) {
-        return switch (behaviorSummary.behaviorStyle()) {
-            case CONSERVATIVE -> {
-                if (equalsIgnoreCase(snapshot.getRiskCategory(), "conservative")) {
+    private String behaviorRiskAlignment(BehaviorSummaryForSuggestion behaviorSummary, StockAnalysisSnapshot snapshot) {
+        return riskPreferenceAlignment(behaviorRiskPreference(behaviorSummary), snapshot);
+    }
+
+    private String behaviorRiskPreference(BehaviorSummaryForSuggestion behaviorSummary) {
+        if (!isBlank(behaviorSummary.favoriteRiskCategory())) {
+            String favoriteRiskCategory = normalizeRisk(behaviorSummary.favoriteRiskCategory());
+            if (isKnownRiskPreference(favoriteRiskCategory)) {
+                return favoriteRiskCategory;
+            }
+        }
+        String scoreRiskPreference = scoreRiskPreference(behaviorSummary.stockRiskExposureScore());
+        if (scoreRiskPreference != null) {
+            return scoreRiskPreference;
+        }
+        scoreRiskPreference = scoreRiskPreference(behaviorSummary.behaviorRiskScore());
+        if (scoreRiskPreference != null) {
+            return scoreRiskPreference;
+        }
+        if (behaviorSummary.highVolatilityExposure() != null) {
+            return switch (behaviorSummary.highVolatilityExposure()) {
+                case LOW -> "conservative";
+                case MEDIUM -> "moderate";
+                case HIGH -> "aggressive";
+            };
+        }
+        scoreRiskPreference = scoreRiskPreference(behaviorSummary.volatilityExposureScore());
+        if (scoreRiskPreference != null) {
+            return scoreRiskPreference;
+        }
+        return behaviorStyleRiskPreference(behaviorSummary.behaviorStyle());
+    }
+
+    private boolean hasBehaviorRiskSignals(BehaviorSummaryForSuggestion behaviorSummary) {
+        return !isBlank(behaviorSummary.favoriteRiskCategory())
+                || behaviorSummary.stockRiskExposureScore() != null
+                || behaviorSummary.behaviorRiskScore() != null
+                || behaviorSummary.highVolatilityExposure() != null
+                || behaviorSummary.volatilityExposureScore() != null
+                || behaviorSummary.behaviorStyle() != null;
+    }
+
+    private String behaviorStyleRiskPreference(UserBehaviorStyle behaviorStyle) {
+        if (behaviorStyle == null) {
+            return "moderate";
+        }
+        return switch (behaviorStyle) {
+            case CONSERVATIVE -> "conservative";
+            case BALANCED -> "moderate";
+            case AGGRESSIVE -> "aggressive";
+            case ACTIVE_TRADER, INSUFFICIENT_DATA -> "moderate";
+        };
+    }
+
+    private String scoreRiskPreference(Integer score) {
+        if (score == null) {
+            return null;
+        }
+        if (score <= 40) {
+            return "conservative";
+        }
+        if (score >= 70) {
+            return "aggressive";
+        }
+        return "moderate";
+    }
+
+    private boolean isKnownRiskPreference(String riskPreference) {
+        return "conservative".equals(riskPreference)
+                || "moderate".equals(riskPreference)
+                || "aggressive".equals(riskPreference);
+    }
+
+    private String riskPreferenceAlignment(String riskPreference, StockAnalysisSnapshot snapshot) {
+        String riskCategory = normalizeRisk(snapshot.getRiskCategory());
+        return switch (riskPreference) {
+            case "conservative" -> {
+                if ("conservative".equals(riskCategory)) {
                     yield "MATCH";
                 }
-                if (equalsIgnoreCase(snapshot.getRiskCategory(), "moderate")) {
+                if ("moderate".equals(riskCategory)) {
                     yield "PARTIAL_MATCH";
                 }
                 yield "MISMATCH";
             }
-            case BALANCED -> equalsIgnoreCase(snapshot.getRiskCategory(), "moderate") ? "MATCH" : "PARTIAL_MATCH";
-            case ACTIVE_TRADER, AGGRESSIVE -> {
-                if (equalsIgnoreCase(snapshot.getRiskCategory(), "aggressive")) {
+            case "aggressive" -> {
+                if ("aggressive".equals(riskCategory)) {
                     yield "MATCH";
                 }
-                if (equalsIgnoreCase(snapshot.getRiskCategory(), "moderate")) {
+                if ("moderate".equals(riskCategory)) {
                     yield "PARTIAL_MATCH";
                 }
                 yield "MISMATCH";
             }
-            case INSUFFICIENT_DATA -> "INSUFFICIENT_DATA";
+            default -> "moderate".equals(riskCategory) ? "MATCH" : "PARTIAL_MATCH";
         };
     }
 
@@ -1556,7 +2198,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             warnings.add("Recent data is partially complete");
         }
         if (onboardingBehaviorConflict(profile, behaviorSummary, snapshot)) {
-            warnings.add("Observed behavior conflicts with conservative onboarding preference");
+            warnings.add("Observed behavior conflicts with declared onboarding preference");
         }
         if (profile.getPreferredVolatility() == PreferredVolatility.LOW && isHighVolatility(snapshot)) {
             warnings.add("Volatility is higher than declared preference");
@@ -1604,6 +2246,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         map.put("onboardingFitScore", signal.onboardingFitScore());
         map.put("behaviorFitScore", signal.behaviorFitScore());
         map.put("combinedFitScore", signal.combinedFitScore());
+        map.put("combinedFitScoreMeaning", "Backend educational fit score. Use as the main ranking anchor, but still explain using stockSnapshots.");
         map.put("dataQualityScore", signal.dataQualityScore());
         map.put("trendScore", signal.trendScore());
         map.put("dataQualityPenalty", signal.dataQualityPenalty());
@@ -1684,9 +2327,24 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             StockAnalysisSnapshot snapshot
     ) {
         BehaviorConfidence confidence = behaviorConfidence(behaviorSummary);
-        return profile.getRiskTolerance() == RiskTolerance.CONSERVATIVE
-                && confidence == BehaviorConfidence.HIGH
-                && equalsIgnoreCase(snapshot.getRiskCategory(), "aggressive");
+        if (confidence != BehaviorConfidence.HIGH) {
+            return false;
+        }
+        String behaviorRiskPreference = behaviorRiskPreference(behaviorSummary);
+        return (profile.getRiskTolerance() == RiskTolerance.CONSERVATIVE
+                && "aggressive".equals(behaviorRiskPreference)
+                && equalsIgnoreCase(snapshot.getRiskCategory(), "aggressive"))
+                || (profile.getRiskTolerance() == RiskTolerance.AGGRESSIVE
+                && "conservative".equals(behaviorRiskPreference)
+                && equalsIgnoreCase(snapshot.getRiskCategory(), "conservative"));
+    }
+
+    private String conflictExplanation(UserInvestmentProfile profile, BehaviorSummaryForSuggestion behaviorSummary) {
+        if (profile.getRiskTolerance() == RiskTolerance.AGGRESSIVE
+                && equalsIgnoreCase(behaviorRiskPreference(behaviorSummary), "conservative")) {
+            return " Although your onboarding profile was growth-focused and aggressive, your recent paper-trading behavior shows a preference for lower-risk symbols, so this is presented only as an educational paper-trading example.";
+        }
+        return " Although your onboarding profile was conservative, your paper-trading behavior shows higher risk tolerance, so this is presented only as an educational paper-trading example.";
     }
 
     private String normalizeRisk(String value) {

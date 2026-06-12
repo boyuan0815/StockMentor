@@ -10,7 +10,9 @@ import net.boyuan.stockmentor.papertrading.repository.PaperPositionRepository;
 import net.boyuan.stockmentor.papertrading.repository.PaperTradeTransactionRepository;
 import net.boyuan.stockmentor.papertrading.repository.PaperTradingAccountRepository;
 import net.boyuan.stockmentor.papertrading.model.PaperTradeSide;
+import net.boyuan.stockmentor.userbehavior.entity.UserBehaviorProfile;
 import net.boyuan.stockmentor.userbehavior.repository.UserBehaviorProfileRepository;
+import net.boyuan.stockmentor.userprofile.model.BehaviorConfidence;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +27,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -64,6 +67,8 @@ class PaperTradingControllerSecurityTests {
         authUser = ensureUser("paper-auth@example.com", "paper-auth");
         otherUser = ensureUser("paper-other@example.com", "paper-other");
         ensureStock("MSFT", "100.00");
+        ensureStock("KO", "83.50");
+        ensureStock("JNJ", "239.88");
     }
 
     @Test
@@ -185,6 +190,35 @@ class PaperTradingControllerSecurityTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.transaction.side").value("SELL"))
                 .andExpect(jsonPath("$.position.quantity").value(2));
+    }
+
+    @Test
+    void successfulBuyCommitsBehaviorProfileWhenThresholdIsMet() throws Exception {
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-auth@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"KO\",\"quantity\":1}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-auth@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"JNJ\",\"quantity\":1}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-auth@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"KO\",\"quantity\":1}"))
+                .andExpect(status().isOk());
+
+        UserBehaviorProfile profile = behaviorProfileRepository
+                .findTopByUserUserIdOrderByUpdatedAtDesc(authUser.getUserId())
+                .orElseThrow();
+
+        assertEquals(BehaviorConfidence.MEDIUM, profile.getBehaviorConfidence());
+        assertEquals("conservative", profile.getFavoriteRiskCategory());
+        assertTrue(profile.getMostTradedSymbols().contains("KO"));
+        assertTrue(profile.getMostTradedSymbols().contains("JNJ"));
+        assertEquals(3, transactionRepository.findTop50ByUserUserIdOrderByExecutedAtDesc(authUser.getUserId()).size());
     }
 
     @Test

@@ -28,6 +28,7 @@ import net.boyuan.stockmentor.userprofile.model.BehaviorConfidence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -92,7 +93,7 @@ public class UserBehaviorProfileServiceImpl implements UserBehaviorProfileServic
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public UserBehaviorProfile recalculateBehaviorProfile(Long userId) {
         AppUser user = appUserRepository.findByUserIdAndStatusAndIsDeletedFalse(userId, AppUserStatus.ACTIVE)
                 .orElseThrow(() -> new IllegalArgumentException("Active user not found for behavior profile"));

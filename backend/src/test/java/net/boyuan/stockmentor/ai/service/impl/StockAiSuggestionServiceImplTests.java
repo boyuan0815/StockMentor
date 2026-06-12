@@ -24,6 +24,7 @@ import net.boyuan.stockmentor.userprofile.entity.UserInvestmentProfile;
 import net.boyuan.stockmentor.userprofile.model.*;
 import net.boyuan.stockmentor.userprofile.repository.UserInvestmentProfileRepository;
 import net.boyuan.stockmentor.userbehavior.dto.BehaviorSummaryForSuggestion;
+import net.boyuan.stockmentor.userbehavior.model.HighVolatilityExposure;
 import net.boyuan.stockmentor.userbehavior.model.UserBehaviorStyle;
 import net.boyuan.stockmentor.userbehavior.service.UserBehaviorProfileService;
 import net.boyuan.stockmentor.watchlist.entity.UserWatchlist;
@@ -37,6 +38,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -117,6 +119,13 @@ class StockAiSuggestionServiceImplTests {
                         eq(StockAiSuggestionBatchStatus.SUCCESS)
                 ))
                 .thenReturn(Optional.empty());
+        lenient().when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashOrderByCreatedAtDesc(
+                        eq(1L),
+                        anyString(),
+                        eq("stock-suggestion-v2"),
+                        anyString()
+                ))
+                .thenReturn(Optional.empty());
         lenient().when(behaviorProfileService.getBehaviorSummaryForSuggestion(1L)).thenReturn(behaviorSummary(LocalDateTime.now().minusMinutes(1)));
     }
 
@@ -185,12 +194,204 @@ class StockAiSuggestionServiceImplTests {
         when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
         when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
                 .thenReturn(Optional.of(existingBatch));
+        when(itemRepository.findBySuggestionBatchOrderByRankNoAsc(existingBatch)).thenReturn(List.of());
         when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(existingBatch), anyCollection()))
                 .thenReturn(List.of());
 
         StockAiSuggestionResponse response = service.refreshSuggestionsForCurrentUser();
 
         assertEquals(existingBatch.getSuggestionBatchId(), response.batchId());
+        verify(openAiClient, never()).generateSuggestion(anyString(), anyString());
+    }
+
+    @Test
+    void reusableSameInputBatchRefreshesExpiredItemsInsteadOfReturningEmptyResponse() {
+        UserInvestmentProfile profile = profile();
+        StockAiSuggestionBatch existingBatch = batch(profile, StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED);
+        LocalDateTime oldExpiresAt = LocalDateTime.now().minusHours(2);
+        existingBatch.setExpiresAt(oldExpiresAt);
+        existingBatch.setUpdatedAt(LocalDateTime.now().minusHours(3));
+        List<StockAiSuggestionItem> expiredItems = new ArrayList<>(List.of(
+                suggestionItem(existingBatch, StockAiSuggestionItemStatus.EXPIRED),
+                suggestionItem(existingBatch, StockAiSuggestionItemStatus.EXPIRED),
+                suggestionItem(existingBatch, StockAiSuggestionItemStatus.EXPIRED)
+        ));
+        expiredItems.get(0).setSuggestionItemId(21L);
+        expiredItems.get(0).setSymbol("KO");
+        expiredItems.get(0).setRiskLevel("conservative");
+        expiredItems.get(1).setSuggestionItemId(22L);
+        expiredItems.get(1).setSymbol("JNJ");
+        expiredItems.get(1).setRiskLevel("conservative");
+        expiredItems.get(1).setRankNo(2);
+        expiredItems.get(2).setSuggestionItemId(23L);
+        expiredItems.get(2).setSymbol("MSFT");
+        expiredItems.get(2).setRiskLevel("moderate");
+        expiredItems.get(2).setRankNo(3);
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.empty());
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(
+                eq(1L),
+                eq("gpt-4o-mini"),
+                eq("stock-suggestion-v2"),
+                anyString(),
+                anyCollection()
+        )).thenReturn(Optional.of(existingBatch));
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(existingBatch), anyCollection()))
+                .thenAnswer(invocation -> {
+                    @SuppressWarnings("unchecked")
+                    List<StockAiSuggestionItemStatus> statuses = new ArrayList<>((java.util.Collection<StockAiSuggestionItemStatus>) invocation.getArgument(1));
+                    return expiredItems.stream()
+                            .filter(item -> statuses.contains(item.getStatus()))
+                            .toList();
+                });
+        when(itemRepository.findBySuggestionBatchOrderByRankNoAsc(existingBatch)).thenReturn(expiredItems);
+        when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(batchRepository.save(existingBatch)).thenReturn(existingBatch);
+
+        StockAiSuggestionResponse response = service.generateSuggestionsForUser(
+                user,
+                StockAiSuggestionTriggerReason.SCHEDULED_REFRESH,
+                false
+        );
+
+        assertEquals(existingBatch.getSuggestionBatchId(), response.batchId());
+        assertEquals("FALLBACK_RULE_BASED", response.batchStatus());
+        assertEquals(List.of("KO", "JNJ", "MSFT"), response.suggestedStocks().stream().map(stock -> stock.symbol()).toList());
+        assertTrue(existingBatch.getExpiresAt().isAfter(oldExpiresAt));
+        assertTrue(expiredItems.stream().allMatch(item -> item.getStatus() == StockAiSuggestionItemStatus.ACTIVE));
+        verify(batchRepository).save(existingBatch);
+        verify(itemRepository, times(3)).save(any(StockAiSuggestionItem.class));
+        verify(openAiClient, never()).generateSuggestion(anyString(), anyString());
+    }
+
+    @Test
+    void reusableSameInputBatchReactivatesLatestExpiredRowsWhenRanksAreDuplicated() {
+        UserInvestmentProfile profile = profile();
+        StockAiSuggestionBatch existingBatch = batch(profile, StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED);
+        existingBatch.setExpiresAt(LocalDateTime.now().minusHours(2));
+        LocalDateTime oldTime = LocalDateTime.now().minusHours(5);
+        LocalDateTime latestTime = LocalDateTime.now().minusMinutes(5);
+
+        StockAiSuggestionItem oldNvda = expiredItem(existingBatch, 31L, "NVDA", 1, oldTime);
+        StockAiSuggestionItem oldTsla = expiredItem(existingBatch, 32L, "TSLA", 2, oldTime);
+        StockAiSuggestionItem oldAmd = expiredItem(existingBatch, 33L, "AMD", 3, oldTime);
+        StockAiSuggestionItem latestKo = expiredItem(existingBatch, 41L, "KO", 1, latestTime);
+        latestKo.setRiskLevel("conservative");
+        StockAiSuggestionItem latestJnj = expiredItem(existingBatch, 42L, "JNJ", 2, latestTime);
+        latestJnj.setRiskLevel("conservative");
+        StockAiSuggestionItem latestMsft = expiredItem(existingBatch, 43L, "MSFT", 3, latestTime);
+        latestMsft.setRiskLevel("moderate");
+        List<StockAiSuggestionItem> batchItems = new ArrayList<>(List.of(
+                oldNvda,
+                latestKo,
+                oldTsla,
+                latestJnj,
+                oldAmd,
+                latestMsft
+        ));
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.empty());
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(
+                eq(1L),
+                eq("gpt-4o-mini"),
+                eq("stock-suggestion-v2"),
+                anyString(),
+                anyCollection()
+        )).thenReturn(Optional.of(existingBatch));
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(existingBatch), anyCollection()))
+                .thenAnswer(invocation -> {
+                    @SuppressWarnings("unchecked")
+                    List<StockAiSuggestionItemStatus> statuses = new ArrayList<>((java.util.Collection<StockAiSuggestionItemStatus>) invocation.getArgument(1));
+                    return batchItems.stream()
+                            .filter(item -> statuses.contains(item.getStatus()))
+                            .sorted(Comparator.comparing(StockAiSuggestionItem::getRankNo))
+                            .toList();
+                });
+        when(itemRepository.findBySuggestionBatchOrderByRankNoAsc(existingBatch)).thenReturn(batchItems);
+        when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(batchRepository.save(existingBatch)).thenReturn(existingBatch);
+
+        StockAiSuggestionResponse response = service.generateSuggestionsForUser(
+                user,
+                StockAiSuggestionTriggerReason.SCHEDULED_REFRESH,
+                false
+        );
+
+        assertEquals(List.of("KO", "JNJ", "MSFT"), response.suggestedStocks().stream().map(stock -> stock.symbol()).toList());
+        assertEquals(StockAiSuggestionItemStatus.EXPIRED, oldNvda.getStatus());
+        assertEquals(StockAiSuggestionItemStatus.EXPIRED, oldTsla.getStatus());
+        assertEquals(StockAiSuggestionItemStatus.EXPIRED, oldAmd.getStatus());
+        assertEquals(StockAiSuggestionItemStatus.ACTIVE, latestKo.getStatus());
+        assertEquals(StockAiSuggestionItemStatus.ACTIVE, latestJnj.getStatus());
+        assertEquals(StockAiSuggestionItemStatus.ACTIVE, latestMsft.getStatus());
+        verify(openAiClient, never()).generateSuggestion(anyString(), anyString());
+    }
+
+    @Test
+    void reusableSameInputBatchExpiresDuplicateVisibleRankAndKeepsNewestActiveRow() {
+        UserInvestmentProfile profile = profile();
+        StockAiSuggestionBatch existingBatch = batch(profile, StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED);
+        LocalDateTime oldTime = LocalDateTime.now().minusHours(5);
+        LocalDateTime latestTime = LocalDateTime.now().minusMinutes(5);
+
+        StockAiSuggestionItem staleNvda = expiredItem(existingBatch, 51L, "NVDA", 1, oldTime);
+        staleNvda.setStatus(StockAiSuggestionItemStatus.ACTIVE);
+        staleNvda.setRiskLevel("aggressive");
+        StockAiSuggestionItem latestKo = expiredItem(existingBatch, 52L, "KO", 1, latestTime);
+        latestKo.setStatus(StockAiSuggestionItemStatus.ACTIVE);
+        latestKo.setRiskLevel("conservative");
+        StockAiSuggestionItem expiredJnj = expiredItem(existingBatch, 53L, "JNJ", 2, latestTime);
+        expiredJnj.setRiskLevel("conservative");
+        StockAiSuggestionItem expiredMsft = expiredItem(existingBatch, 54L, "MSFT", 3, latestTime);
+        expiredMsft.setRiskLevel("moderate");
+        List<StockAiSuggestionItem> batchItems = new ArrayList<>(List.of(staleNvda, latestKo, expiredJnj, expiredMsft));
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.empty());
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(
+                eq(1L),
+                eq("gpt-4o-mini"),
+                eq("stock-suggestion-v2"),
+                anyString(),
+                anyCollection()
+        )).thenReturn(Optional.of(existingBatch));
+        when(itemRepository.findBySuggestionBatchOrderByRankNoAsc(existingBatch)).thenReturn(batchItems);
+        when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(batchRepository.save(existingBatch)).thenReturn(existingBatch);
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(existingBatch), anyCollection()))
+                .thenAnswer(invocation -> {
+                    @SuppressWarnings("unchecked")
+                    List<StockAiSuggestionItemStatus> statuses = new ArrayList<>((java.util.Collection<StockAiSuggestionItemStatus>) invocation.getArgument(1));
+                    return batchItems.stream()
+                            .filter(item -> statuses.contains(item.getStatus()))
+                            .sorted(Comparator.comparing(StockAiSuggestionItem::getRankNo))
+                            .toList();
+                });
+
+        StockAiSuggestionResponse response = service.generateSuggestionsForUser(
+                user,
+                StockAiSuggestionTriggerReason.SCHEDULED_REFRESH,
+                false
+        );
+
+        assertEquals(List.of("KO", "JNJ", "MSFT"), response.suggestedStocks().stream().map(stock -> stock.symbol()).toList());
+        assertEquals(StockAiSuggestionItemStatus.EXPIRED, staleNvda.getStatus());
+        assertEquals(StockAiSuggestionItemStatus.ACTIVE, latestKo.getStatus());
+        assertEquals(StockAiSuggestionItemStatus.ACTIVE, expiredJnj.getStatus());
+        assertEquals(StockAiSuggestionItemStatus.ACTIVE, expiredMsft.getStatus());
+        assertEquals(List.of(1, 2, 3), response.suggestedStocks().stream().map(stock -> stock.rankNo()).toList());
+        verify(itemRepository, times(3)).save(any(StockAiSuggestionItem.class));
         verify(openAiClient, never()).generateSuggestion(anyString(), anyString());
     }
 
@@ -252,6 +453,19 @@ class StockAiSuggestionServiceImplTests {
         assertEquals("FALLBACK_RULE_BASED", response.batchStatus());
         assertTrue(response.fallbackUsed());
         assertFalse(response.suggestedStocks().isEmpty());
+        assertEquals(
+                response.suggestedStocks().size(),
+                response.suggestedStocks().stream().map(stock -> stock.matchScore()).distinct().count()
+        );
+        response.suggestedStocks().forEach(stock -> {
+            String detailReason = stock.detailReason().toLowerCase();
+            assertTrue(detailReason.contains("risk category"));
+            assertTrue(detailReason.contains("volatility"));
+            assertTrue(detailReason.contains("trend"));
+            assertTrue(detailReason.contains("price consistency"));
+            assertTrue(detailReason.contains("volume trend"));
+            assertTrue(detailReason.contains("data quality"));
+        });
         assertEquals(StockAiSuggestionItemStatus.EXPIRED, previousActiveItem.getStatus());
         verify(batchRepository).save(argThat(batch ->
                 batch.getStatus() == StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED
@@ -317,6 +531,78 @@ class StockAiSuggestionServiceImplTests {
     }
 
     @Test
+    void openAiSuccessUpdatesExistingSameInputFallbackCachedBatchWithoutDuplicateInsert() {
+        UserInvestmentProfile profile = profile();
+        StockAiSuggestionBatch existingFallbackCached = batch(profile, StockAiSuggestionBatchStatus.FALLBACK_CACHED);
+        existingFallbackCached.setSuggestionBatchId(95L);
+        existingFallbackCached.setErrorMessage("previous fallback");
+        existingFallbackCached.setPromptTokens(null);
+        existingFallbackCached.setCompletionTokens(null);
+        existingFallbackCached.setTotalTokens(null);
+        StockAiSuggestionItem staleAggressiveItem = suggestionItem(existingFallbackCached, StockAiSuggestionItemStatus.ACTIVE);
+        staleAggressiveItem.setSuggestionItemId(96L);
+        staleAggressiveItem.setSymbol("NVDA");
+        staleAggressiveItem.setRiskLevel("aggressive");
+        staleAggressiveItem.setAnalysisSnapshot(snapshot("NVDA"));
+        List<StockAiSuggestionItem> batchItems = new ArrayList<>(List.of(staleAggressiveItem));
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.empty());
+        when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionTriggerReason.MANUAL_REFRESH)))
+                .thenReturn(Optional.empty());
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
+                .thenReturn(Optional.empty());
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString()))
+                .thenReturn(Optional.of(existingFallbackCached));
+        when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(new OpenAiSuggestionResult(
+                true,
+                validSuggestionJson(),
+                100,
+                80,
+                180,
+                "stop",
+                null
+        ));
+        when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE))
+                .thenReturn(List.of(staleAggressiveItem));
+        when(itemRepository.findBySuggestionBatchOrderByRankNoAsc(existingFallbackCached)).thenReturn(batchItems);
+        when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> {
+            StockAiSuggestionItem item = invocation.getArgument(0);
+            if (item.getSuggestionBatch() == existingFallbackCached
+                    && item.getSuggestionItemId() == null
+                    && item.getSymbol() != null) {
+                item.setSuggestionItemId(97L);
+                batchItems.add(item);
+            }
+            return item;
+        });
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(existingFallbackCached), anyCollection()))
+                .thenAnswer(invocation -> {
+                    @SuppressWarnings("unchecked")
+                    List<StockAiSuggestionItemStatus> statuses = new ArrayList<>((java.util.Collection<StockAiSuggestionItemStatus>) invocation.getArgument(1));
+                    return batchItems.stream()
+                            .filter(item -> statuses.contains(item.getStatus()))
+                            .toList();
+                });
+
+        StockAiSuggestionResponse response = service.refreshSuggestionsForCurrentUser();
+
+        assertEquals(95L, response.batchId());
+        assertEquals("SUCCESS", response.batchStatus());
+        assertFalse(response.fallbackUsed());
+        assertEquals(StockAiSuggestionBatchStatus.SUCCESS, existingFallbackCached.getStatus());
+        assertNull(existingFallbackCached.getErrorMessage());
+        assertEquals(180, existingFallbackCached.getTotalTokens());
+        assertEquals(StockAiSuggestionItemStatus.EXPIRED, staleAggressiveItem.getStatus());
+        assertEquals(List.of("MSFT"), response.suggestedStocks().stream().map(stock -> stock.symbol()).toList());
+        verify(batchRepository).save(same(existingFallbackCached));
+    }
+
+    @Test
     void rejectsSteadyMovementWhenPriceConsistencyIsChoppy() {
         StockAnalysisSnapshot googSnapshot = snapshot("GOOG");
         googSnapshot.setTrend("volatile downtrend");
@@ -324,7 +610,7 @@ class StockAiSuggestionServiceImplTests {
         String invalidJson = googSuggestionJson(
                 "Observing steady movement",
                 "GOOG appears steady with moderate risk and complete data.",
-                "GOOG shows steady movement with moderate risk, moderate volatility, stable volume, smooth consistency, and complete data for educational paper-trading practice."
+                "GOOG has risk category moderate, volatility moderate, trend is volatile downtrend, price consistency choppy downward movement, volume trend stable, and data quality complete, but the wording incorrectly says steady movement."
         );
 
         ArgumentCaptor<String> promptCaptor = refreshWithGoogOpenAiResults(
@@ -334,10 +620,109 @@ class StockAiSuggestionServiceImplTests {
         );
 
         verify(openAiClient, times(2)).generateSuggestion(anyString(), anyString());
-        assertTrue(promptCaptor.getAllValues().get(1).contains("AI wording contradicts volatile or choppy snapshot data"));
+        JsonNode retryPrompt = readJson(promptCaptor.getAllValues().get(1));
+        assertTrue(retryPrompt.path("previousValidationError").asText().contains("AI wording contradicts volatile or choppy snapshot data"));
+        assertTrue(retryPrompt.path("retryConstraints").toString().contains("Do not use steady, smooth, consistent, stable, or clear trend wording"));
         verify(batchRepository).save(argThat(batch ->
                 batch.getStatus() == StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED
                         && "retry unavailable".equals(batch.getErrorMessage())
+        ));
+    }
+
+    @Test
+    void retryPromptUsesNaturalFactorGuidanceWhenAiOmitsInputFactors() {
+        StockAnalysisSnapshot googSnapshot = snapshot("GOOG");
+        String invalidJson = googSuggestionJson(
+                "Risk-aligned paper-trading practice",
+                "GOOG gives paper-trading practice with moderate risk and complete data.",
+                "GOOG is included as an educational paper-trading example for beginner learning practice today."
+        );
+
+        ArgumentCaptor<String> promptCaptor = refreshWithGoogOpenAiResults(
+                googSnapshot,
+                new OpenAiSuggestionResult(true, invalidJson, 100, 80, 180, "stop", null),
+                OpenAiSuggestionResult.failure("retry unavailable")
+        );
+
+        verify(openAiClient, times(2)).generateSuggestion(anyString(), anyString());
+        JsonNode retryPrompt = readJson(promptCaptor.getAllValues().get(1));
+        assertTrue(retryPrompt.path("previousValidationError").asText().contains("AI detail reason does not mention enough input factors"));
+        String retryConstraints = retryPrompt.path("retryConstraints").toString();
+        assertTrue(retryConstraints.contains("at least two concrete provided factors"));
+        assertTrue(retryConstraints.contains("natural wording"));
+        assertTrue(retryConstraints.contains("risk"));
+        assertTrue(retryConstraints.contains("volume"));
+        assertTrue(retryConstraints.contains("data quality"));
+        assertFalse(retryConstraints.contains("exact factor phrases"));
+    }
+
+    @Test
+    void detailReasonWithSemanticFactorsPassesWithoutExactVolumeTrendOrDataQuality() {
+        StockAnalysisSnapshot googSnapshot = snapshot("GOOG");
+        String validJson = googSuggestionJson(
+                "Risk-aligned paper-trading practice",
+                "GOOG gives paper-trading practice with moderate risk and complete data.",
+                "GOOG has risk category moderate, volatility moderate, trend is strong uptrend, and price consistency smooth upward movement for educational paper-trading practice."
+        );
+
+        ArgumentCaptor<String> promptCaptor = refreshWithGoogOpenAiResults(
+                googSnapshot,
+                new OpenAiSuggestionResult(true, validJson, 100, 80, 180, "stop", null)
+        );
+
+        verify(openAiClient, times(1)).generateSuggestion(anyString(), anyString());
+        assertEquals(1, promptCaptor.getAllValues().size());
+        verify(batchRepository).save(argThat(batch ->
+                batch.getStatus() == StockAiSuggestionBatchStatus.SUCCESS
+                        && batch.getErrorMessage() == null
+        ));
+    }
+
+    @Test
+    void repeatedTrendLabelWordingIsSanitizedWithoutRetry() {
+        StockAnalysisSnapshot googSnapshot = snapshot("GOOG");
+        String validJson = googSuggestionJson(
+                "Volatility comparison practice",
+                "GOOG gives paper-trading practice with moderate risk and complete data.",
+                "GOOG has risk category moderate, volatility moderate, strong uptrend trend, price consistency smooth upward movement, volume trend stable, and data quality complete for educational paper-trading practice."
+        );
+
+        ArgumentCaptor<String> promptCaptor = refreshWithGoogOpenAiResults(
+                googSnapshot,
+                new OpenAiSuggestionResult(true, validJson, 100, 80, 180, "stop", null)
+        );
+
+        verify(openAiClient, times(1)).generateSuggestion(anyString(), anyString());
+        assertEquals(1, promptCaptor.getAllValues().size());
+        verify(batchRepository).save(argThat(batch ->
+                batch.getStatus() == StockAiSuggestionBatchStatus.SUCCESS
+                        && batch.getErrorMessage() == null
+        ));
+        verify(itemRepository).save(argThat(item ->
+                item.getDetailReason().contains("trend is uptrend")
+                        && !item.getDetailReason().contains("uptrend trend")
+        ));
+    }
+
+    @Test
+    void validDetailReasonWithGroundedFactorsPassesWithoutRetry() {
+        StockAnalysisSnapshot googSnapshot = snapshot("GOOG");
+        String validJson = googSuggestionJson(
+                "Risk-aligned paper-trading practice",
+                "GOOG gives paper-trading practice with moderate risk and complete data.",
+                "GOOG has risk category moderate, volatility moderate, trend is strong uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete for educational paper-trading practice."
+        );
+
+        ArgumentCaptor<String> promptCaptor = refreshWithGoogOpenAiResults(
+                googSnapshot,
+                new OpenAiSuggestionResult(true, validJson, 100, 80, 180, "stop", null)
+        );
+
+        verify(openAiClient, times(1)).generateSuggestion(anyString(), anyString());
+        assertEquals(1, promptCaptor.getAllValues().size());
+        verify(batchRepository).save(argThat(batch ->
+                batch.getStatus() == StockAiSuggestionBatchStatus.SUCCESS
+                        && batch.getErrorMessage() == null
         ));
     }
 
@@ -349,7 +734,7 @@ class StockAiSuggestionServiceImplTests {
         String invalidJson = googSuggestionJson(
                 "Smooth trend learning",
                 "GOOG gives smooth trend practice with moderate risk and complete data.",
-                "GOOG shows a smooth trend with moderate risk, moderate volatility, stable volume, price consistency, and complete data for educational paper-trading practice."
+                "GOOG has risk category moderate, volatility moderate, trend is volatile downtrend, price consistency uneven downward movement, volume trend stable, and data quality complete, but the wording incorrectly says smooth trend."
         );
 
         ArgumentCaptor<String> promptCaptor = refreshWithGoogOpenAiResults(
@@ -374,7 +759,7 @@ class StockAiSuggestionServiceImplTests {
         String invalidJson = googSuggestionJson(
                 "Clear trend practice",
                 "GOOG gives clear trend practice with moderate risk and complete data.",
-                "GOOG has a clear trend with moderate risk, moderate volatility, stable volume, price consistency, and complete data for educational paper-trading practice."
+                "GOOG has risk category moderate, volatility moderate, trend is volatile downtrend, price consistency choppy downward movement, volume trend stable, and data quality complete, but the wording incorrectly says clear trend."
         );
 
         ArgumentCaptor<String> promptCaptor = refreshWithGoogOpenAiResults(
@@ -399,12 +784,12 @@ class StockAiSuggestionServiceImplTests {
         String invalidJson = googSuggestionJson(
                 "Stable movement learning",
                 "GOOG gives stable movement practice with moderate risk and complete data.",
-                "GOOG has stable movement with moderate risk, moderate volatility, stable volume, price consistency, and complete data for educational paper-trading practice."
+                "GOOG has risk category moderate, volatility moderate, trend is volatile downtrend, price consistency choppy downward movement, volume trend stable, and data quality complete, but the wording incorrectly says stable movement."
         );
         String validRetryJson = googSuggestionJson(
                 "Choppy movement learning",
                 "GOOG gives choppy paper-trading practice with moderate risk and complete data.",
-                "GOOG is shown as an educational paper-trading example because the snapshot has a volatile downtrend, moderate volatility, stable volume, choppy price consistency, moderate risk, and complete data."
+                "GOOG has risk category moderate, volatility moderate, trend is volatile downtrend, price consistency choppy downward movement, volume trend stable, and data quality complete for educational paper-trading practice."
         );
 
         ArgumentCaptor<String> promptCaptor = refreshWithGoogOpenAiResults(
@@ -452,7 +837,7 @@ class StockAiSuggestionServiceImplTests {
         String honestJson = googSuggestionJson(
                 "Choppy movement learning",
                 "GOOG gives choppy paper-trading practice with moderate risk and complete data.",
-                "GOOG is shown as an educational paper-trading example because the snapshot has a volatile downtrend, moderate volatility, stable volume, choppy price consistency, moderate risk, and complete data."
+                "GOOG has risk category moderate, volatility moderate, trend is volatile downtrend, price consistency choppy downward movement, volume trend stable, and data quality complete for educational paper-trading practice."
         );
 
         ArgumentCaptor<String> promptCaptor = refreshWithGoogOpenAiResults(
@@ -618,7 +1003,7 @@ class StockAiSuggestionServiceImplTests {
         assertEquals("moderate", savedMsft.getRiskLevel());
         assertEquals("Balanced trend learning", savedMsft.getSuggestionLabel());
         assertEquals("Microsoft matches your moderate learning profile.", savedMsft.getShortReason());
-        assertEquals("Microsoft has a strong uptrend, moderate volatility, and moderate risk with complete data for beginner-friendly paper-trading practice.", savedMsft.getDetailReason());
+        assertEquals("Microsoft has risk category moderate, volatility moderate, trend is strong uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete for beginner-friendly paper-trading practice.", savedMsft.getDetailReason());
         assertEquals(snapshot("MSFT").getAnalysisSnapshotId(), savedMsft.getAnalysisSnapshot().getAnalysisSnapshotId());
         verify(batchRepository, times(1)).save(same(savedSuccessBatch.get()));
         verify(openAiClient, times(1)).generateSuggestion(anyString(), anyString());
@@ -965,6 +1350,294 @@ class StockAiSuggestionServiceImplTests {
     }
 
     @Test
+    void generateSuggestionsForUser_shiftsPersonalizationFromOnboardingToBehaviorAsBehaviorConfidenceIncreases() throws Exception {
+        UserInvestmentProfile aggressiveProfile = profile();
+        aggressiveProfile.setRiskTolerance(RiskTolerance.AGGRESSIVE);
+        aggressiveProfile.setInvestmentGoal(InvestmentGoal.GROWTH);
+        aggressiveProfile.setPreferredVolatility(PreferredVolatility.HIGH);
+        aggressiveProfile.setBehaviorConfidence(BehaviorConfidence.HIGH);
+        aggressiveProfile.setBehaviorStyle(BehaviorStyle.SPECULATIVE);
+        aggressiveProfile.setBehaviorRiskScore(95);
+
+        BehaviorSummaryForSuggestion mediumConservativeBehavior = behaviorSummary(
+                LocalDateTime.of(2026, 6, 8, 10, 0),
+                31L,
+                BehaviorConfidence.MEDIUM,
+                UserBehaviorStyle.CONSERVATIVE,
+                28,
+                "conservative",
+                "KO,JNJ"
+        );
+        BehaviorSummaryForSuggestion highConservativeBehavior = behaviorSummary(
+                LocalDateTime.of(2026, 6, 8, 11, 0),
+                31L,
+                BehaviorConfidence.HIGH,
+                UserBehaviorStyle.ACTIVE_TRADER,
+                29,
+                "conservative",
+                "KO,JNJ,MSFT",
+                HighVolatilityExposure.LOW,
+                36,
+                35
+        );
+        List<StockAiSuggestionBatch> savedBatches = new ArrayList<>();
+        List<StockAiSuggestionItem> savedItems = new ArrayList<>();
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
+                .thenReturn(Optional.of(aggressiveProfile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.empty());
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
+                .thenAnswer(invocation -> adaptiveSnapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(
+                eq(1L),
+                eq("gpt-4o-mini"),
+                eq("stock-suggestion-v2"),
+                anyString(),
+                anyCollection()
+        )).thenReturn(Optional.empty());
+        when(behaviorProfileService.getBehaviorSummaryForSuggestion(1L))
+                .thenReturn(null)
+                .thenReturn(mediumConservativeBehavior)
+                .thenReturn(highConservativeBehavior);
+        when(openAiClient.generateSuggestion(anyString(), anyString()))
+                .thenReturn(
+                        openAiSuccess(adaptiveSuggestionJson(
+                                "TSLA",
+                                "aggressive",
+                                "Aggressive onboarding practice",
+                                "Tesla is shown because your declared onboarding profile is aggressive and growth focused.",
+                                "Tesla has risk category aggressive, volatility high, trend is strong uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete. It fits the declared onboarding profile for educational paper-trading practice. No paper-trading behavior profile is available yet, so observed behavior remains a small secondary signal rather than the main driver."
+                        )),
+                        openAiSuccess(adaptiveTwoSuggestionJson(
+                                "KO",
+                                "conservative",
+                                "Lower-risk behavior practice",
+                                "Coca-Cola is shown because medium-confidence paper-trading behavior now supports lower-risk practice.",
+                                "Coca-Cola has risk category conservative, volatility low, trend is steady uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete. Your onboarding profile is still aggressive, but your observed paper-trading behavior is now medium confidence and leans conservative, so this remains a mixed educational paper-trading example.",
+                                "MSFT",
+                                "moderate",
+                                "Moderate bridge practice",
+                                "Microsoft keeps the medium-confidence suggestion set mixed for educational paper-trading practice.",
+                                "Microsoft has risk category moderate, volatility medium, trend is steady uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete. It bridges the declared aggressive onboarding profile and the observed conservative paper-trading behavior without presenting real-money investment instructions."
+                        )),
+                        openAiSuccess(adaptiveTwoSuggestionJson(
+                                "JNJ",
+                                "conservative",
+                                "Behavior-dominant learning",
+                                "Johnson & Johnson is shown because high-confidence paper-trading behavior now carries more weight.",
+                                "Johnson & Johnson has risk category conservative, volatility low, trend is steady uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete. Although your declared onboarding profile is aggressive, your observed paper-trading behavior shows repeated lower-risk practice, so this behavior-dominant suggestion explains the conflict in beginner-friendly educational terms.",
+                                "MSFT",
+                                "moderate",
+                                "Moderate behavior bridge",
+                                "Microsoft provides a moderate bridge between aggressive onboarding and lower-risk observed behavior.",
+                                "Microsoft has risk category moderate, volatility medium, trend is steady uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete. It keeps the high-confidence behavior stage educational while acknowledging both declared onboarding preference and observed paper-trading behavior."
+                        ))
+                );
+        when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE)).thenReturn(List.of());
+        when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> {
+            StockAiSuggestionBatch batch = invocation.getArgument(0);
+            batch.setSuggestionBatchId((long) savedBatches.size() + 200L);
+            savedBatches.add(batch);
+            return batch;
+        });
+        when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> {
+            StockAiSuggestionItem item = invocation.getArgument(0);
+            item.setSuggestionItemId((long) savedItems.size() + 300L);
+            savedItems.add(item);
+            return item;
+        });
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(any(), anyCollection()))
+                .thenAnswer(invocation -> savedItems.stream()
+                        .filter(item -> item.getSuggestionBatch() == invocation.getArgument(0))
+                        .toList());
+
+        StockAiSuggestionResponse stageAResponse = service.generateSuggestionsForUser(
+                user,
+                StockAiSuggestionTriggerReason.SCHEDULED_REFRESH,
+                false
+        );
+        StockAiSuggestionResponse stageBResponse = service.generateSuggestionsForUser(
+                user,
+                StockAiSuggestionTriggerReason.SCHEDULED_REFRESH,
+                false
+        );
+        StockAiSuggestionResponse stageCResponse = service.generateSuggestionsForUser(
+                user,
+                StockAiSuggestionTriggerReason.SCHEDULED_REFRESH,
+                false
+        );
+
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(openAiClient, times(3)).generateSuggestion(anyString(), promptCaptor.capture());
+        List<JsonNode> prompts = promptCaptor.getAllValues().stream()
+                .map(this::readJson)
+                .toList();
+        JsonNode stageA = prompts.get(0);
+        JsonNode stageB = prompts.get(1);
+        JsonNode stageC = prompts.get(2);
+
+        assertAdaptivePromptShape(stageA);
+        assertAdaptivePromptShape(stageB);
+        assertAdaptivePromptShape(stageC);
+        assertEquals("AGGRESSIVE", stageA.path("declaredOnboardingProfile").path("riskTolerance").asText());
+        assertEquals("GROWTH", stageA.path("declaredOnboardingProfile").path("investmentGoal").asText());
+        assertEquals("HIGH", stageA.path("declaredOnboardingProfile").path("preferredVolatility").asText());
+
+        assertFalse(stageA.path("observedPaperTradingBehavior").path("hasBehaviorProfile").asBoolean());
+        assertEquals("LOW", stageA.path("observedPaperTradingBehavior").path("behaviorConfidence").asText());
+        assertEquals(80, stageA.path("personalizationWeight").path("onboardingWeight").asInt());
+        assertEquals(20, stageA.path("personalizationWeight").path("behaviorWeight").asInt());
+        assertCandidateEvidence(stageA, "TSLA", "MATCH", "INSUFFICIENT_DATA");
+        assertTrue(signalFor(stageA, "TSLA").path("combinedFitScore").asInt()
+                > signalFor(stageA, "KO").path("combinedFitScore").asInt());
+
+        assertTrue(stageB.path("observedPaperTradingBehavior").path("hasBehaviorProfile").asBoolean());
+        assertEquals("MEDIUM", stageB.path("observedPaperTradingBehavior").path("behaviorConfidence").asText());
+        assertEquals("conservative", stageB.path("observedPaperTradingBehavior").path("favoriteRiskCategory").asText());
+        assertEquals("KO,JNJ", stageB.path("observedPaperTradingBehavior").path("mostTradedSymbols").asText());
+        assertEquals(40, stageB.path("personalizationWeight").path("onboardingWeight").asInt());
+        assertEquals(60, stageB.path("personalizationWeight").path("behaviorWeight").asInt());
+        assertCandidateEvidence(stageB, "KO", "PARTIAL_MATCH", "PARTIAL_MATCH");
+        assertTrue(signalFor(stageB, "KO").path("behaviorFitScore").asInt()
+                > signalFor(stageB, "TSLA").path("behaviorFitScore").asInt());
+        assertTrue(signalFor(stageB, "KO").path("combinedFitScore").asInt()
+                > signalFor(stageA, "KO").path("combinedFitScore").asInt());
+
+        assertEquals("HIGH", stageC.path("observedPaperTradingBehavior").path("behaviorConfidence").asText());
+        assertEquals("ACTIVE_TRADER", stageC.path("observedPaperTradingBehavior").path("behaviorStyle").asText());
+        assertEquals("KO,JNJ,MSFT", stageC.path("observedPaperTradingBehavior").path("mostTradedSymbols").asText());
+        assertEquals("LOW", stageC.path("observedPaperTradingBehavior").path("highVolatilityExposure").asText());
+        assertEquals(10, stageC.path("personalizationWeight").path("onboardingWeight").asInt());
+        assertEquals(90, stageC.path("personalizationWeight").path("behaviorWeight").asInt());
+        assertCandidateEvidence(stageC, "JNJ", "PARTIAL_MATCH", "MATCH");
+        assertEquals("MISMATCH", signalFor(stageC, "TSLA").path("behaviorCompatibility").asText());
+        assertEquals("MISMATCH", signalFor(stageC, "NVDA").path("behaviorCompatibility").asText());
+        assertEquals("MISMATCH", signalFor(stageC, "AMD").path("behaviorCompatibility").asText());
+        assertTrue(signalFor(stageC, "JNJ").path("combinedFitScore").asInt()
+                > signalFor(stageC, "TSLA").path("combinedFitScore").asInt());
+        assertTrue(signalFor(stageC, "JNJ").path("combinedFitScore").asInt()
+                >= signalFor(stageB, "JNJ").path("combinedFitScore").asInt());
+
+        assertEquals(3, savedBatches.size());
+        assertEquals("stock-suggestion-v2", savedBatches.get(0).getPromptVersion());
+        assertEquals(StockAiSuggestionBatchStatus.SUCCESS, savedBatches.get(0).getStatus());
+        assertEquals(StockAiSuggestionBatchStatus.SUCCESS, savedBatches.get(1).getStatus());
+        assertEquals(StockAiSuggestionBatchStatus.SUCCESS, savedBatches.get(2).getStatus());
+        assertNotNull(savedBatches.get(0).getInputHash());
+        assertFalse(savedBatches.get(0).getInputHash().isBlank());
+        assertNotEquals(savedBatches.get(0).getInputHash(), savedBatches.get(1).getInputHash());
+        assertNotEquals(savedBatches.get(1).getInputHash(), savedBatches.get(2).getInputHash());
+        assertNotEquals(savedBatches.get(0).getInputHash(), savedBatches.get(2).getInputHash());
+
+        assertFalse(stageAResponse.fallbackUsed());
+        assertFalse(stageBResponse.fallbackUsed());
+        assertFalse(stageCResponse.fallbackUsed());
+        assertEquals("SUCCESS", stageAResponse.batchStatus());
+        assertEquals("SUCCESS", stageBResponse.batchStatus());
+        assertEquals("SUCCESS", stageCResponse.batchStatus());
+        assertResponseDoesNotExposeRawAiData(stageCResponse);
+        assertTrue(savedItems.stream().anyMatch(item -> item.getSymbol().equals("JNJ")
+                && item.getShortReason().toLowerCase().contains("paper-trading behavior")
+                && item.getDetailReason().toLowerCase().contains("declared onboarding profile")
+                && item.getDetailReason().toLowerCase().contains("observed paper-trading behavior")));
+
+        verify(behaviorProfileService, times(3)).getBehaviorSummaryForSuggestion(1L);
+        verify(behaviorProfileService, never()).createLowConfidenceProfileIfMissing(any());
+    }
+
+    @Test
+    void generateSuggestionsForUser_retriesAllAggressiveOutputWhenHighConfidenceBehaviorIsLowerRisk() {
+        UserInvestmentProfile aggressiveProfile = profile();
+        aggressiveProfile.setRiskTolerance(RiskTolerance.AGGRESSIVE);
+        aggressiveProfile.setInvestmentGoal(InvestmentGoal.GROWTH);
+        aggressiveProfile.setPreferredVolatility(PreferredVolatility.HIGH);
+        aggressiveProfile.setBehaviorConfidence(BehaviorConfidence.HIGH);
+        aggressiveProfile.setBehaviorStyle(BehaviorStyle.SPECULATIVE);
+        aggressiveProfile.setBehaviorRiskScore(95);
+        BehaviorSummaryForSuggestion highActiveLowerRiskBehavior = behaviorSummary(
+                LocalDateTime.of(2026, 6, 8, 11, 0),
+                31L,
+                BehaviorConfidence.HIGH,
+                UserBehaviorStyle.ACTIVE_TRADER,
+                29,
+                "conservative",
+                "KO,JNJ,MSFT",
+                HighVolatilityExposure.LOW,
+                36,
+                35
+        );
+        List<StockAiSuggestionBatch> savedBatches = new ArrayList<>();
+        List<StockAiSuggestionItem> savedItems = new ArrayList<>();
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
+                .thenReturn(Optional.of(aggressiveProfile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.empty());
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
+                .thenAnswer(invocation -> adaptiveSnapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(
+                eq(1L),
+                eq("gpt-4o-mini"),
+                eq("stock-suggestion-v2"),
+                anyString(),
+                anyCollection()
+        )).thenReturn(Optional.empty());
+        when(behaviorProfileService.getBehaviorSummaryForSuggestion(1L)).thenReturn(highActiveLowerRiskBehavior);
+        when(openAiClient.generateSuggestion(anyString(), anyString()))
+                .thenReturn(
+                        openAiSuccess(allAggressiveSuggestionJson()),
+                        openAiSuccess(adaptiveTwoSuggestionJson(
+                                "JNJ",
+                                "conservative",
+                                "Behavior-dominant learning",
+                                "Johnson & Johnson is shown because high-confidence paper-trading behavior now carries more weight.",
+                                "Johnson & Johnson has risk category conservative, volatility low, trend is steady uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete. Although your declared onboarding profile is aggressive, your observed paper-trading behavior shows repeated lower-risk practice, so this behavior-dominant suggestion explains the conflict in beginner-friendly educational terms.",
+                                "MSFT",
+                                "moderate",
+                                "Moderate behavior bridge",
+                                "Microsoft provides a moderate bridge between aggressive onboarding and lower-risk observed behavior.",
+                                "Microsoft has risk category moderate, volatility medium, trend is steady uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete. It keeps the high-confidence behavior stage educational while acknowledging both declared onboarding preference and observed paper-trading behavior."
+                        ))
+                );
+        when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE)).thenReturn(List.of());
+        when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> {
+            StockAiSuggestionBatch batch = invocation.getArgument(0);
+            batch.setSuggestionBatchId((long) savedBatches.size() + 260L);
+            savedBatches.add(batch);
+            return batch;
+        });
+        when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> {
+            StockAiSuggestionItem item = invocation.getArgument(0);
+            item.setSuggestionItemId((long) savedItems.size() + 360L);
+            savedItems.add(item);
+            return item;
+        });
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(any(), anyCollection()))
+                .thenAnswer(invocation -> savedItems.stream()
+                        .filter(item -> item.getSuggestionBatch() == invocation.getArgument(0))
+                        .toList());
+
+        StockAiSuggestionResponse response = service.generateSuggestionsForUser(
+                user,
+                StockAiSuggestionTriggerReason.SCHEDULED_REFRESH,
+                false
+        );
+
+        verify(openAiClient, times(2)).generateSuggestion(anyString(), anyString());
+        assertEquals("SUCCESS", response.batchStatus());
+        assertFalse(response.fallbackUsed());
+        assertEquals(1, savedBatches.size());
+        assertEquals(StockAiSuggestionBatchStatus.SUCCESS, savedBatches.get(0).getStatus());
+        assertTrue(savedItems.stream().anyMatch(item -> item.getSymbol().equals("JNJ")));
+        assertFalse(savedItems.stream().allMatch(item -> List.of("NVDA", "TSLA", "AMD").contains(item.getSymbol())));
+        verify(behaviorProfileService).getBehaviorSummaryForSuggestion(1L);
+        verify(behaviorProfileService, never()).createLowConfidenceProfileIfMissing(any());
+    }
+
+    @Test
     void noBehaviorProfileUsesLowNoDataSummaryAndEightyTwentyWeight() throws Exception {
         String userContent = promptForBehaviorSummary(behaviorSummary(
                 LocalDateTime.of(2026, 6, 8, 9, 0),
@@ -1037,6 +1710,34 @@ class StockAiSuggestionServiceImplTests {
     }
 
     @Test
+    void behaviorRiskSignalsStillInfluenceCandidatesWhenFavoriteAndStyleAreMissing() throws Exception {
+        String userContent = promptForBehaviorSummary(behaviorSummary(
+                LocalDateTime.of(2026, 6, 8, 9, 0),
+                42L,
+                BehaviorConfidence.HIGH,
+                null,
+                null,
+                null,
+                null,
+                null,
+                82,
+                null
+        ));
+
+        JsonNode root = new ObjectMapper().readTree(userContent);
+
+        assertEquals("HIGH", root.path("observedPaperTradingBehavior").path("behaviorConfidence").asText());
+        assertEquals(10, root.path("personalizationWeight").path("onboardingWeight").asInt());
+        assertEquals(90, root.path("personalizationWeight").path("behaviorWeight").asInt());
+        assertEquals("MATCH", signalFor(root, "TSLA").path("behaviorCompatibility").asText());
+        assertEquals("MATCH", signalFor(root, "NVDA").path("behaviorCompatibility").asText());
+        assertEquals("MATCH", signalFor(root, "AMD").path("behaviorCompatibility").asText());
+        assertEquals("PARTIAL_MATCH", signalFor(root, "MSFT").path("behaviorCompatibility").asText());
+        assertEquals("MISMATCH", signalFor(root, "KO").path("behaviorCompatibility").asText());
+        assertEquals("MISMATCH", signalFor(root, "JNJ").path("behaviorCompatibility").asText());
+    }
+
+    @Test
     void candidateFitChangeUpdatesInputHashEvenWhenSnapshotHashIsUnchanged() {
         UserInvestmentProfile profile = profile();
         AtomicBoolean weakMicrosoftData = new AtomicBoolean(false);
@@ -1076,7 +1777,7 @@ class StockAiSuggestionServiceImplTests {
     }
 
     @Test
-    void openAiFailureWithCachedSuccessCreatesCooldownBatchAndSecondRefreshDoesNotCallOpenAiAgain() {
+    void openAiFailureWithCachedSuccessCreatesRuleBasedCooldownBatchAndSecondRefreshDoesNotCallOpenAiAgain() {
         UserInvestmentProfile profile = profile();
         StockAiSuggestionBatch cachedSuccess = batch(profile, StockAiSuggestionBatchStatus.SUCCESS);
         cachedSuccess.setSuggestionBatchId(70L);
@@ -1085,45 +1786,33 @@ class StockAiSuggestionServiceImplTests {
         cachedSuccess.setExpiresAt(LocalDateTime.now().plusHours(2));
         StockAiSuggestionItem cachedItem = suggestionItem(cachedSuccess, StockAiSuggestionItemStatus.ACTIVE);
         cachedItem.setAnalysisSnapshot(snapshot("MSFT"));
-        StockAiSuggestionItem watchlistedCachedItem = suggestionItem(cachedSuccess, StockAiSuggestionItemStatus.WATCHLISTED);
-        watchlistedCachedItem.setSuggestionItemId(21L);
-        watchlistedCachedItem.setSymbol("AAPL");
-        watchlistedCachedItem.setRankNo(2);
-        watchlistedCachedItem.setMatchScore(72);
-        watchlistedCachedItem.setRiskLevel("moderate");
-        watchlistedCachedItem.setSuggestionLabel("Watchlisted learning pick");
-        watchlistedCachedItem.setShortReason("Apple remains available from the cached suggestion.");
-        watchlistedCachedItem.setDetailReason("Apple has moderate risk and complete data in the cached suggestion.");
-        watchlistedCachedItem.setAnalysisSnapshot(snapshot("AAPL"));
-        AtomicReference<StockAiSuggestionBatch> savedFallbackCached = new AtomicReference<>();
-        List<StockAiSuggestionItem> copiedItems = new ArrayList<>();
+        AtomicReference<StockAiSuggestionBatch> savedRuleBased = new AtomicReference<>();
+        List<StockAiSuggestionItem> savedItems = new ArrayList<>();
 
         when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
         when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
-                .thenAnswer(invocation -> savedFallbackCached.get() == null
+                .thenAnswer(invocation -> savedRuleBased.get() == null
                         ? Optional.of(cachedSuccess)
-                        : Optional.of(savedFallbackCached.get()));
+                        : Optional.of(savedRuleBased.get()));
         when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionTriggerReason.MANUAL_REFRESH)))
-                .thenAnswer(invocation -> Optional.ofNullable(savedFallbackCached.get()));
+                .thenAnswer(invocation -> Optional.ofNullable(savedRuleBased.get()));
         when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
         when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
         when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
                 .thenReturn(Optional.empty());
         when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(OpenAiSuggestionResult.failure("OpenAI unavailable"));
-        when(batchRepository.findTopByUserUserIdAndStatusAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionBatchStatus.SUCCESS), any()))
-                .thenReturn(Optional.of(cachedSuccess));
         when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE)).thenReturn(List.of(cachedItem));
         when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> {
             StockAiSuggestionBatch batch = invocation.getArgument(0);
             batch.setSuggestionBatchId(71L);
-            savedFallbackCached.set(batch);
+            savedRuleBased.set(batch);
             return batch;
         });
         when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> {
             StockAiSuggestionItem item = invocation.getArgument(0);
             if (item.getSuggestionBatch() != cachedSuccess) {
-                item.setSuggestionItemId((long) copiedItems.size() + 80L);
-                copiedItems.add(item);
+                item.setSuggestionItemId((long) savedItems.size() + 80L);
+                savedItems.add(item);
             }
             return item;
         });
@@ -1133,11 +1822,11 @@ class StockAiSuggestionServiceImplTests {
                     @SuppressWarnings("unchecked")
                     List<StockAiSuggestionItemStatus> statuses = new ArrayList<>((java.util.Collection<StockAiSuggestionItemStatus>) invocation.getArgument(1));
                     if (batch == cachedSuccess) {
-                        return List.of(cachedItem, watchlistedCachedItem).stream()
+                        return List.of(cachedItem).stream()
                                 .filter(item -> statuses.contains(item.getStatus()))
                                 .toList();
                     }
-                    return copiedItems.stream()
+                    return savedItems.stream()
                             .filter(item -> statuses.contains(item.getStatus()))
                             .toList();
                 });
@@ -1145,50 +1834,107 @@ class StockAiSuggestionServiceImplTests {
         StockAiSuggestionResponse first = service.refreshSuggestionsForCurrentUser();
         StockAiSuggestionResponse second = service.refreshSuggestionsForCurrentUser();
 
-        assertEquals("FALLBACK_CACHED", first.batchStatus());
+        assertEquals("FALLBACK_RULE_BASED", first.batchStatus());
         assertTrue(first.fallbackUsed());
         assertFalse(first.refreshAllowed());
         assertNotNull(first.nextRefreshAllowedAt());
         assertEquals(71L, first.batchId());
         assertEquals(first.batchId(), second.batchId());
-        assertEquals("FALLBACK_CACHED", second.batchStatus());
-        assertTrue(second.fallbackUsed());
+        assertEquals("FALLBACK_RULE_BASED", second.batchStatus());
         assertFalse(second.refreshAllowed());
         assertEquals(first.nextRefreshAllowedAt(), second.nextRefreshAllowedAt());
-        assertEquals(2, copiedItems.size());
-        StockAiSuggestionItem copiedActiveItem = copiedItems.get(0);
-        assertEquals(savedFallbackCached.get(), copiedActiveItem.getSuggestionBatch());
-        assertEquals("MSFT", copiedActiveItem.getSymbol());
-        assertEquals(1, copiedActiveItem.getRankNo());
-        assertEquals(80, copiedActiveItem.getMatchScore());
-        assertEquals("moderate", copiedActiveItem.getRiskLevel());
-        assertEquals("Profile-aligned learning pick", copiedActiveItem.getSuggestionLabel());
-        assertEquals("Microsoft matches your profile using risk and data completeness.", copiedActiveItem.getShortReason());
-        assertEquals("Microsoft has moderate risk with stable volatility and complete data.", copiedActiveItem.getDetailReason());
-        assertEquals(cachedItem.getAnalysisSnapshot(), copiedActiveItem.getAnalysisSnapshot());
-        assertEquals(StockAiSuggestionItemStatus.ACTIVE, copiedActiveItem.getStatus());
-        StockAiSuggestionItem copiedWatchlistedItem = copiedItems.get(1);
-        assertEquals(savedFallbackCached.get(), copiedWatchlistedItem.getSuggestionBatch());
-        assertEquals("AAPL", copiedWatchlistedItem.getSymbol());
-        assertEquals(StockAiSuggestionItemStatus.WATCHLISTED, copiedWatchlistedItem.getStatus());
+        assertEquals(3, savedItems.size());
+        assertEquals(StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED, savedRuleBased.get().getStatus());
+        assertEquals("OpenAI unavailable", savedRuleBased.get().getErrorMessage());
+        assertTrue(savedItems.stream().allMatch(item -> item.getSuggestionBatch() == savedRuleBased.get()));
         assertEquals(StockAiSuggestionItemStatus.EXPIRED, cachedItem.getStatus());
-        assertEquals(StockAiSuggestionItemStatus.WATCHLISTED, watchlistedCachedItem.getStatus());
         verify(openAiClient, times(2)).generateSuggestion(anyString(), anyString());
         verify(batchRepository, times(1)).save(any(StockAiSuggestionBatch.class));
         verify(itemRepository).save(cachedItem);
     }
 
     @Test
-    void openAiFailureReusesHistoricalSuccessWhenNoNonExpiredSuccessExists() {
+    void repeatedOpenAiFailureWithSameInputHashReusesExistingRuleBasedBatch() {
         UserInvestmentProfile profile = profile();
-        StockAiSuggestionBatch historicalSuccess = batch(profile, StockAiSuggestionBatchStatus.SUCCESS);
-        historicalSuccess.setSuggestionBatchId(75L);
-        historicalSuccess.setCreatedAt(LocalDateTime.now().minusDays(8));
-        historicalSuccess.setExpiresAt(LocalDateTime.now().minusDays(7));
-        StockAiSuggestionItem cachedItem = suggestionItem(historicalSuccess, StockAiSuggestionItemStatus.ACTIVE);
-        cachedItem.setAnalysisSnapshot(snapshot("MSFT"));
-        AtomicReference<StockAiSuggestionBatch> savedFallbackCached = new AtomicReference<>();
-        List<StockAiSuggestionItem> copiedItems = new ArrayList<>();
+        AtomicReference<StockAiSuggestionBatch> savedRuleBased = new AtomicReference<>();
+        List<StockAiSuggestionItem> fallbackItems = new ArrayList<>();
+        int[] batchSaveCount = {0};
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.empty());
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
+                .thenAnswer(invocation -> Optional.ofNullable(savedRuleBased.get()));
+        when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(OpenAiSuggestionResult.failure("OpenAI unavailable"));
+        when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE)).thenReturn(List.of());
+        when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> {
+            StockAiSuggestionBatch batch = invocation.getArgument(0);
+            batchSaveCount[0]++;
+            if (batch.getSuggestionBatchId() == null) {
+                batch.setSuggestionBatchId(71L);
+            }
+            savedRuleBased.set(batch);
+            return batch;
+        });
+        when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> {
+            StockAiSuggestionItem item = invocation.getArgument(0);
+            if (item.getSuggestionBatch() == savedRuleBased.get()
+                    && item.getSuggestionItemId() == null) {
+                item.setSuggestionItemId((long) fallbackItems.size() + 80L);
+                fallbackItems.add(item);
+            }
+            return item;
+        });
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(any(), anyCollection()))
+                .thenAnswer(invocation -> {
+                    StockAiSuggestionBatch batch = invocation.getArgument(0);
+                    @SuppressWarnings("unchecked")
+                    List<StockAiSuggestionItemStatus> statuses = new ArrayList<>((java.util.Collection<StockAiSuggestionItemStatus>) invocation.getArgument(1));
+                    return fallbackItems.stream()
+                            .filter(item -> statuses.contains(item.getStatus()))
+                            .toList();
+                });
+
+        StockAiSuggestionResponse first = service.generateSuggestionsForUser(
+                user,
+                StockAiSuggestionTriggerReason.SCHEDULED_REFRESH,
+                false
+        );
+        StockAiSuggestionResponse second = service.generateSuggestionsForUser(
+                user,
+                StockAiSuggestionTriggerReason.SCHEDULED_REFRESH,
+                false
+        );
+
+        assertEquals("FALLBACK_RULE_BASED", first.batchStatus());
+        assertEquals("FALLBACK_RULE_BASED", second.batchStatus());
+        assertEquals(first.batchId(), second.batchId());
+        assertEquals(71L, second.batchId());
+        assertEquals(StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED, savedRuleBased.get().getStatus());
+        assertEquals(3, fallbackItems.size());
+        assertTrue(fallbackItems.stream().allMatch(item -> item.getStatus() == StockAiSuggestionItemStatus.ACTIVE));
+        assertEquals(1, batchSaveCount[0]);
+        verify(batchRepository, times(1)).save(same(savedRuleBased.get()));
+        verify(openAiClient, times(2)).generateSuggestion(anyString(), anyString());
+    }
+
+    @Test
+    void existingFallbackCachedSameInputHashIsUpdatedToRuleBasedAfterOpenAiFailure() {
+        UserInvestmentProfile profile = profile();
+        StockAiSuggestionBatch existingFallbackCached = batch(profile, StockAiSuggestionBatchStatus.FALLBACK_CACHED);
+        existingFallbackCached.setSuggestionBatchId(71L);
+        existingFallbackCached.setErrorMessage("previous failure");
+        LocalDateTime oldUpdatedAt = LocalDateTime.now().minusHours(3);
+        LocalDateTime oldExpiresAt = LocalDateTime.now().plusHours(1);
+        existingFallbackCached.setUpdatedAt(oldUpdatedAt);
+        existingFallbackCached.setExpiresAt(oldExpiresAt);
+        StockAiSuggestionItem existingFallbackItem = suggestionItem(existingFallbackCached, StockAiSuggestionItemStatus.ACTIVE);
+        existingFallbackItem.setSuggestionItemId(81L);
+        existingFallbackItem.setAnalysisSnapshot(snapshot("MSFT"));
+        AtomicReference<StockAiSuggestionBatch> savedRuleBased = new AtomicReference<>();
+        List<StockAiSuggestionItem> savedItems = new ArrayList<>();
 
         when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
         when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
@@ -1197,27 +1943,44 @@ class StockAiSuggestionServiceImplTests {
         when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
         when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
                 .thenReturn(Optional.empty());
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString()))
+                .thenReturn(Optional.of(existingFallbackCached));
         when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(OpenAiSuggestionResult.failure("OpenAI unavailable"));
-        when(batchRepository.findTopByUserUserIdAndStatusAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), eq(StockAiSuggestionBatchStatus.SUCCESS), any()))
-                .thenReturn(Optional.empty());
-        when(batchRepository.findTopByUserUserIdAndStatusOrderByCreatedAtDesc(1L, StockAiSuggestionBatchStatus.SUCCESS))
-                .thenReturn(Optional.of(historicalSuccess));
-        when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE)).thenReturn(List.of());
+        when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE)).thenReturn(List.of(existingFallbackItem));
+        when(itemRepository.findBySuggestionBatchOrderByRankNoAsc(existingFallbackCached)).thenReturn(List.of(existingFallbackItem));
         when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> {
             StockAiSuggestionBatch batch = invocation.getArgument(0);
-            batch.setSuggestionBatchId(76L);
-            savedFallbackCached.set(batch);
+            if (batch.getSuggestionBatchId() == null) {
+                batch.setSuggestionBatchId(72L);
+            }
+            savedRuleBased.set(batch);
             return batch;
         });
         when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> {
             StockAiSuggestionItem item = invocation.getArgument(0);
-            copiedItems.add(item);
+            if (item.getSuggestionBatch() == savedRuleBased.get() && item.getSymbol() != null) {
+                item.setSuggestionItemId((long) savedItems.size() + 90L);
+                savedItems.add(item);
+            }
             return item;
         });
         when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(any(), anyCollection()))
-                .thenAnswer(invocation -> invocation.getArgument(0) == historicalSuccess
-                        ? List.of(cachedItem)
-                        : copiedItems);
+                .thenAnswer(invocation -> {
+                    StockAiSuggestionBatch batch = invocation.getArgument(0);
+                    @SuppressWarnings("unchecked")
+                    List<StockAiSuggestionItemStatus> statuses = new ArrayList<>((java.util.Collection<StockAiSuggestionItemStatus>) invocation.getArgument(1));
+                    if (batch == existingFallbackCached) {
+                        List<StockAiSuggestionItem> items = new ArrayList<>();
+                        items.add(existingFallbackItem);
+                        items.addAll(savedItems);
+                        return items.stream()
+                                .filter(item -> statuses.contains(item.getStatus()))
+                                .toList();
+                    }
+                    return savedItems.stream()
+                            .filter(item -> statuses.contains(item.getStatus()))
+                            .toList();
+                });
 
         StockAiSuggestionResponse response = service.generateSuggestionsForUser(
                 user,
@@ -1225,12 +1988,178 @@ class StockAiSuggestionServiceImplTests {
                 false
         );
 
-        assertEquals("FALLBACK_CACHED", response.batchStatus());
+        assertEquals(71L, response.batchId());
+        assertEquals("FALLBACK_RULE_BASED", response.batchStatus());
         assertTrue(response.fallbackUsed());
-        assertEquals(76L, response.batchId());
-        assertEquals(StockAiSuggestionBatchStatus.FALLBACK_CACHED, savedFallbackCached.get().getStatus());
-        assertEquals("OpenAI unavailable", savedFallbackCached.get().getErrorMessage());
-        assertEquals(1, copiedItems.size());
+        assertEquals("OpenAI unavailable", existingFallbackCached.getErrorMessage());
+        assertEquals(StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED, existingFallbackCached.getStatus());
+        assertTrue(existingFallbackCached.getUpdatedAt().isAfter(oldUpdatedAt));
+        assertTrue(existingFallbackCached.getExpiresAt().isAfter(oldExpiresAt));
+        assertEquals(StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED, savedRuleBased.get().getStatus());
+        assertEquals("OpenAI unavailable", savedRuleBased.get().getErrorMessage());
+        assertEquals(3, savedItems.size());
+        assertTrue(savedItems.stream().allMatch(item -> item.getSuggestionBatch() == existingFallbackCached));
+        assertTrue(savedItems.stream().map(StockAiSuggestionItem::getSymbol).toList().contains("MSFT"));
+        verify(batchRepository).save(same(existingFallbackCached));
+    }
+
+    @Test
+    void existingRuleBasedSameInputHashIsReusedBeforeOpenAiCall() {
+        UserInvestmentProfile profile = profile();
+        StockAiSuggestionBatch existingRuleBased = batch(profile, StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED);
+        existingRuleBased.setSuggestionBatchId(72L);
+        StockAiSuggestionItem existingRuleBasedItem = suggestionItem(existingRuleBased, StockAiSuggestionItemStatus.ACTIVE);
+        existingRuleBasedItem.setSuggestionItemId(82L);
+        existingRuleBasedItem.setAnalysisSnapshot(snapshot("MSFT"));
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(profile));
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.empty());
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
+                .thenReturn(Optional.of(existingRuleBased));
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(any(), anyCollection()))
+                .thenReturn(List.of(existingRuleBasedItem));
+
+        StockAiSuggestionResponse response = service.generateSuggestionsForUser(
+                user,
+                StockAiSuggestionTriggerReason.SCHEDULED_REFRESH,
+                false
+        );
+
+        assertEquals(72L, response.batchId());
+        assertEquals("FALLBACK_RULE_BASED", response.batchStatus());
+        assertTrue(response.fallbackUsed());
+        verify(openAiClient, never()).generateSuggestion(anyString(), anyString());
+        verify(batchRepository, never()).save(any());
+        verify(itemRepository, never()).findByUserUserIdAndStatus(anyLong(), any());
+    }
+
+    @Test
+    void openAiValidationFailureWithSameInputFallbackCachedUpdatesToCurrentRuleBasedFallback() {
+        UserInvestmentProfile aggressiveProfile = profile();
+        aggressiveProfile.setRiskTolerance(RiskTolerance.AGGRESSIVE);
+        aggressiveProfile.setInvestmentGoal(InvestmentGoal.GROWTH);
+        aggressiveProfile.setPreferredVolatility(PreferredVolatility.HIGH);
+        BehaviorSummaryForSuggestion highConservativeBehavior = behaviorSummary(
+                LocalDateTime.now().minusMinutes(1),
+                31L,
+                BehaviorConfidence.HIGH,
+                UserBehaviorStyle.ACTIVE_TRADER,
+                29,
+                "conservative",
+                "KO,JNJ,MSFT",
+                HighVolatilityExposure.LOW,
+                36,
+                22
+        );
+        StockAiSuggestionBatch staleFallbackCached = batch(aggressiveProfile, StockAiSuggestionBatchStatus.FALLBACK_CACHED);
+        staleFallbackCached.setSuggestionBatchId(45L);
+        staleFallbackCached.setInputHash("current-input-hash");
+        staleFallbackCached.setExpiresAt(LocalDateTime.now().plusHours(2));
+        StockAiSuggestionItem staleNvda = suggestionItem(staleFallbackCached, StockAiSuggestionItemStatus.ACTIVE);
+        staleNvda.setSymbol("NVDA");
+        staleNvda.setRankNo(1);
+        staleNvda.setRiskLevel("aggressive");
+        staleNvda.setAnalysisSnapshot(adaptiveSnapshot("NVDA"));
+        StockAiSuggestionItem staleTsla = suggestionItem(staleFallbackCached, StockAiSuggestionItemStatus.ACTIVE);
+        staleTsla.setSymbol("TSLA");
+        staleTsla.setRankNo(2);
+        staleTsla.setRiskLevel("aggressive");
+        staleTsla.setAnalysisSnapshot(adaptiveSnapshot("TSLA"));
+        StockAiSuggestionItem staleAmd = suggestionItem(staleFallbackCached, StockAiSuggestionItemStatus.ACTIVE);
+        staleAmd.setSymbol("AMD");
+        staleAmd.setRankNo(3);
+        staleAmd.setRiskLevel("aggressive");
+        staleAmd.setAnalysisSnapshot(adaptiveSnapshot("AMD"));
+        AtomicReference<StockAiSuggestionBatch> savedRuleBased = new AtomicReference<>();
+        List<StockAiSuggestionItem> savedItems = new ArrayList<>();
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L)).thenReturn(Optional.of(aggressiveProfile));
+        when(behaviorProfileService.getBehaviorSummaryForSuggestion(1L)).thenReturn(highConservativeBehavior);
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.of(staleFallbackCached));
+        when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D"))).thenAnswer(invocation -> adaptiveSnapshot(invocation.getArgument(0)));
+        when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString(), anyCollection()))
+                .thenReturn(Optional.empty());
+        when(batchRepository.findTopByUserUserIdAndModelAndPromptVersionAndInputHashOrderByCreatedAtDesc(eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v2"), anyString()))
+                .thenReturn(Optional.of(staleFallbackCached));
+        when(openAiClient.generateSuggestion(anyString(), anyString()))
+                .thenReturn(new OpenAiSuggestionResult(true, allAggressiveSuggestionJson(), 100, 80, 180, "stop", null))
+                .thenReturn(OpenAiSuggestionResult.failure("retry unavailable"));
+        when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE))
+                .thenReturn(List.of(staleNvda, staleTsla, staleAmd));
+        when(itemRepository.findBySuggestionBatchOrderByRankNoAsc(staleFallbackCached))
+                .thenReturn(List.of(staleNvda, staleTsla, staleAmd));
+        when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> {
+            StockAiSuggestionBatch batch = invocation.getArgument(0);
+            if (batch.getSuggestionBatchId() == null) {
+                batch.setSuggestionBatchId(76L);
+            }
+            savedRuleBased.set(batch);
+            return batch;
+        });
+        when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> {
+            StockAiSuggestionItem item = invocation.getArgument(0);
+            if (item.getSuggestionBatch() == savedRuleBased.get() && item.getSymbol() != null) {
+                item.setSuggestionItemId((long) savedItems.size() + 90L);
+                savedItems.add(item);
+            }
+            return item;
+        });
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(any(), anyCollection()))
+                .thenAnswer(invocation -> {
+                    StockAiSuggestionBatch batch = invocation.getArgument(0);
+                    @SuppressWarnings("unchecked")
+                    List<StockAiSuggestionItemStatus> statuses = new ArrayList<>((java.util.Collection<StockAiSuggestionItemStatus>) invocation.getArgument(1));
+                    if (batch == staleFallbackCached) {
+                        List<StockAiSuggestionItem> items = new ArrayList<>();
+                        items.add(staleNvda);
+                        items.add(staleTsla);
+                        items.add(staleAmd);
+                        items.addAll(savedItems);
+                        return items.stream()
+                                .filter(item -> statuses.contains(item.getStatus()))
+                                .toList();
+                    }
+                    return savedItems.stream()
+                            .filter(item -> statuses.contains(item.getStatus()))
+                            .toList();
+                });
+
+        StockAiSuggestionResponse response = service.generateSuggestionsForUser(
+                user,
+                StockAiSuggestionTriggerReason.SCHEDULED_REFRESH,
+                false
+        );
+
+        assertEquals("FALLBACK_RULE_BASED", response.batchStatus());
+        assertTrue(response.fallbackUsed());
+        assertEquals(45L, response.batchId());
+        assertEquals(StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED, staleFallbackCached.getStatus());
+        assertEquals(StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED, savedRuleBased.get().getStatus());
+        assertEquals("retry unavailable", savedRuleBased.get().getErrorMessage());
+        List<StockAiSuggestionItem> activeSavedItems = savedItems.stream()
+                .filter(item -> item.getStatus() == StockAiSuggestionItemStatus.ACTIVE
+                        || item.getStatus() == StockAiSuggestionItemStatus.WATCHLISTED)
+                .toList();
+        assertEquals(List.of("KO", "JNJ", "MSFT"), activeSavedItems.stream().map(StockAiSuggestionItem::getSymbol).toList());
+        assertTrue(activeSavedItems.stream().map(StockAiSuggestionItem::getRiskLevel).noneMatch("aggressive"::equals));
+        assertTrue(activeSavedItems.stream().allMatch(item -> item.getSuggestionBatch() == staleFallbackCached));
+        assertEquals(StockAiSuggestionItemStatus.EXPIRED, staleNvda.getStatus());
+        assertEquals(StockAiSuggestionItemStatus.EXPIRED, staleTsla.getStatus());
+        assertEquals(StockAiSuggestionItemStatus.EXPIRED, staleAmd.getStatus());
+        verify(batchRepository).save(same(staleFallbackCached));
+        verify(batchRepository, never()).findTopByUserUserIdAndStatusAndExpiresAtAfterOrderByCreatedAtDesc(
+                eq(1L),
+                eq(StockAiSuggestionBatchStatus.SUCCESS),
+                any()
+        );
+        verify(batchRepository, never()).findTopByUserUserIdAndStatusOrderByCreatedAtDesc(1L, StockAiSuggestionBatchStatus.SUCCESS);
+        verify(behaviorProfileService).getBehaviorSummaryForSuggestion(1L);
+        verifyNoMoreInteractions(behaviorProfileService);
     }
 
     @Test
@@ -1472,6 +2401,32 @@ class StockAiSuggestionServiceImplTests {
             String favoriteRiskCategory,
             String mostTradedSymbols
     ) {
+        return behaviorSummary(
+                updatedAt,
+                behaviorProfileId,
+                confidence,
+                style,
+                behaviorRiskScore,
+                favoriteRiskCategory,
+                mostTradedSymbols,
+                null,
+                behaviorRiskScore,
+                behaviorRiskScore
+        );
+    }
+
+    private BehaviorSummaryForSuggestion behaviorSummary(
+            LocalDateTime updatedAt,
+            Long behaviorProfileId,
+            BehaviorConfidence confidence,
+            UserBehaviorStyle style,
+            Integer behaviorRiskScore,
+            String favoriteRiskCategory,
+            String mostTradedSymbols,
+            HighVolatilityExposure highVolatilityExposure,
+            Integer stockRiskExposureScore,
+            Integer volatilityExposureScore
+    ) {
         return new BehaviorSummaryForSuggestion(
                 behaviorProfileId,
                 null,
@@ -1482,12 +2437,12 @@ class StockAiSuggestionServiceImplTests {
                 null,
                 null,
                 null,
+                highVolatilityExposure,
+                stockRiskExposureScore,
                 null,
-                behaviorRiskScore,
                 null,
                 null,
-                null,
-                behaviorRiskScore,
+                volatilityExposureScore,
                 favoriteRiskCategory,
                 mostTradedSymbols,
                 confidence == BehaviorConfidence.LOW
@@ -1516,6 +2471,24 @@ class StockAiSuggestionServiceImplTests {
         return item;
     }
 
+    private StockAiSuggestionItem expiredItem(
+            StockAiSuggestionBatch batch,
+            Long itemId,
+            String symbol,
+            int rankNo,
+            LocalDateTime updatedAt
+    ) {
+        StockAiSuggestionItem item = suggestionItem(batch, StockAiSuggestionItemStatus.EXPIRED);
+        item.setSuggestionItemId(itemId);
+        item.setSymbol(symbol);
+        item.setRankNo(rankNo);
+        item.setRiskLevel(risk(symbol));
+        item.setAnalysisSnapshot(snapshot(symbol));
+        item.setCreatedAt(updatedAt);
+        item.setUpdatedAt(updatedAt);
+        return item;
+    }
+
     private String validSuggestionJson() {
         return """
                 {
@@ -1528,7 +2501,7 @@ class StockAiSuggestionServiceImplTests {
                       "riskLevel": "moderate",
                       "suggestionLabel": "Balanced trend learning",
                       "shortReason": "Microsoft matches your moderate learning profile.",
-                      "detailReason": "Microsoft has a strong uptrend, moderate volatility, and moderate risk with complete data for beginner-friendly paper-trading practice."
+                      "detailReason": "Microsoft has risk category moderate, volatility moderate, trend is strong uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete for beginner-friendly paper-trading practice."
                     }
                   ]
                 }
@@ -1547,7 +2520,7 @@ class StockAiSuggestionServiceImplTests {
                       "riskLevel": "aggressive",
                       "suggestionLabel": "Higher-volatility behavior practice",
                       "shortReason": "AMD is included as a paper-trading learning example because observed behavior differs from onboarding.",
-                      "detailReason": "Although your onboarding profile was conservative, your paper-trading behavior shows higher risk tolerance. AMD has an aggressive risk category, moderate volatility, strong uptrend, and complete data, so it is presented as an educational paper-trading example rather than real-money advice."
+                      "detailReason": "Although your onboarding profile was conservative, your paper-trading behavior shows higher risk tolerance. AMD has risk category aggressive, volatility moderate, trend is strong uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete, so it is presented as an educational paper-trading example rather than real-money advice."
                     }
                   ]
                 }
@@ -1571,6 +2544,184 @@ class StockAiSuggestionServiceImplTests {
                   ]
                 }
                 """.formatted(suggestionLabel, shortReason, detailReason);
+    }
+
+    private OpenAiSuggestionResult openAiSuccess(String content) {
+        return new OpenAiSuggestionResult(
+                true,
+                content,
+                120,
+                90,
+                210,
+                "stop",
+                null
+        );
+    }
+
+    private String adaptiveSuggestionJson(
+            String symbol,
+            String riskLevel,
+            String suggestionLabel,
+            String shortReason,
+            String detailReason
+    ) {
+        return """
+                {
+                  "batchSummary": "Adaptive paper-trading suggestions are based on declared onboarding preferences and observed behavior evidence.",
+                  "suggestedStocks": [
+                    {
+                      "symbol": "%s",
+                      "rankNo": 1,
+                      "matchScore": 78,
+                      "riskLevel": "%s",
+                      "suggestionLabel": "%s",
+                      "shortReason": "%s",
+                      "detailReason": "%s"
+                    }
+                  ]
+                }
+                """.formatted(symbol, riskLevel, suggestionLabel, shortReason, detailReason);
+    }
+
+    private String adaptiveTwoSuggestionJson(
+            String firstSymbol,
+            String firstRiskLevel,
+            String firstSuggestionLabel,
+            String firstShortReason,
+            String firstDetailReason,
+            String secondSymbol,
+            String secondRiskLevel,
+            String secondSuggestionLabel,
+            String secondShortReason,
+            String secondDetailReason
+    ) {
+        return """
+                {
+                  "batchSummary": "Adaptive paper-trading suggestions are based on declared onboarding preferences and observed behavior evidence.",
+                  "suggestedStocks": [
+                    {
+                      "symbol": "%s",
+                      "rankNo": 1,
+                      "matchScore": 78,
+                      "riskLevel": "%s",
+                      "suggestionLabel": "%s",
+                      "shortReason": "%s",
+                      "detailReason": "%s"
+                    },
+                    {
+                      "symbol": "%s",
+                      "rankNo": 2,
+                      "matchScore": 74,
+                      "riskLevel": "%s",
+                      "suggestionLabel": "%s",
+                      "shortReason": "%s",
+                      "detailReason": "%s"
+                    }
+                  ]
+                }
+                """.formatted(
+                firstSymbol,
+                firstRiskLevel,
+                firstSuggestionLabel,
+                firstShortReason,
+                firstDetailReason,
+                secondSymbol,
+                secondRiskLevel,
+                secondSuggestionLabel,
+                secondShortReason,
+                secondDetailReason
+        );
+    }
+
+    private String allAggressiveSuggestionJson() {
+        return """
+                {
+                  "batchSummary": "Aggressive-only paper-trading suggestions are intentionally invalid for this high-confidence lower-risk behavior test.",
+                  "suggestedStocks": [
+                    {
+                      "symbol": "NVDA",
+                      "rankNo": 1,
+                      "matchScore": 78,
+                      "riskLevel": "aggressive",
+                      "suggestionLabel": "Aggressive onboarding example",
+                      "shortReason": "NVIDIA is shown from declared aggressive onboarding preference with stored data evidence.",
+                      "detailReason": "NVIDIA has risk category aggressive, volatility high, trend is strong uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete. The suggestion follows declared aggressive onboarding preference for educational paper-trading practice, while observed paper-trading behavior still needs clearer balance in the overall set."
+                    },
+                    {
+                      "symbol": "TSLA",
+                      "rankNo": 2,
+                      "matchScore": 76,
+                      "riskLevel": "aggressive",
+                      "suggestionLabel": "Growth profile practice",
+                      "shortReason": "Tesla is shown from declared aggressive onboarding preference with stored data evidence.",
+                      "detailReason": "Tesla has risk category aggressive, volatility high, trend is strong uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete. It matches the declared growth onboarding profile for educational paper-trading practice, but the set does not properly reflect observed lower-risk paper-trading behavior."
+                    },
+                    {
+                      "symbol": "AMD",
+                      "rankNo": 3,
+                      "matchScore": 74,
+                      "riskLevel": "aggressive",
+                      "suggestionLabel": "High-volatility practice",
+                      "shortReason": "AMD is shown from declared aggressive onboarding preference with stored data evidence.",
+                      "detailReason": "AMD has risk category aggressive, volatility high, trend is strong uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete. It supports the declared aggressive onboarding profile for educational paper-trading practice, while observed lower-risk behavior is underrepresented in this generated set."
+                    }
+                  ]
+                }
+                """;
+    }
+
+    private JsonNode readJson(String value) {
+        try {
+            return new ObjectMapper().readTree(value);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Expected valid JSON prompt input", e);
+        }
+    }
+
+    private void assertAdaptivePromptShape(JsonNode root) {
+        assertTrue(root.has("declaredOnboardingProfile"));
+        assertTrue(root.has("observedPaperTradingBehavior"));
+        assertTrue(root.has("personalizationWeight"));
+        assertTrue(root.has("candidateFitSignals"));
+        assertTrue(root.has("stockSnapshots"));
+        assertTrue(root.has("beginnerSafetyRules"));
+        assertEquals(8, root.path("candidateFitSignals").size());
+        assertEquals(8, root.path("stockSnapshots").size());
+    }
+
+    private void assertCandidateEvidence(
+            JsonNode root,
+            String symbol,
+            String expectedRiskCompatibility,
+            String expectedBehaviorCompatibility
+    ) {
+        JsonNode signal = signalFor(root, symbol);
+        assertEquals(symbol, signal.path("symbol").asText());
+        assertEquals(expectedRiskCompatibility, signal.path("riskCompatibility").asText());
+        assertEquals(expectedBehaviorCompatibility, signal.path("behaviorCompatibility").asText());
+        assertTrue(signal.has("onboardingFitScore"));
+        assertTrue(signal.has("behaviorFitScore"));
+        assertTrue(signal.has("combinedFitScore"));
+        assertTrue(signal.has("snapshotHash"));
+    }
+
+    private JsonNode signalFor(JsonNode root, String symbol) {
+        for (JsonNode signal : root.path("candidateFitSignals")) {
+            if (symbol.equals(signal.path("symbol").asText())) {
+                return signal;
+            }
+        }
+        return fail("Missing candidate fit signal for " + symbol);
+    }
+
+    private void assertResponseDoesNotExposeRawAiData(StockAiSuggestionResponse response) {
+        String responseText = response.toString().toLowerCase();
+        assertFalse(responseText.contains("declaredonboardingprofile"));
+        assertFalse(responseText.contains("candidatefitsignals"));
+        assertFalse(responseText.contains("raw"));
+        assertFalse(responseText.contains("api key"));
+        assertFalse(responseText.contains("fingerprint"));
+        assertFalse(responseText.contains("service tier"));
     }
 
     private ArgumentCaptor<String> refreshWithGoogOpenAiResults(
@@ -1628,6 +2779,31 @@ class StockAiSuggestionServiceImplTests {
         ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
         verify(openAiClient, atLeastOnce()).generateSuggestion(anyString(), promptCaptor.capture());
         return promptCaptor;
+    }
+
+    private StockAnalysisSnapshot adaptiveSnapshot(String symbol) {
+        StockAnalysisSnapshot snapshot = snapshot(symbol);
+        switch (symbol) {
+            case "NVDA", "TSLA", "AMD" -> {
+                snapshot.setVolatilityLabel("high volatility");
+                snapshot.setTrend("strong uptrend");
+                snapshot.setPriceConsistency("smooth upward movement");
+            }
+            case "KO", "JNJ" -> {
+                snapshot.setVolatilityLabel("low volatility");
+                snapshot.setTrend("steady uptrend");
+                snapshot.setPriceConsistency("smooth upward movement");
+            }
+            case "MSFT", "AAPL", "GOOG" -> {
+                snapshot.setVolatilityLabel("medium volatility");
+                snapshot.setTrend("steady uptrend");
+                snapshot.setPriceConsistency("smooth upward movement");
+            }
+            default -> {
+            }
+        }
+        snapshot.setSnapshotHash("adaptive-hash-" + symbol);
+        return snapshot;
     }
 
     private StockAnalysisSnapshot snapshot(String symbol) {
