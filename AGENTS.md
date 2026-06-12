@@ -74,6 +74,12 @@
 - US006 suggestion generation must not create, insert, or recalculate `user_behavior_profile`; it may only read `BehaviorSummaryForSuggestion`.
 - US006 must combine declared onboarding preference and observed paper-trading behavior with explicit confidence-based weighting:
   LOW/missing = onboarding 80 / behavior 20, MEDIUM = onboarding 40 / behavior 60, HIGH = onboarding 10 / behavior 90.
+- Current US006 suggestion prompt version is `stock-suggestion-v3`; bump it when prompt meaning, schema expectations, ranking semantics, or validation behavior materially change.
+- AI suggestion calls should use OpenAI JSON Schema `response_format` with strict backend validation still authoritative. If schema mode is rejected for schema/response-format reasons, retry once without `response_format`.
+- Same-input reuse should skip OpenAI only for reusable `SUCCESS` batches. `FALLBACK_CACHED` and `FALLBACK_RULE_BASED` may be readable, but they must not permanently block a future same-input OpenAI retry.
+- Same-input `FALLBACK_CACHED`, `FAILED`, or rule-based rows should be updated in place when possible to avoid duplicate `user/model/prompt/input_hash` batches.
+- AI suggestion explanations should be normalized before validation: sanitize awkward repeated trend wording and raw backend field names, allow natural wording with semantic factor coverage, and still reject advice, predictions, unsupported external claims, and wording that contradicts volatile/choppy snapshot data.
+- Reusable suggestion batches must render at most one visible `ACTIVE`/`WATCHLISTED` item per rank, prefer `WATCHLISTED` then newest rows, expire duplicate visible rows, and reactivate the freshest expired intended rows when visible ranks are missing.
 - Behavior recalculation belongs to US010 after successful paper-trading BUY/SELL commits, not to US006 suggestion generation.
 - Paper-trading endpoints must not call OpenAI. They may update behavior profiles after successful trades through the behavior service.
 

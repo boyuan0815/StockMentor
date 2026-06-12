@@ -159,6 +159,16 @@ Important rule:
 GET /api/stocks/ai-suggestions is read-only and must not call OpenAI, create batches, create snapshots, or create behavior profiles.
 ```
 
+Current V8 technical expectations:
+
+```text
+prompt_version: stock-suggestion-v3
+OpenAI suggestion requests use JSON Schema response_format first, then retry once without schema only for schema-related request failures.
+Same-input SUCCESS batches can be reused without another OpenAI call.
+Same-input FALLBACK_CACHED or FALLBACK_RULE_BASED batches must not block a future OpenAI retry.
+AI explanations may use natural wording, but must stay grounded in snapshot/profile/behavior factors and avoid advice, predictions, raw backend field names, and volatile/choppy contradictions.
+```
+
 Behavior profile count after first US006 generation:
 
 ```sql
@@ -447,4 +457,3 @@ WHERE user_id = @v8_user_id;
 DELETE FROM app_user
 WHERE user_id = @v8_user_id;
 ```
-

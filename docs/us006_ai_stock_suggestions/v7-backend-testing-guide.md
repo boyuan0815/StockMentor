@@ -1,5 +1,7 @@
 # US006 V7 Backend Testing Guide
 
+Note: V7 is historical. The current V8/V3 flow supersedes the fallback-cache behavior below: `FALLBACK_CACHED` and `FALLBACK_RULE_BASED` rows can still be readable, but same-input fallback rows must not permanently block a future OpenAI retry, and current generated batches use `prompt_version = stock-suggestion-v3`.
+
 V7 completes the US006 follow-up for explicit onboarding-vs-behavior personalization.
 
 US006 now uses:
