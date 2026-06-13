@@ -20,6 +20,12 @@ public interface StockPriceDailyRepository extends JpaRepository<StockPriceDaily
             LocalDate endDate
     );
 
+    List<StockPriceDaily> findBySymbolAndTradingDateBetweenOrderByTradingDateAsc(
+            String symbol,
+            LocalDate startDate,
+            LocalDate endDate
+    );
+
     List<StockPriceDaily> findByTradingDateBefore(LocalDate cutoffDate);
 
     Optional<StockPriceDaily> findTopBySymbolOrderByTradingDateDesc(String symbol);

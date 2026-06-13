@@ -46,6 +46,10 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
     private static final String ANALYSIS_TIMEFRAME = "7D";
     private static final String INTRADAY_TIMEFRAME = "1D";
     private static final String DAILY_TIMEFRAME = "7D";
+    private static final String ONE_MONTH_TIMEFRAME = "1M";
+    private static final String THREE_MONTH_TIMEFRAME = "3M";
+    private static final String YEAR_TO_DATE_TIMEFRAME = "YTD";
+    private static final String ONE_YEAR_TIMEFRAME = "1Y";
     private static final String AI_EXPLANATION_PROMPT_VERSION = "stock-explanation-v1";
     private static final List<String> SUPPORTED_SYMBOLS = Arrays.stream(StockMetadata.SYMBOLS.split(","))
             .map(String::trim)
@@ -108,7 +112,10 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
         if (INTRADAY_TIMEFRAME.equals(normalizedTimeframe)) {
             return getIntradayHistory(normalizedSymbol);
         }
-        return getDailyHistory(normalizedSymbol);
+        if (DAILY_TIMEFRAME.equals(normalizedTimeframe)) {
+            return getLatestDailyHistory(normalizedSymbol);
+        }
+        return getDailyRangeHistory(normalizedSymbol, normalizedTimeframe);
     }
 
     private StockHistoryResponse getIntradayHistory(String symbol) {
@@ -135,7 +142,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
         return new StockHistoryResponse(symbol, INTRADAY_TIMEFRAME, "stock_price_history_1min", points, message);
     }
 
-    private StockHistoryResponse getDailyHistory(String symbol) {
+    private StockHistoryResponse getLatestDailyHistory(String symbol) {
         List<StockPriceDaily> dailyRows = new ArrayList<>(
                 dailyRepository.findBySymbolOrderByTradingDateDesc(symbol, PageRequest.of(0, 7))
         );
@@ -149,6 +156,42 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 ? "No stored daily history is available for " + symbol
                 : "Stored daily history returned";
         return new StockHistoryResponse(symbol, DAILY_TIMEFRAME, "stock_price_daily", points, message);
+    }
+
+    private StockHistoryResponse getDailyRangeHistory(String symbol, String timeframe) {
+        Optional<StockPriceDaily> latestDaily = dailyRepository.findTopBySymbolOrderByTradingDateDesc(symbol);
+        if (latestDaily.isEmpty()) {
+            return new StockHistoryResponse(
+                    symbol,
+                    timeframe,
+                    "stock_price_daily",
+                    List.of(),
+                    "No stored daily history is available for " + symbol
+            );
+        }
+
+        LocalDate latestDate = latestDaily.get().getTradingDate();
+        LocalDate startDate = calculateDailyRangeStartDate(timeframe, latestDate);
+        List<StockHistoryPointResponse> points = dailyRepository
+                .findBySymbolAndTradingDateBetweenOrderByTradingDateAsc(symbol, startDate, latestDate)
+                .stream()
+                .map(this::toHistoryPoint)
+                .toList();
+
+        String message = points.isEmpty()
+                ? "No stored daily history is available for " + symbol
+                : "Stored daily history returned from " + startDate + " to " + latestDate;
+        return new StockHistoryResponse(symbol, timeframe, "stock_price_daily", points, message);
+    }
+
+    private LocalDate calculateDailyRangeStartDate(String timeframe, LocalDate latestDate) {
+        return switch (timeframe) {
+            case ONE_MONTH_TIMEFRAME -> latestDate.minusMonths(1);
+            case THREE_MONTH_TIMEFRAME -> latestDate.minusMonths(3);
+            case YEAR_TO_DATE_TIMEFRAME -> LocalDate.of(latestDate.getYear(), 1, 1);
+            case ONE_YEAR_TIMEFRAME -> latestDate.minusYears(1);
+            default -> throw new IllegalArgumentException("Unsupported stock history timeframe: " + timeframe);
+        };
     }
 
     private StockListItemResponse toListItem(
@@ -279,7 +322,12 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
 
     private String normalizeTimeframe(String timeframe) {
         String normalizedTimeframe = timeframe == null ? "" : timeframe.trim().toUpperCase(Locale.ROOT);
-        if (!INTRADAY_TIMEFRAME.equals(normalizedTimeframe) && !DAILY_TIMEFRAME.equals(normalizedTimeframe)) {
+        if (!INTRADAY_TIMEFRAME.equals(normalizedTimeframe)
+                && !DAILY_TIMEFRAME.equals(normalizedTimeframe)
+                && !ONE_MONTH_TIMEFRAME.equals(normalizedTimeframe)
+                && !THREE_MONTH_TIMEFRAME.equals(normalizedTimeframe)
+                && !YEAR_TO_DATE_TIMEFRAME.equals(normalizedTimeframe)
+                && !ONE_YEAR_TIMEFRAME.equals(normalizedTimeframe)) {
             throw new IllegalArgumentException("Unsupported stock history timeframe: " + timeframe);
         }
         return normalizedTimeframe;

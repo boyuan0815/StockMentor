@@ -382,6 +382,105 @@ class StockMarketDataServiceImplTests {
     }
 
     @Test
+    void historyOneMonthReturnsStoredDailyRangeFromLatestDateMinusOneMonth() {
+        LocalDate latestDate = LocalDate.of(2026, 6, 12);
+        LocalDate startDate = LocalDate.of(2026, 5, 12);
+        when(dailyRepository.findTopBySymbolOrderByTradingDateDesc("MSFT"))
+                .thenReturn(Optional.of(daily("MSFT", latestDate)));
+        when(dailyRepository.findBySymbolAndTradingDateBetweenOrderByTradingDateAsc("MSFT", startDate, latestDate))
+                .thenReturn(List.of(daily("MSFT", startDate), daily("MSFT", LocalDate.of(2026, 5, 29)), daily("MSFT", latestDate)));
+
+        StockHistoryResponse response = service.getStockHistoryForCurrentUser("MSFT", "1M");
+
+        assertEquals("1M", response.timeframe());
+        assertEquals("stock_price_daily", response.source());
+        assertEquals(List.of(startDate, LocalDate.of(2026, 5, 29), latestDate),
+                response.points().stream().map(point -> point.tradingDate()).toList());
+        verify(historyRepository, never()).findLatestTradingDateBySymbol(anyString());
+    }
+
+    @Test
+    void historyThreeMonthReturnsStoredDailyRangeFromLatestDateMinusThreeMonths() {
+        LocalDate latestDate = LocalDate.of(2026, 6, 12);
+        LocalDate startDate = LocalDate.of(2026, 3, 12);
+        when(dailyRepository.findTopBySymbolOrderByTradingDateDesc("MSFT"))
+                .thenReturn(Optional.of(daily("MSFT", latestDate)));
+        when(dailyRepository.findBySymbolAndTradingDateBetweenOrderByTradingDateAsc("MSFT", startDate, latestDate))
+                .thenReturn(List.of(daily("MSFT", startDate), daily("MSFT", latestDate)));
+
+        StockHistoryResponse response = service.getStockHistoryForCurrentUser("MSFT", "3M");
+
+        assertEquals("3M", response.timeframe());
+        assertEquals(List.of(startDate, latestDate), response.points().stream().map(point -> point.tradingDate()).toList());
+    }
+
+    @Test
+    void historyYearToDateReturnsStoredDailyRangeFromJanuaryFirstOfLatestYear() {
+        LocalDate latestDate = LocalDate.of(2026, 6, 12);
+        LocalDate startDate = LocalDate.of(2026, 1, 1);
+        when(dailyRepository.findTopBySymbolOrderByTradingDateDesc("MSFT"))
+                .thenReturn(Optional.of(daily("MSFT", latestDate)));
+        when(dailyRepository.findBySymbolAndTradingDateBetweenOrderByTradingDateAsc("MSFT", startDate, latestDate))
+                .thenReturn(List.of(daily("MSFT", startDate), daily("MSFT", LocalDate.of(2026, 4, 1)), daily("MSFT", latestDate)));
+
+        StockHistoryResponse response = service.getStockHistoryForCurrentUser("MSFT", "YTD");
+
+        assertEquals("YTD", response.timeframe());
+        assertEquals(List.of(startDate, LocalDate.of(2026, 4, 1), latestDate),
+                response.points().stream().map(point -> point.tradingDate()).toList());
+    }
+
+    @Test
+    void historyOneYearReturnsStoredDailyRangeFromLatestDateMinusOneYear() {
+        LocalDate latestDate = LocalDate.of(2026, 6, 12);
+        LocalDate startDate = LocalDate.of(2025, 6, 12);
+        when(dailyRepository.findTopBySymbolOrderByTradingDateDesc("MSFT"))
+                .thenReturn(Optional.of(daily("MSFT", latestDate)));
+        when(dailyRepository.findBySymbolAndTradingDateBetweenOrderByTradingDateAsc("MSFT", startDate, latestDate))
+                .thenReturn(List.of(daily("MSFT", startDate), daily("MSFT", latestDate)));
+
+        StockHistoryResponse response = service.getStockHistoryForCurrentUser("MSFT", "1Y");
+
+        assertEquals("1Y", response.timeframe());
+        assertEquals(List.of(startDate, latestDate), response.points().stream().map(point -> point.tradingDate()).toList());
+    }
+
+    @Test
+    void historyNormalizesLowercaseDailyRangeTimeframes() {
+        LocalDate latestDate = LocalDate.of(2026, 6, 12);
+        lenient().when(dailyRepository.findTopBySymbolOrderByTradingDateDesc("MSFT"))
+                .thenReturn(Optional.of(daily("MSFT", latestDate)));
+        when(dailyRepository.findBySymbolAndTradingDateBetweenOrderByTradingDateAsc(
+                eq("MSFT"),
+                any(LocalDate.class),
+                eq(latestDate)
+        )).thenReturn(List.of(daily("MSFT", latestDate)));
+
+        assertEquals("1M", service.getStockHistoryForCurrentUser("msft", "1m").timeframe());
+        assertEquals("3M", service.getStockHistoryForCurrentUser("msft", "3m").timeframe());
+        assertEquals("YTD", service.getStockHistoryForCurrentUser("msft", "ytd").timeframe());
+        assertEquals("1Y", service.getStockHistoryForCurrentUser("msft", "1y").timeframe());
+    }
+
+    @Test
+    void historyDailyRangeReturnsEmptyWhenNoDailyDataExists() {
+        when(dailyRepository.findTopBySymbolOrderByTradingDateDesc("MSFT")).thenReturn(Optional.empty());
+
+        StockHistoryResponse response = service.getStockHistoryForCurrentUser("MSFT", "1M");
+
+        assertEquals("MSFT", response.symbol());
+        assertEquals("1M", response.timeframe());
+        assertEquals("stock_price_daily", response.source());
+        assertTrue(response.points().isEmpty());
+        assertEquals("No stored daily history is available for MSFT", response.message());
+        verify(dailyRepository, never()).findBySymbolAndTradingDateBetweenOrderByTradingDateAsc(
+                anyString(),
+                any(LocalDate.class),
+                any(LocalDate.class)
+        );
+    }
+
+    @Test
     void historyRejectsUnsupportedTimeframe() {
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
@@ -403,8 +502,10 @@ class StockMarketDataServiceImplTests {
         assertFalse(fieldTypeNames.contains("net.boyuan.stockmentor.ai.service.OpenAiClient"));
         assertFalse(fieldTypeNames.contains("net.boyuan.stockmentor.analysis.service.StockAnalysisService"));
         assertFalse(fieldTypeNames.contains("net.boyuan.stockmentor.ai.service.StockAiExplanationService"));
+        assertFalse(fieldTypeNames.contains("net.boyuan.stockmentor.ai.service.StockAiSuggestionService"));
         assertFalse(fieldTypeNames.contains("net.boyuan.stockmentor.userbehavior.service.UserBehaviorProfileService"));
         assertFalse(fieldTypeNames.contains("net.boyuan.stockmentor.papertrading.service.PaperTradingService"));
+        assertFalse(fieldTypeNames.contains("net.boyuan.stockmentor.scheduler.StockScheduler"));
     }
 
     @Test

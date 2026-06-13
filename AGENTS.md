@@ -59,7 +59,7 @@
 - Current US009 endpoints are:
   `GET /api/stocks`,
   `GET /api/stocks/{symbol}`,
-  and `GET /api/stocks/{symbol}/history?timeframe=1D|7D`.
+  and `GET /api/stocks/{symbol}/history?timeframe=1D|7D|1M|3M|YTD|1Y`.
 - US009 endpoints are read-only and must use Basic Auth plus `CurrentUserService`; do not accept or trust frontend-provided `userId`.
 - US009 must only read stored backend data. It must not call Twelve Data, OpenAI, scheduler/backfill flows, paper-trading services, behavior profile services, AI suggestion services, or stock analysis snapshot creation.
 - US009 may include current-user watchlist status as read-only context.
@@ -67,7 +67,7 @@
 - US009 `aiExplanationAvailable` should mean a stored explanation exists for the latest displayed `7D` analysis snapshot under the same model and prompt version used by US012, without calling the US012 explanation service.
 - `GET /api/stocks/{symbol}/ai-explanation` remains the US012 AI explanation endpoint and must not be broken by US009 stock detail/history routing.
 - `1D` stock history should read the latest stored non-null intraday `tradingDate`; if none exists, return an empty safe response instead of backfilling or failing.
-- `7D` stock history should read stored daily candles only.
+- `7D`, `1M`, `3M`, `YTD`, and `1Y` stock history should read stored daily candles only. Date-range timeframes should calculate from the latest stored daily candle date, not from the current system date.
 
 ## AI Explanation Rules
 - Explanations must be data-driven and based only on structured stock data.

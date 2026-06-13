@@ -116,6 +116,9 @@ class StockMarketDataControllerSecurityTests {
     void stocksEndpointRequiresAuthentication() throws Exception {
         mockMvc.perform(get("/api/stocks"))
                 .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/stocks/GOOG/history?timeframe=1M"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -158,7 +161,39 @@ class StockMarketDataControllerSecurityTests {
                 .andExpect(jsonPath("$.symbol").value("GOOG"))
                 .andExpect(jsonPath("$.timeframe").value("7D"))
                 .andExpect(jsonPath("$.source").value("stock_price_daily"))
+                .andExpect(jsonPath("$.points.length()").value(7));
+
+        mockMvc.perform(get("/api/stocks/GOOG/history?timeframe=1M")
+                        .with(httpBasic("stock-market-auth@example.com", "password")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.symbol").value("GOOG"))
+                .andExpect(jsonPath("$.timeframe").value("1M"))
+                .andExpect(jsonPath("$.source").value("stock_price_daily"))
+                .andExpect(jsonPath("$.points.length()").value(2));
+
+        mockMvc.perform(get("/api/stocks/GOOG/history?timeframe=3M")
+                        .with(httpBasic("stock-market-auth@example.com", "password")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.symbol").value("GOOG"))
+                .andExpect(jsonPath("$.timeframe").value("3M"))
+                .andExpect(jsonPath("$.source").value("stock_price_daily"))
                 .andExpect(jsonPath("$.points.length()").value(3));
+
+        mockMvc.perform(get("/api/stocks/GOOG/history?timeframe=YTD")
+                        .with(httpBasic("stock-market-auth@example.com", "password")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.symbol").value("GOOG"))
+                .andExpect(jsonPath("$.timeframe").value("YTD"))
+                .andExpect(jsonPath("$.source").value("stock_price_daily"))
+                .andExpect(jsonPath("$.points.length()").value(7));
+
+        mockMvc.perform(get("/api/stocks/GOOG/history?timeframe=1Y")
+                        .with(httpBasic("stock-market-auth@example.com", "password")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.symbol").value("GOOG"))
+                .andExpect(jsonPath("$.timeframe").value("1Y"))
+                .andExpect(jsonPath("$.source").value("stock_price_daily"))
+                .andExpect(jsonPath("$.points.length()").value(8));
     }
 
     @Test
@@ -216,6 +251,18 @@ class StockMarketDataControllerSecurityTests {
                         .with(httpBasic("stock-market-auth@example.com", "password")))
                 .andExpect(status().isOk());
         mockMvc.perform(get("/api/stocks/GOOG/history?timeframe=7D")
+                        .with(httpBasic("stock-market-auth@example.com", "password")))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/stocks/GOOG/history?timeframe=1M")
+                        .with(httpBasic("stock-market-auth@example.com", "password")))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/stocks/GOOG/history?timeframe=3M")
+                        .with(httpBasic("stock-market-auth@example.com", "password")))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/stocks/GOOG/history?timeframe=YTD")
+                        .with(httpBasic("stock-market-auth@example.com", "password")))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/stocks/GOOG/history?timeframe=1Y")
                         .with(httpBasic("stock-market-auth@example.com", "password")))
                 .andExpect(status().isOk());
 
@@ -355,7 +402,16 @@ class StockMarketDataControllerSecurityTests {
 
     private void ensureDaily(String symbol) {
         Stock stock = stockRepository.findBySymbol(symbol).orElseThrow();
-        for (LocalDate date : List.of(LocalDate.of(2026, 1, 5), LocalDate.of(2026, 1, 6), LocalDate.of(2026, 1, 7))) {
+        for (LocalDate date : List.of(
+                LocalDate.of(2025, 6, 12),
+                LocalDate.of(2026, 1, 1),
+                LocalDate.of(2026, 1, 5),
+                LocalDate.of(2026, 1, 6),
+                LocalDate.of(2026, 1, 7),
+                LocalDate.of(2026, 3, 12),
+                LocalDate.of(2026, 5, 12),
+                LocalDate.of(2026, 6, 12)
+        )) {
             StockPriceDaily daily = dailyRepository.findBySymbolAndTradingDate(symbol, date).orElseGet(StockPriceDaily::new);
             daily.setStock(stock);
             daily.setSymbol(symbol);
