@@ -48,6 +48,14 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
             LocalDate tradingDate
     );
 
+    @Query("""
+        select max(h.tradingDate)
+        from StockPriceHistory h
+        where h.symbol = :symbol
+        and h.tradingDate is not null
+    """)
+    Optional<LocalDate> findLatestTradingDateBySymbol(@Param("symbol") String symbol);
+
     Optional<StockPriceHistory> findTopBySymbolOrderByTimestampDesc(String symbol);
 
     @Modifying

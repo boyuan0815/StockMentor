@@ -13,6 +13,12 @@ public interface StockAiExplanationRepository extends JpaRepository<StockAiExpla
             String promptVersion
     );
 
+    boolean existsByAnalysisSnapshotAndModelAndPromptVersion(
+            StockAnalysisSnapshot analysisSnapshot,
+            String model,
+            String promptVersion
+    );
+
     Optional<StockAiExplanation> findTopBySymbolAndTimeframeOrderByCreatedAtDesc(
             String symbol,
             String timeframe

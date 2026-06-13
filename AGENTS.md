@@ -54,6 +54,21 @@
   - `riskCategory`: final adjusted/dynamic risk used in the explanation.
 - `snapshotHash` must include fields that affect analysis meaning, including numeric metrics, labels, `dataSource`, fallback status, `baselineRiskCategory`, and final `riskCategory`.
 
+## Stock Market Data Viewing Rules
+- US009 normal user stock viewing endpoints live under `/api/stocks`.
+- Current US009 endpoints are:
+  `GET /api/stocks`,
+  `GET /api/stocks/{symbol}`,
+  and `GET /api/stocks/{symbol}/history?timeframe=1D|7D`.
+- US009 endpoints are read-only and must use Basic Auth plus `CurrentUserService`; do not accept or trust frontend-provided `userId`.
+- US009 must only read stored backend data. It must not call Twelve Data, OpenAI, scheduler/backfill flows, paper-trading services, behavior profile services, AI suggestion services, or stock analysis snapshot creation.
+- US009 may include current-user watchlist status as read-only context.
+- US009 list/detail price fields should prefer the latest stored `stock.currentPrice` and `stock.percentChange`; use analysis snapshot prices only as fallback when the stock row is missing.
+- US009 `aiExplanationAvailable` should mean a stored explanation exists for the latest displayed `7D` analysis snapshot under the same model and prompt version used by US012, without calling the US012 explanation service.
+- `GET /api/stocks/{symbol}/ai-explanation` remains the US012 AI explanation endpoint and must not be broken by US009 stock detail/history routing.
+- `1D` stock history should read the latest stored non-null intraday `tradingDate`; if none exists, return an empty safe response instead of backfilling or failing.
+- `7D` stock history should read stored daily candles only.
+
 ## AI Explanation Rules
 - Explanations must be data-driven and based only on structured stock data.
 - Do not predict future prices.

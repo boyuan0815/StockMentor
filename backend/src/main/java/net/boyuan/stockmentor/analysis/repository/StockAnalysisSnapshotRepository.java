@@ -19,6 +19,11 @@ public interface StockAnalysisSnapshotRepository extends JpaRepository<StockAnal
             String timeframe
     );
 
+    Optional<StockAnalysisSnapshot> findTopBySymbolAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc(
+            String symbol,
+            String timeframe
+    );
+
     List<StockAnalysisSnapshot> findBySymbolInAndTimeframeOrderByCreatedAtDesc(
             Collection<String> symbols,
             String timeframe
