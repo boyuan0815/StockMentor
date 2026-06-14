@@ -10,6 +10,8 @@ import java.util.Optional;
 public interface UserInvestmentProfileRepository extends JpaRepository<UserInvestmentProfile, Long> {
     Optional<UserInvestmentProfile> findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(Long userId);
 
+    boolean existsByUserUserId(Long userId);
+
     @Query("select coalesce(max(p.profileVersion), 0) from UserInvestmentProfile p where p.user.userId = :userId")
     int findMaxProfileVersionByUserId(@Param("userId") Long userId);
 }

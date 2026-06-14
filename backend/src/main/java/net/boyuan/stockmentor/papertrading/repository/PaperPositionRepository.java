@@ -13,5 +13,7 @@ public interface PaperPositionRepository extends JpaRepository<PaperPosition, Lo
 
     Optional<PaperPosition> findByUserUserIdAndSymbol(Long userId, String symbol);
 
+    long countByUserUserId(Long userId);
+
     void deleteByUserUserId(Long userId);
 }

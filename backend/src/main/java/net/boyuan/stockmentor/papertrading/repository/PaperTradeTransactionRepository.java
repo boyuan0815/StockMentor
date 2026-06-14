@@ -19,6 +19,8 @@ public interface PaperTradeTransactionRepository extends JpaRepository<PaperTrad
 
     Optional<PaperTradeTransaction> findByTransactionIdAndUserUserId(Long transactionId, Long userId);
 
+    long countByUserUserId(Long userId);
+
     List<PaperTradeTransaction> findByUserUserIdAndExecutedAtBetweenOrderByExecutedAtDesc(
             Long userId,
             LocalDateTime start,
