@@ -18,7 +18,7 @@ public class AppUserDetailsService implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        AppUser appUser = appUserRepository.findByEmailOrUsername(username, username)
+        AppUser appUser = appUserRepository.findByEmailIgnoreCaseOrUsernameIgnoreCase(username, username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
         if (appUser.getStatus() != AppUserStatus.ACTIVE || Boolean.TRUE.equals(appUser.getIsDeleted())) {

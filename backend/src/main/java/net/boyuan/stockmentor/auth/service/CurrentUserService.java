@@ -20,7 +20,7 @@ public class CurrentUserService {
         }
 
         String principal = authentication.getName();
-        return appUserRepository.findByEmailOrUsername(principal, principal)
+        return appUserRepository.findByEmailIgnoreCaseOrUsernameIgnoreCase(principal, principal)
                 .filter(user -> user.getStatus() == AppUserStatus.ACTIVE)
                 .filter(user -> !Boolean.TRUE.equals(user.getIsDeleted()))
                 .orElseThrow(() -> new IllegalStateException("Authenticated user is not active"));

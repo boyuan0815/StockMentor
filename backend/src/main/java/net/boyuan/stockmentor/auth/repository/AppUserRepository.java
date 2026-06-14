@@ -11,6 +11,14 @@ import java.util.Optional;
 public interface AppUserRepository extends JpaRepository<AppUser, Long> {
     Optional<AppUser> findByEmailOrUsername(String email, String username);
 
+    Optional<AppUser> findByEmailIgnoreCase(String email);
+
+    Optional<AppUser> findByEmailIgnoreCaseOrUsernameIgnoreCase(String email, String username);
+
+    boolean existsByEmailIgnoreCase(String email);
+
+    boolean existsByUsernameIgnoreCase(String username);
+
     Optional<AppUser> findByUserIdAndStatusAndIsDeletedFalse(Long userId, AppUserStatus status);
 
     Page<AppUser> findByStatusAndIsDeletedFalseAndOnboardingCompletedTrue(AppUserStatus status, Pageable pageable);
