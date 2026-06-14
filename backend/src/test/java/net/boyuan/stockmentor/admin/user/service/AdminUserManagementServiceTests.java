@@ -63,8 +63,11 @@ class AdminUserManagementServiceTests {
         admin.setRole(AppUserRole.ADMIN);
         admin.setStatus(AppUserStatus.ACTIVE);
         admin.setIsDeleted(false);
+        AppUser currentAdmin = new AppUser();
+        currentAdmin.setUserId(99L);
 
         when(appUserRepository.findById(1L)).thenReturn(Optional.of(admin));
+        when(currentUserService.getCurrentUser()).thenReturn(currentAdmin);
         when(appUserRepository.countByRoleAndStatusAndIsDeletedFalse(AppUserRole.ADMIN, AppUserStatus.ACTIVE))
                 .thenReturn(1L);
 
