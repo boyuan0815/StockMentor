@@ -21,6 +21,20 @@
 - Avoid unrelated rewrites and avoid changing public API response fields without checking usage.
 - Keep changes beginner-friendly, explainable, and scoped to the task.
 
+## Auth And Account Management Rules
+- StockMentor uses Spring Security HTTP Basic Auth for the FYP MVP. Do not add JWT, refresh tokens, sessions, OAuth, OTP, forgot password, or email verification unless explicitly scoped.
+- US001 registration lives at `POST /api/auth/register` and is the only public auth endpoint.
+- Registration creates normal `BEGINNER_INVESTOR` accounts only. It must store lowercase trimmed email, trimmed username, BCrypt password hash, `status = ACTIVE`, `isDeleted = false`, and `onboardingCompleted = false`.
+- Registration username rules are 3-30 characters with letters, numbers, dot, underscore, and hyphen only. Usernames must not contain `@`, spaces, or ambiguous special characters.
+- Registration must not create onboarding profiles, behavior profiles, paper-trading accounts, positions, transactions, watchlist rows, AI suggestion rows, AI explanations, stock snapshots, stock data, or scheduler jobs.
+- US002 login lives at `POST /api/auth/login`, requires Basic Auth, updates `lastLoginAt`, and returns a safe user summary without issuing a token.
+- US002 current-user bootstrap lives at `GET /api/auth/me`, requires Basic Auth, and returns the same safe user summary without updating `lastLoginAt`.
+- Basic Auth accepts email or username case-insensitively through the user details/current-user lookup.
+- `AuthUserResponse.mustCompleteOnboarding` is true only for `BEGINNER_INVESTOR` users who have not completed onboarding or do not have an investment profile. It must be false for admins.
+- Auth responses must never expose `passwordHash`, raw credentials, tokens, admin token values, API keys, or secrets.
+- `AppUserDetailsService` and `CurrentUserService` must continue rejecting inactive or deleted users.
+- Normal user backend logic should resolve the authenticated user through `CurrentUserService`; do not accept or trust frontend-provided `userId`.
+
 ## Stock Data Rules
 - Twelve Data is the external stock data source.
 - Intraday 1-minute data is stored in `stock_price_history_1min`.
@@ -111,7 +125,6 @@
 - First onboarding triggers AI suggestions after commit using `ONBOARDING_COMPLETED`; retake triggers after commit using `RETAKE_QUIZ`.
 - AI suggestion trigger failures must be caught/logged and must not roll back onboarding/profile saves.
 - `GET /api/user/profile` and `GET /api/user/onboarding/questions` must be read-only and must not trigger AI generation.
-- Registration is not implemented yet; do not add or expose `/api/auth/register` unless explicitly scoped later.
 
 ## Paper-Trading Rules
 - Paper-trading backend lives under `backend/src/main/java/net/boyuan/stockmentor/papertrading` and uses Controller -> Service -> Repository layering.
@@ -149,6 +162,22 @@
 - Only `POST /api/admin/ai-suggestions/scheduled-refresh/run` should create an `ai_suggestion_refresh_job` row.
 - The scheduled AI suggestion refresh runs after market close and should use the shared scheduled refresh service; one failed user must not stop the job.
 - Do not modify existing admin backfill behavior unless explicitly scoped; it also uses `X-Admin-Token`.
+
+## Admin User Management Rules
+- US003 admin user management endpoints live under `/api/admin/users` and require both `ROLE_ADMIN` and a valid `X-Admin-Token`.
+- Current US003 endpoints are:
+  `GET /api/admin/users`,
+  `GET /api/admin/users/{userId}`,
+  and `PATCH /api/admin/users/{userId}/status`.
+- Admin user listing defaults to non-deleted users only, caps page size at 100, sorts by `createdAt DESC`, combines multiple filters with `AND`, and treats `search` as case-insensitive email OR username matching.
+- Admin user responses must be safe summaries. Never expose `passwordHash`, raw credentials, admin token values, API keys, prompts, or secrets.
+- Admin user detail may include the latest investment profile summary, stored behavior summary, and paper-trading summary, but it must use repository reads only.
+- Admin user detail must not call behavior recalculation services or paper-trading service methods that auto-create accounts. If no paper-trading account exists, `paperTradingSummary` should be null.
+- Admin status update may only use `ACTIVE` or `INACTIVE`. `SUSPENDED` is not an implemented US003 workflow and must be rejected for status updates.
+- Admin status update is idempotent when the requested status already matches the current status.
+- Admin status update must never modify `isDeleted`, must not restore deleted users, and must return conflict for `isDeleted = true` targets.
+- Admin status update must reject disabling the currently authenticated admin's own account and reject disabling the last active non-deleted admin.
+- US003 must not hard delete users, update roles, create admin-created users, reset passwords, delete linked records, call OpenAI or Twelve Data, trigger scheduler jobs, generate AI suggestions or explanations, create stock snapshots, create watchlist rows, create onboarding profiles, recalculate behavior, or create paper-trading accounts.
 
 ## Cleanup Rules
 - Old intraday cleanup must delete 1-minute rows only when a matching daily candle exists.
