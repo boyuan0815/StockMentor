@@ -36,8 +36,8 @@ public class StockScheduler {
         }
     }
 
-    // 16:02
-    @Scheduled(cron = "0 2 16 * * MON-FRI", zone = "America/New_York")
+    // 16:02, 16;07, 16:12
+    @Scheduled(cron = "0 2,7,12 16 * * MON-FRI", zone = "America/New_York")
     private void fetchPostMarketFinalSnapshot() {
         if (marketTimeService.isTradingDay()) {
             stockService.fetchLatestIntraday(SYMBOLS);

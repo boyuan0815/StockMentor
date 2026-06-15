@@ -1,0 +1,268 @@
+# StockMentor Frontend Design Blueprint
+
+## Purpose
+
+This document is the source of truth for the StockMentor frontend design direction before screen implementation starts.
+It should be read with:
+
+- `docs/frontend/backend-api-screen-map.md`
+- `docs/frontend/mobile-user-flow.md`
+- `docs/frontend/admin-web-flow.md`
+- `docs/frontend/design-system.md`
+- `docs/frontend/api-integration-guide.md`
+- `docs/frontend/interaction-guardrails.md`
+- `docs/frontend/frontend-environment-guide.md`
+
+## Accepted Frontend Direction
+
+- Language: TypeScript.
+- Stack: React Native + Expo + Expo Router.
+- Codebase: one Expo codebase for the MVP.
+- Beginner investor app: mobile-first, optimized for phone-sized screens.
+- Admin console: web/tablet-first using Expo Web / React Native Web.
+- Admin is not a separate Vite, Next.js, or React web project for the MVP.
+- The Spring Boot backend is the only source of app data.
+
+The current `frontend/` folder is still the Expo starter scaffold. Future frontend work should replace starter screens
+with StockMentor routes, but this documentation task does not implement screens.
+
+## Final Use Case Map
+
+- US001 Register Account.
+- US002 Login Account.
+- US003 Manage System Users.
+- US004 Complete Onboarding Quiz.
+- US005 View User Investment Profile.
+- US006 Show AI Stock Suggestions.
+- US007 Monitor and Maintain AI Stock Suggestions.
+- US008 Maintain Stock Market Data.
+- US009 View Stock Market Data.
+- US010 Simulate Paper Trades.
+- US011 Automatically Retrieve Stock Market Data.
+- US012 View AI Stock Explanation.
+
+Frontend use-case boundaries:
+
+- US008 is admin stock market data maintenance: backfill, repair, and cleanup for stored market data.
+- US009 is beginner stock market data viewing: stock list, stock detail, chart/history.
+- US010 is simulated paper trading.
+- US011 is backend scheduler/system behavior, not normally a direct frontend screen.
+- US012 is user-facing AI stock explanation.
+- There is no current admin AI explanation screen because the backend does not expose an admin endpoint for it.
+
+## Product Character
+
+StockMentor is a beginner-focused stock learning and paper-trading application. The UI should feel calm, educational,
+trustworthy, and simple. It should not feel like a real-money trading app or pressure users into trades.
+
+Use language such as:
+
+- educational suggestion
+- learning explanation
+- simulated portfolio
+- practice trade
+- paper-trading practice
+
+Avoid language such as:
+
+- buy now
+- best stock
+- guaranteed profit
+- real investment advice
+- will rise
+- sure win
+
+## Frontend Boundaries
+
+The frontend must not:
+
+- call OpenAI directly
+- call Twelve Data directly
+- calculate AI stock suggestions
+- calculate AI explanations
+- calculate behavior profiles
+- bypass backend validation
+- send frontend-owned `userId` for current-user actions
+- silently use mock responses for real app flows
+
+The frontend may use mock data only for isolated UI previews or temporary development. Mock data must be clearly marked
+and removed before final integration.
+
+## 15-Minute Delayed Educational Market Data
+
+StockMentor's intended stock display model is 15-minute delayed educational market data, not immediate market data.
+
+Concept:
+
+```text
+displayMarketTime = current New York market time - 15 minutes
+
+9:45 AM NY time displays 9:30 AM stored candle/data
+9:46 AM NY time displays 9:31 AM stored candle/data
+9:47 AM NY time displays 9:32 AM stored candle/data
+```
+
+Reason:
+
+- Twelve Data free-tier and scheduler limits mean StockMentor should not promise immediate market quotes.
+- Twelve Data intraday granularity is 1-minute, not second-by-second updates.
+- The backend scheduler fetches around every 5 minutes, and provider data may not be immediately available.
+- A stable 15-minute display delay gives the backend time to store the relevant 1-minute candles and lets the frontend
+  show a smoother educational display that can advance one displayed minute at a time when data exists.
+
+UI language:
+
+- "15-minute delayed educational market data"
+- "Displayed market time"
+- "Prices shown are delayed by about 15 minutes"
+- "Updated display minute: 9:31 AM NY time"
+- "Latest stored delayed price"
+- "Practice trades use StockMentor's delayed stored price, not a live market quote"
+
+Current backend caveat:
+
+- Current stock list/detail DTOs expose fields such as `currentPrice`, `percentChange`, and `lastUpdated`.
+- Current backend APIs do not yet expose dedicated delayed display fields such as `displayedPrice`,
+  `displayedMarketTime`, `dataDelayMinutes`, `priceFreshnessStatus`, `isPriceAvailable`, or `dataNote`. The backend may
+  reuse existing `lastUpdated` if it clearly represents backend update time, or add `lastBackendUpdatedAt` only if
+  needed.
+- Frontend docs describe the intended product behavior and backend follow-up. Frontend implementation must not invent
+  trusted prices or displayed market times while those fields are absent.
+
+Opening and closing behavior:
+
+- From 9:30 to 9:44 AM New York time, current-day delayed intraday display is not ready because
+  `current time - 15 minutes` is before market open. Show: "Today's delayed market display starts around 9:45 AM New
+  York time."
+- After 4:15 PM New York time, the delayed display can show the 4:00 PM market close data if available, then remain as
+  latest delayed/stored market data until the next trading day.
+
+## Role Routing
+
+Auth bootstrap is owned by the frontend shell:
+
+1. No credentials: show welcome, login, and register routes.
+2. Credentials available: call `GET /api/auth/me`.
+3. `role = ADMIN`: route to the admin web shell/dashboard, then require admin token before admin API calls.
+4. `role = BEGINNER_INVESTOR` and `mustCompleteOnboarding = true`: route to onboarding.
+5. `role = BEGINNER_INVESTOR` and onboarding complete: route to the beginner dashboard.
+6. Logout clears Basic Auth credentials, admin token, query cache, and auth storage abstraction state.
+
+Beginner routes must not expose admin-only actions. Admin routes must reject normal users.
+
+## Route Group Direction
+
+Use Expo Router route groups so native and web can share code while keeping layouts clear:
+
+```text
+frontend/app/
+  _layout.tsx
+  (public)/
+    index.tsx
+  (auth)/
+    login.tsx
+    register.tsx
+  (onboarding)/
+    index.tsx
+    result.tsx
+  (user)/
+    _layout.tsx
+    index.tsx
+    stocks/index.tsx
+    stocks/[symbol].tsx
+    stocks/[symbol]/explanation.tsx
+    suggestions/index.tsx
+    paper-trading/index.tsx
+    paper-trading/buy.tsx
+    paper-trading/sell.tsx
+    paper-trading/transactions.tsx
+    profile.tsx
+  (admin)/
+    _layout.tsx
+    index.tsx
+    users/index.tsx
+    users/[userId].tsx
+    stocks/maintenance.tsx
+    ai-suggestions/index.tsx
+    ai-suggestions/batches/[batchId].tsx
+    ai-suggestions/jobs/[jobId].tsx
+```
+
+Routes belong in `app/`. Components, types, utilities, API functions, hooks, and theme tokens should live outside
+`app/`.
+
+## Beginner Mobile Experience
+
+After login and onboarding, beginner users should see a simple tab-based shell:
+
+- Home
+- Stocks
+- Suggestions
+- Practice
+- Profile
+
+Stacks inside tabs should open detail screens for stock detail, AI explanation, buy/sell tickets, transaction detail,
+onboarding retake, and settings.
+
+## Admin Web/Tablet Experience
+
+Admin uses the same Expo codebase but a different layout:
+
+- side navigation on tablet/web widths
+- table/list views
+- filters
+- detail panels/pages
+- confirmation modals
+- maintenance action forms
+
+On phone-sized screens, show: "Admin console is best viewed on tablet or web." Allow logout and optionally show minimal
+read-only status links. Do not cram full admin tables, filters, or destructive maintenance actions into phone UI.
+
+## State Ownership
+
+Use this ownership model during implementation:
+
+- React Query later for server state, caching, loading state, invalidation, and request deduplication.
+- `AuthProvider` for Basic Auth/session state and role routing.
+- `ThemeProvider` for theme mode and design tokens.
+- Local component state for forms, modals, quantity inputs, filters, and confirmation dialogs.
+- No Redux, Zustand, or broad global store unless a clear implementation need appears later.
+
+## Chart MVP
+
+The MVP chart can be a simple educational line chart based on backend history points.
+
+- Show selected timeframe.
+- Show data source and fallback notes when available.
+- Do not add advanced trading indicators.
+- Candlestick charts are optional only if easy later.
+- The chart should help beginners understand movement, not simulate a professional trading terminal.
+- For intraday display, the latest visible point should normally be no later than the backend-decided displayed market
+  time, about 15 minutes behind current New York market time.
+- The frontend must not silently invent or fill missing 1-minute candles.
+
+## FYP Demo Story
+
+Use this sequence for the main demonstration:
+
+1. Register or login.
+2. Complete onboarding.
+3. View investment profile.
+4. View stock list and stock detail.
+5. View AI stock explanation.
+6. View AI stock suggestions.
+7. Add a stock to watchlist or perform a practice trade.
+8. View portfolio and transactions.
+9. Login as admin.
+10. Manage users.
+11. Monitor or maintain stock and AI data.
+
+## UI Library Decision
+
+Use custom lightweight StockMentor components first. Do not install a large UI kit during planning. Add UI or chart
+libraries later only if implementation proves a clear need.
+
+## Documentation Rule
+
+Future Codex chats should read the docs in `docs/frontend/` before frontend work. For skill usage, see
+`docs/frontend/frontend-skill-usage-guide.md`.

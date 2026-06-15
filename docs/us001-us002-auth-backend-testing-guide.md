@@ -21,7 +21,7 @@ From PowerShell:
 ```powershell
 cd C:\StockMentor\backend
 .\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=dev"
-```
+``` 
 
 If `.\mvnw.cmd` fails with the known wrapper launcher issue, use the wrapper
 downloaded Maven binary from the local Maven wrapper cache. Example:
@@ -332,28 +332,36 @@ After registration/login/me, check that no unrelated records were created for
 the new user:
 
 ```sql
-SELECT COUNT(*) FROM user_investment_profile
+SELECT COUNT(*)
+FROM user_investment_profile
 WHERE user_id = (SELECT user_id FROM app_user WHERE email = 'new.beginner_2@example.com');
 
-SELECT COUNT(*) FROM user_behavior_profile
+SELECT COUNT(*)
+FROM user_behavior_profile
 WHERE user_id = (SELECT user_id FROM app_user WHERE email = 'new.beginner_2@example.com');
 
-SELECT COUNT(*) FROM paper_trading_account
+SELECT COUNT(*)
+FROM paper_trading_account
 WHERE user_id = (SELECT user_id FROM app_user WHERE email = 'new.beginner_2@example.com');
 
-SELECT COUNT(*) FROM paper_position
+SELECT COUNT(*)
+FROM paper_position
 WHERE user_id = (SELECT user_id FROM app_user WHERE email = 'new.beginner_2@example.com');
 
-SELECT COUNT(*) FROM paper_trade_transaction
+SELECT COUNT(*)
+FROM paper_trade_transaction
 WHERE user_id = (SELECT user_id FROM app_user WHERE email = 'new.beginner_2@example.com');
 
-SELECT COUNT(*) FROM user_watchlist
+SELECT COUNT(*)
+FROM user_watchlist
 WHERE user_id = (SELECT user_id FROM app_user WHERE email = 'new.beginner_2@example.com');
 
-SELECT COUNT(*) FROM stock_ai_suggestion_batch
+SELECT COUNT(*)
+FROM stock_ai_suggestion_batch
 WHERE user_id = (SELECT user_id FROM app_user WHERE email = 'new.beginner_2@example.com');
 
-SELECT COUNT(*) FROM stock_ai_suggestion_item
+SELECT COUNT(*)
+FROM stock_ai_suggestion_item
 WHERE user_id = (SELECT user_id FROM app_user WHERE email = 'new.beginner_2@example.com');
 ```
 

@@ -4,6 +4,17 @@
 - StockMentor is currently backend-only. The Spring Boot backend lives under `backend/`.
 - There is no frontend implementation yet. If a frontend is added later, it must call the backend only; it must not call OpenAI or Twelve Data directly.
 
+## Frontend Planning Rules
+- Frontend implementation must read `docs/frontend/*` before changing frontend code.
+- The beginner investor app is mobile-first.
+- The admin console is web/tablet-first using Expo Web / React Native Web.
+- The frontend calls the Spring Boot backend only.
+- The frontend must not call OpenAI or Twelve Data directly.
+- Use duplicate-submit, cooldown, and confirmation guardrails.
+- AI wording must stay educational and never real financial advice.
+- Stock data UI should be described as delayed educational market data; do not imply immediate market quotes.
+- `AGENTS.md` is an index; detailed frontend design lives in `docs/frontend/`.
+
 ## Build And Verification
 - Use the Maven Wrapper, not global `mvn`.
 - Windows verification command:
