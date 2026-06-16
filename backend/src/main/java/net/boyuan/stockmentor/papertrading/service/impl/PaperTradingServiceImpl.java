@@ -5,8 +5,11 @@ import net.boyuan.stockmentor.auth.entity.AppUser;
 import net.boyuan.stockmentor.auth.service.CurrentUserService;
 import net.boyuan.stockmentor.common.exception.ResourceNotFoundException;
 import net.boyuan.stockmentor.common.util.StockMetadata;
+import net.boyuan.stockmentor.market.stock.dto.DelayedPriceMetadataResponse;
 import net.boyuan.stockmentor.market.stock.entity.Stock;
+import net.boyuan.stockmentor.market.stock.model.DelayedMarketPrice;
 import net.boyuan.stockmentor.market.stock.repository.StockRepository;
+import net.boyuan.stockmentor.market.stock.service.DelayedMarketPriceService;
 import net.boyuan.stockmentor.papertrading.dto.*;
 import net.boyuan.stockmentor.papertrading.entity.PaperPosition;
 import net.boyuan.stockmentor.papertrading.entity.PaperTradeTransaction;
@@ -59,6 +62,7 @@ public class PaperTradingServiceImpl implements PaperTradingService {
     private final PaperTradeTransactionRepository transactionRepository;
     private final StockRepository stockRepository;
     private final UserBehaviorProfileService behaviorProfileService;
+    private final DelayedMarketPriceService delayedMarketPriceService;
 
     @Value("${stockmentor.paper-trading.initial-cash:1000000.00}")
     private BigDecimal initialCash;
@@ -181,8 +185,9 @@ public class PaperTradingServiceImpl implements PaperTradingService {
         String symbol = validateSymbol(request == null ? null : request.symbol());
         int quantity = validateQuantity(request == null ? null : request.quantity());
         PaperTradingAccount account = getOrCreateAccount(user);
-        Stock stock = loadValidStock(symbol);
-        BigDecimal executionPrice = money(stock.getCurrentPrice());
+        Stock stock = loadStockRow(symbol);
+        DelayedMarketPrice executionPriceMetadata = requireExecutableDelayedPrice(symbol);
+        BigDecimal executionPrice = money(executionPriceMetadata.displayedPrice());
         BigDecimal grossAmount = money(executionPrice.multiply(BigDecimal.valueOf(quantity)));
         BigDecimal fee = currentTradeFee();
         BigDecimal netAmount = money(grossAmount.add(fee));
@@ -226,8 +231,9 @@ public class PaperTradingServiceImpl implements PaperTradingService {
 
         return new PaperTradeExecutionResponse(
                 toAccountResponse(account),
-                toPositionResponse(savedPosition, stock, null),
-                toTransactionResponse(savedTransaction)
+                toPositionResponse(savedPosition, stock, null, executionPriceMetadata),
+                toTransactionResponse(savedTransaction),
+                DelayedPriceMetadataResponse.from(executionPriceMetadata)
         );
     }
 
@@ -238,8 +244,9 @@ public class PaperTradingServiceImpl implements PaperTradingService {
         String symbol = validateSymbol(request == null ? null : request.symbol());
         int quantity = validateQuantity(request == null ? null : request.quantity());
         PaperTradingAccount account = getOrCreateAccount(user);
-        Stock stock = loadValidStock(symbol);
-        BigDecimal executionPrice = money(stock.getCurrentPrice());
+        Stock stock = loadStockRow(symbol);
+        DelayedMarketPrice executionPriceMetadata = requireExecutableDelayedPrice(symbol);
+        BigDecimal executionPrice = money(executionPriceMetadata.displayedPrice());
 
         PaperPosition position = positionRepository.findByUserUserIdAndSymbol(user.getUserId(), symbol)
                 .orElseThrow(() -> new IllegalArgumentException("No paper position exists for symbol: " + symbol));
@@ -292,8 +299,9 @@ public class PaperTradingServiceImpl implements PaperTradingService {
 
         return new PaperTradeExecutionResponse(
                 toAccountResponse(account),
-                responsePosition == null ? null : toPositionResponse(responsePosition, stock, null),
-                toTransactionResponse(savedTransaction)
+                responsePosition == null ? null : toPositionResponse(responsePosition, stock, null, executionPriceMetadata),
+                toTransactionResponse(savedTransaction),
+                DelayedPriceMetadataResponse.from(executionPriceMetadata)
         );
     }
 
@@ -348,17 +356,18 @@ public class PaperTradingServiceImpl implements PaperTradingService {
         return quantity;
     }
 
-    private Stock loadValidStock(String symbol) {
-        Stock stock = stockRepository.findBySymbolIn(List.of(symbol)).stream()
+    private Stock loadStockRow(String symbol) {
+        return stockRepository.findBySymbolIn(List.of(symbol)).stream()
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Stock row is missing for symbol: " + symbol));
-        if (stock.getCurrentPrice() == null) {
-            throw new IllegalArgumentException("Current price is missing for symbol: " + symbol);
+    }
+
+    private DelayedMarketPrice requireExecutableDelayedPrice(String symbol) {
+        DelayedMarketPrice delayedPrice = delayedMarketPriceService.resolveForDisplay(symbol);
+        if (!hasExecutableDelayedPrice(delayedPrice)) {
+            throw new IllegalArgumentException("Delayed market price is not available yet. Please try again later.");
         }
-        if (stock.getCurrentPrice().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Current price must be positive for symbol: " + symbol);
-        }
-        return stock;
+        return delayedPrice;
     }
 
     private PaperPosition newPosition(AppUser user, String symbol, LocalDateTime now) {
@@ -444,16 +453,33 @@ public class PaperTradingServiceImpl implements PaperTradingService {
                 ? Map.of()
                 : stockRepository.findBySymbolIn(positions.stream().map(PaperPosition::getSymbol).toList()).stream()
                 .collect(Collectors.toMap(Stock::getSymbol, Function.identity(), (first, second) -> first));
+        Map<String, DelayedMarketPrice> delayedPriceBySymbol = positions.isEmpty()
+                ? Map.of()
+                : positions.stream()
+                .map(PaperPosition::getSymbol)
+                .distinct()
+                .collect(Collectors.toMap(
+                        Function.identity(),
+                        delayedMarketPriceService::resolveForDisplay,
+                        (first, second) -> first,
+                        LinkedHashMap::new
+                ));
 
         BigDecimal totalInvestedCost = positions.stream()
                 .map(PaperPosition::getTotalCost)
                 .map(this::money)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal pricedInvestedCost = positions.stream()
+                .filter(position -> hasExecutableDelayedPrice(delayedPriceBySymbol.get(position.getSymbol())))
+                .map(PaperPosition::getTotalCost)
+                .map(this::money)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal estimatedMarketValue = positions.stream()
-                .map(position -> marketValue(position, stockBySymbol.get(position.getSymbol())))
+                .filter(position -> hasExecutableDelayedPrice(delayedPriceBySymbol.get(position.getSymbol())))
+                .map(position -> marketValue(position, delayedPriceBySymbol.get(position.getSymbol())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal totalPortfolioValue = money(account.getCashBalance().add(estimatedMarketValue));
-        BigDecimal unrealizedProfitLoss = money(estimatedMarketValue.subtract(totalInvestedCost));
+        BigDecimal unrealizedProfitLoss = money(estimatedMarketValue.subtract(pricedInvestedCost));
         BigDecimal realizedProfitLoss = money(transactionRepository.sumCurrentSessionRealizedProfitLossByUserIdAndSide(
                 account.getUser().getUserId(),
                 PaperTradeSide.SELL
@@ -470,8 +496,21 @@ public class PaperTradingServiceImpl implements PaperTradingService {
                 .divide(account.getStartingCash(), PERCENT_SCALE, RoundingMode.HALF_UP));
 
         List<PaperPositionResponse> positionResponses = positions.stream()
-                .map(position -> toPositionResponse(position, stockBySymbol.get(position.getSymbol()), totalPortfolioValue))
+                .map(position -> toPositionResponse(
+                        position,
+                        stockBySymbol.get(position.getSymbol()),
+                        totalPortfolioValue,
+                        delayedPriceBySymbol.get(position.getSymbol())
+                ))
                 .toList();
+        int pricedPositionCount = (int) positions.stream()
+                .filter(position -> hasExecutableDelayedPrice(delayedPriceBySymbol.get(position.getSymbol())))
+                .count();
+        int unpricedPositionCount = positions.size() - pricedPositionCount;
+        boolean portfolioValuationComplete = unpricedPositionCount == 0;
+        String portfolioDataNote = portfolioValuationComplete
+                ? null
+                : "Portfolio valuation is partial because some delayed stored prices are unavailable. Unpriced positions are excluded from market value, unrealized P/L, and return calculations.";
 
         return new PaperPortfolioResponse(
                 account.getUser().getUserId(),
@@ -486,7 +525,11 @@ public class PaperTradingServiceImpl implements PaperTradingService {
                 totalFeesPaid,
                 currentSessionNumber(account),
                 account.getLastResetAt(),
-                positionResponses
+                positionResponses,
+                pricedPositionCount,
+                unpricedPositionCount,
+                portfolioValuationComplete,
+                portfolioDataNote
         );
     }
 
@@ -503,25 +546,36 @@ public class PaperTradingServiceImpl implements PaperTradingService {
         );
     }
 
-    private PaperPositionResponse toPositionResponse(PaperPosition position, Stock stock, BigDecimal totalPortfolioValue) {
-        BigDecimal currentPrice = stock == null || stock.getCurrentPrice() == null
-                ? money(BigDecimal.ZERO)
-                : money(stock.getCurrentPrice());
-        BigDecimal marketValue = money(currentPrice.multiply(BigDecimal.valueOf(position.getQuantity())));
+    private PaperPositionResponse toPositionResponse(
+            PaperPosition position,
+            Stock stock,
+            BigDecimal totalPortfolioValue,
+            DelayedMarketPrice delayedPrice
+    ) {
+        boolean hasValuationPrice = hasExecutableDelayedPrice(delayedPrice);
+        BigDecimal currentPrice = hasValuationPrice ? money(delayedPrice.displayedPrice()) : null;
+        BigDecimal marketValue = hasValuationPrice
+                ? money(currentPrice.multiply(BigDecimal.valueOf(position.getQuantity())))
+                : null;
         BigDecimal investedCost = money(position.getTotalCost());
-        BigDecimal unrealizedProfitLoss = money(marketValue.subtract(investedCost));
-        BigDecimal unrealizedPercent = investedCost.compareTo(BigDecimal.ZERO) == 0
+        BigDecimal unrealizedProfitLoss = hasValuationPrice ? money(marketValue.subtract(investedCost)) : null;
+        BigDecimal unrealizedPercent = !hasValuationPrice
+                ? null
+                : investedCost.compareTo(BigDecimal.ZERO) == 0
                 ? percent(BigDecimal.ZERO)
                 : percent(unrealizedProfitLoss
                 .multiply(BigDecimal.valueOf(100))
                 .divide(investedCost, PERCENT_SCALE, RoundingMode.HALF_UP));
-        BigDecimal weightPercent = totalPortfolioValue == null
+        BigDecimal weightPercent = !hasValuationPrice || totalPortfolioValue == null
                 ? null
                 : totalPortfolioValue.compareTo(BigDecimal.ZERO) == 0
                 ? percent(BigDecimal.ZERO)
                 : percent(marketValue
                         .multiply(BigDecimal.valueOf(100))
                         .divide(totalPortfolioValue, PERCENT_SCALE, RoundingMode.HALF_UP));
+        LocalDateTime lastUpdated = delayedPrice != null && delayedPrice.lastBackendUpdatedAt() != null
+                ? delayedPrice.lastBackendUpdatedAt()
+                : stock == null || stock.getLastUpdated() == null ? stock == null ? null : stock.getUpdatedAt() : stock.getLastUpdated();
         return new PaperPositionResponse(
                 position.getPositionId(),
                 position.getSymbol(),
@@ -536,7 +590,11 @@ public class PaperTradingServiceImpl implements PaperTradingService {
                 unrealizedPercent,
                 weightPercent,
                 StockMetadata.RISK_CATEGORY_MAP.get(position.getSymbol()),
-                stock == null || stock.getLastUpdated() == null ? stock == null ? null : stock.getUpdatedAt() : stock.getLastUpdated()
+                lastUpdated,
+                currentPrice,
+                marketValue,
+                delayedPrice == null ? "Delayed valuation price is unavailable." : delayedPrice.dataNote(),
+                DelayedPriceMetadataResponse.from(delayedPrice)
         );
     }
 
@@ -564,11 +622,18 @@ public class PaperTradingServiceImpl implements PaperTradingService {
         );
     }
 
-    private BigDecimal marketValue(PaperPosition position, Stock stock) {
-        BigDecimal currentPrice = stock == null || stock.getCurrentPrice() == null
-                ? BigDecimal.ZERO
-                : stock.getCurrentPrice();
-        return money(currentPrice.multiply(BigDecimal.valueOf(position.getQuantity())));
+    private BigDecimal marketValue(PaperPosition position, DelayedMarketPrice delayedPrice) {
+        if (!hasExecutableDelayedPrice(delayedPrice)) {
+            return money(BigDecimal.ZERO);
+        }
+        return money(delayedPrice.displayedPrice().multiply(BigDecimal.valueOf(position.getQuantity())));
+    }
+
+    private boolean hasExecutableDelayedPrice(DelayedMarketPrice delayedPrice) {
+        return delayedPrice != null
+                && delayedPrice.tradeExecutable()
+                && delayedPrice.displayedPrice() != null
+                && delayedPrice.displayedPrice().compareTo(BigDecimal.ZERO) > 0;
     }
 
     private BigDecimal normalizedNetAmount(PaperTradeTransaction transaction) {

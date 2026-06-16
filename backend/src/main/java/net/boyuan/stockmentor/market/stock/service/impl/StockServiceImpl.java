@@ -102,7 +102,7 @@ public class StockServiceImpl implements StockService {
                 return result.addMessage(apiErrorMessage(root)).build();
             }
 
-            SaveDailyStats stats = saveDailyCandles(root, startDate, endDate);
+            SaveDailyStats stats = saveDailyCandles(root, startDate, endDate, DailySaveMode.SKIP_EXISTING);
             return result.savedRows(stats.savedRows())
                     .skippedRows(stats.skippedRows())
                     .addMessage("Daily range backfill completed")
@@ -153,6 +153,46 @@ public class StockServiceImpl implements StockService {
                 .skippedRows(backfillResult.skippedRows())
                 .addMessage("Missing daily candles were detected; range backfill was executed")
                 .build();
+    }
+
+    @Override
+    public BackfillResultDto refreshDailyForDate(String symbols, LocalDate date) {
+        BackfillResultDto.Builder result = BackfillResultDto.builder("daily-refresh")
+                .symbols(splitSymbols(symbols))
+                .startDate(date)
+                .endDate(date);
+
+        LocalDate currentNewYorkDate = marketTimeService.getCurrentNewYorkDate();
+        if (date == null || !date.equals(currentNewYorkDate)) {
+            return result.addMessage("Daily refresh may update existing daily rows only for the current New York trading date: "
+                    + currentNewYorkDate).build();
+        }
+
+        if (!marketTimeService.isTradingDay(date)) {
+            return result.addMessage(date + " is not a NYSE trading day").build();
+        }
+
+        try {
+            JsonNode root = stockApiClient.fetchDailyRange(symbols, date, date);
+            if (isRootApiError(root)) {
+                return result.addMessage(apiErrorMessage(root)).build();
+            }
+
+            SaveDailyStats stats = saveDailyCandles(root, date, date, DailySaveMode.REFRESH_EXISTING);
+            return result.savedRows(stats.savedRows())
+                    .skippedRows(stats.skippedRows())
+                    .addMessage("Current trading day daily candle refresh completed")
+                    .build();
+        } catch (WebClientRequestException e) {
+            log.error("TwelveData daily refresh connection error: {}", e.getMessage(), e);
+            return result.addMessage("TwelveData connection error: " + e.getMessage()).build();
+        } catch (WebClientResponseException e) {
+            log.error("TwelveData daily refresh HTTP error: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString());
+            return result.addMessage("TwelveData HTTP error: " + e.getStatusCode()).build();
+        } catch (Exception e) {
+            log.error("Failed daily refresh for symbols={}, date={}", symbols, date, e);
+            return result.addMessage("Daily refresh failed: " + e.getMessage()).build();
+        }
     }
 
     @Override
@@ -305,7 +345,12 @@ public class StockServiceImpl implements StockService {
         return !targetDate.isBefore(currentSnapshotDate);
     }
 
-    private SaveDailyStats saveDailyCandles(JsonNode root, LocalDate startDate, LocalDate endDate) {
+    private SaveDailyStats saveDailyCandles(
+            JsonNode root,
+            LocalDate startDate,
+            LocalDate endDate,
+            DailySaveMode saveMode
+    ) {
         List<String> symbolList = new ArrayList<>();
         root.fieldNames().forEachRemaining(symbol -> symbolList.add(symbol.trim().toUpperCase()));
         Map<String, Stock> stockMap = getOrCreateStockMap(symbolList);
@@ -335,12 +380,14 @@ public class StockServiceImpl implements StockService {
                     continue;
                 }
 
-                if (dailyRepository.existsBySymbolAndTradingDate(symbol, tradingDate)) {
+                Optional<StockPriceDaily> existingDaily = dailyRepository.findBySymbolAndTradingDate(symbol, tradingDate);
+                if (existingDaily.isPresent() && saveMode == DailySaveMode.SKIP_EXISTING) {
                     skippedRows++;
                     continue;
                 }
 
-                StockPriceDaily daily = new StockPriceDaily();
+                LocalDateTime now = LocalDateTime.now();
+                StockPriceDaily daily = existingDaily.orElseGet(StockPriceDaily::new);
                 daily.setStock(stock);
                 daily.setSymbol(symbol);
                 daily.setTradingDate(tradingDate);
@@ -350,8 +397,10 @@ public class StockServiceImpl implements StockService {
                 daily.setClosePrice(new BigDecimal(value.get("close").asText()));
                 daily.setVolume(value.get("volume").asLong());
                 daily.setSource("TwelveData");
-                daily.setCreatedAt(LocalDateTime.now());
-                daily.setUpdatedAt(LocalDateTime.now());
+                if (daily.getCreatedAt() == null) {
+                    daily.setCreatedAt(now);
+                }
+                daily.setUpdatedAt(now);
                 dailyCandlesToSave.add(daily);
             }
         }
@@ -407,5 +456,10 @@ public class StockServiceImpl implements StockService {
     }
 
     private record SaveDailyStats(int savedRows, int skippedRows) {
+    }
+
+    private enum DailySaveMode {
+        SKIP_EXISTING,
+        REFRESH_EXISTING
     }
 }

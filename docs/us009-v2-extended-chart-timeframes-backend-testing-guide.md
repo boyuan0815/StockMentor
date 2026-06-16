@@ -3,8 +3,9 @@
 This guide verifies US009 v2, which extends the authenticated stock history
 endpoint with stock-app style chart timeframes.
 
-US009 v2 keeps the existing stock list and detail APIs unchanged. It only
-extends:
+US009 v2 originally kept the stock list and detail APIs unchanged. Later
+delayed-market-data work added delayed metadata to those responses; this guide
+still focuses on:
 
 ```text
 GET /api/stocks/{symbol}/history?timeframe=...
@@ -171,7 +172,9 @@ Daily points have `timestamp = null` and a populated `tradingDate`.
 
 `1D`:
 
-- uses latest stored non-null intraday `tradingDate`
+- uses stored 1-minute intraday rows at or before the backend delayed display
+  cutoff
+- does not expose current-day rows newer than `targetDisplayMarketTime`
 - returns stored 1-minute rows oldest-to-newest by timestamp
 - returns empty `points` safely when no intraday data exists
 

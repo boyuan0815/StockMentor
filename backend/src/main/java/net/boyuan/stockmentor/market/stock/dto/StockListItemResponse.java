@@ -22,6 +22,18 @@ public record StockListItemResponse(
         Boolean isFallback,
         Integer missingDataCount,
         Long latestAnalysisSnapshotId,
-        Boolean isWatchlisted
+        Boolean isWatchlisted,
+        BigDecimal displayedPrice,
+        BigDecimal displayedPercentChange,
+        LocalDateTime displayedMarketTime,
+        LocalDateTime targetDisplayMarketTime,
+        Integer dataDelayMinutes,
+        String priceFreshnessStatus,
+        Boolean isPriceAvailable,
+        Boolean isTradeExecutable,
+        String dataNote,
+        String priceSource,
+        String marketTimeZone,
+        LocalDateTime lastBackendUpdatedAt
 ) {
 }

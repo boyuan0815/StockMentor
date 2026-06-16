@@ -14,6 +14,7 @@ public interface StockService {
     BackfillResultDto backfillIntradayForDate(String symbols, LocalDate date);
     BackfillResultDto backfillDailyRange(String symbols, LocalDate startDate, LocalDate endDate);
     BackfillResultDto backfillMissingDaily(String symbols, LocalDate startDate, LocalDate endDate);
+    BackfillResultDto refreshDailyForDate(String symbols, LocalDate date);
     BackfillResultDto cleanupOldIntradayData(int retentionDays);
     List<String> splitSymbols(String symbols);
 }

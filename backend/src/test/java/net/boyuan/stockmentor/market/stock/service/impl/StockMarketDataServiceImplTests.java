@@ -11,10 +11,15 @@ import net.boyuan.stockmentor.market.stock.dto.StockDetailResponse;
 import net.boyuan.stockmentor.market.stock.dto.StockHistoryResponse;
 import net.boyuan.stockmentor.market.stock.dto.StockListResponse;
 import net.boyuan.stockmentor.market.stock.entity.Stock;
+import net.boyuan.stockmentor.market.stock.model.DelayedIntradayHistorySelection;
+import net.boyuan.stockmentor.market.stock.model.DelayedMarketPrice;
+import net.boyuan.stockmentor.market.stock.model.DelayedPriceFreshnessStatus;
 import net.boyuan.stockmentor.market.stock.repository.StockRepository;
+import net.boyuan.stockmentor.market.stock.service.DelayedMarketPriceService;
 import net.boyuan.stockmentor.market.stockdaily.entity.StockPriceDaily;
 import net.boyuan.stockmentor.market.stockdaily.repository.StockPriceDailyRepository;
 import net.boyuan.stockmentor.market.stockpricehistory.entity.StockPriceHistory;
+import net.boyuan.stockmentor.market.stockpricehistory.repository.IntradayDayRangeProjection;
 import net.boyuan.stockmentor.market.stockpricehistory.repository.StockPriceHistoryRepository;
 import net.boyuan.stockmentor.watchlist.entity.UserWatchlist;
 import net.boyuan.stockmentor.watchlist.repository.UserWatchlistRepository;
@@ -65,6 +70,8 @@ class StockMarketDataServiceImplTests {
     private UserWatchlistRepository watchlistRepository;
     @Mock
     private StockAiExplanationRepository explanationRepository;
+    @Mock
+    private DelayedMarketPriceService delayedMarketPriceService;
 
     private StockMarketDataServiceImpl service;
     private AppUser user;
@@ -78,7 +85,8 @@ class StockMarketDataServiceImplTests {
                 historyRepository,
                 dailyRepository,
                 watchlistRepository,
-                explanationRepository
+                explanationRepository,
+                delayedMarketPriceService
         );
 
         user = new AppUser();
@@ -105,6 +113,13 @@ class StockMarketDataServiceImplTests {
                 anyString(),
                 anyString()
         )).thenReturn(false);
+        lenient().when(delayedMarketPriceService.resolveForDisplay(anyString()))
+                .thenAnswer(invocation -> delayedPrice(invocation.getArgument(0)));
+        lenient().when(delayedMarketPriceService.loadOneDayHistoryForDisplay(anyString()))
+                .thenAnswer(invocation -> new DelayedIntradayHistorySelection(
+                        List.of(),
+                        delayedPrice(invocation.getArgument(0))
+                ));
     }
 
     @Test
@@ -142,6 +157,11 @@ class StockMarketDataServiceImplTests {
         assertFalse(item.isMarketOpen());
         assertEquals("America/New_York", item.timezone());
         assertEquals("TwelveData", item.source());
+        assertEquals(new BigDecimal("100.50"), item.displayedPrice());
+        assertEquals("AVAILABLE", item.priceFreshnessStatus());
+        assertTrue(item.isPriceAvailable());
+        assertTrue(item.isTradeExecutable());
+        assertEquals("America/New_York", item.marketTimeZone());
     }
 
     @Test
@@ -252,11 +272,77 @@ class StockMarketDataServiceImplTests {
         assertEquals(new BigDecimal("422.12"), response.currentPrice());
         assertEquals(new BigDecimal("0.50"), response.percentChange());
         assertEquals("stock_price_daily", response.dataSource());
+        assertEquals("stock_price_daily", response.analysisDataSource());
+        assertEquals(DelayedMarketPriceService.INTRADAY_PRICE_SOURCE, response.priceSource());
         assertEquals("hash-MSFT-20", response.snapshotHash());
         assertTrue(response.isWatchlisted());
         assertTrue(response.aiExplanationAvailable());
         assertEquals("/api/stocks/MSFT/ai-explanation?timeframe=7D", response.aiExplanationEndpoint());
         assertTrue(response.tradeSupported());
+    }
+
+    @Test
+    void detailHighLowUseDisplayedIntradayDayRangeAndSnapshotFieldsUseAnalysisRange() {
+        Stock msft = stock("MSFT", "Microsoft", "422.12");
+        StockAnalysisSnapshot snapshot = snapshot("MSFT", 20L, "moderate", "strong uptrend");
+        when(stockRepository.findBySymbol("MSFT")).thenReturn(Optional.of(msft));
+        when(snapshotRepository.findTopBySymbolAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc("MSFT", "7D"))
+                .thenReturn(Optional.of(snapshot));
+        when(historyRepository.findDayRangeAtOrBefore(
+                "MSFT",
+                LocalDate.of(2026, 1, 5),
+                "1min",
+                LocalDateTime.of(2026, 1, 5, 9, 45)
+        )).thenReturn(intradayRange("104.00", "97.00"));
+
+        StockDetailResponse response = service.getStockDetailForCurrentUser("MSFT");
+
+        assertEquals(new BigDecimal("104.00"), response.highPrice());
+        assertEquals(new BigDecimal("97.00"), response.lowPrice());
+        assertEquals(DelayedMarketPriceService.INTRADAY_PRICE_SOURCE, response.priceSource());
+        assertEquals("stock_price_daily", response.analysisDataSource());
+        assertEquals(new BigDecimal("130.00"), response.snapshotHighPrice());
+        assertEquals(new BigDecimal("118.00"), response.snapshotLowPrice());
+        assertEquals("7D", response.snapshotTimeframe());
+    }
+
+    @Test
+    void detailClosedDailyDayRangeUsesSelectedDailyCandle() {
+        LocalDate tradingDate = LocalDate.of(2026, 1, 5);
+        StockAnalysisSnapshot snapshot = snapshot("MSFT", 20L, "moderate", "strong uptrend");
+        StockPriceDaily daily = daily("MSFT", tradingDate);
+        when(stockRepository.findBySymbol("MSFT")).thenReturn(Optional.of(stock("MSFT", "Microsoft", "422.12")));
+        when(snapshotRepository.findTopBySymbolAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc("MSFT", "7D"))
+                .thenReturn(Optional.of(snapshot));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(dailyDelayedPrice("MSFT", tradingDate));
+        when(dailyRepository.findBySymbolAndTradingDate("MSFT", tradingDate)).thenReturn(Optional.of(daily));
+
+        StockDetailResponse response = service.getStockDetailForCurrentUser("MSFT");
+
+        assertEquals(new BigDecimal("105.00"), response.highPrice());
+        assertEquals(new BigDecimal("98.00"), response.lowPrice());
+        verify(historyRepository, never()).findDayRangeAtOrBefore(
+                anyString(),
+                any(LocalDate.class),
+                anyString(),
+                any(LocalDateTime.class)
+        );
+    }
+
+    @Test
+    void detailHighLowAreNullWhenDisplayedDayRangeIsUnavailable() {
+        StockAnalysisSnapshot snapshot = snapshot("MSFT", 20L, "moderate", "strong uptrend");
+        when(stockRepository.findBySymbol("MSFT")).thenReturn(Optional.of(stock("MSFT", "Microsoft", "422.12")));
+        when(snapshotRepository.findTopBySymbolAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc("MSFT", "7D"))
+                .thenReturn(Optional.of(snapshot));
+
+        StockDetailResponse response = service.getStockDetailForCurrentUser("MSFT");
+
+        assertNull(response.highPrice());
+        assertNull(response.lowPrice());
+        assertEquals(new BigDecimal("130.00"), response.snapshotHighPrice());
+        assertEquals(new BigDecimal("118.00"), response.snapshotLowPrice());
+        assertEquals("7D", response.snapshotTimeframe());
     }
 
     @Test
@@ -339,9 +425,11 @@ class StockMarketDataServiceImplTests {
     @Test
     void historyOneDayReturnsStoredIntradayPointsForLatestTradingDate() {
         LocalDate tradingDate = LocalDate.of(2026, 1, 5);
-        when(historyRepository.findLatestTradingDateBySymbol("MSFT")).thenReturn(Optional.of(tradingDate));
-        when(historyRepository.findBySymbolAndTradingDateOrderByTimestampAsc("MSFT", tradingDate))
-                .thenReturn(List.of(intraday("MSFT", tradingDate, 9, 30), intraday("MSFT", tradingDate, 9, 31)));
+        when(delayedMarketPriceService.loadOneDayHistoryForDisplay("MSFT"))
+                .thenReturn(new DelayedIntradayHistorySelection(
+                        List.of(intraday("MSFT", tradingDate, 9, 30), intraday("MSFT", tradingDate, 9, 31)),
+                        delayedPrice("MSFT")
+                ));
 
         StockHistoryResponse response = service.getStockHistoryForCurrentUser("MSFT", "1D");
 
@@ -351,18 +439,38 @@ class StockMarketDataServiceImplTests {
         assertEquals(2, response.points().size());
         assertEquals(tradingDate, response.points().get(0).tradingDate());
         assertEquals(LocalDateTime.of(2026, 1, 5, 9, 30), response.points().get(0).timestamp());
+        assertEquals("AVAILABLE", response.priceFreshnessStatus());
+        assertEquals("America/New_York", response.marketTimeZone());
+    }
+
+    @Test
+    void historyOneDayReturnsIntradayRowsEvenWhenQuoteMetadataUsesDailyFallback() {
+        LocalDate tradingDate = LocalDate.of(2026, 1, 5);
+        when(delayedMarketPriceService.loadOneDayHistoryForDisplay("MSFT"))
+                .thenReturn(new DelayedIntradayHistorySelection(
+                        List.of(intraday("MSFT", tradingDate, 9, 30), intraday("MSFT", tradingDate, 15, 59)),
+                        preOpenDailyFallbackPrice("MSFT", tradingDate)
+                ));
+
+        StockHistoryResponse response = service.getStockHistoryForCurrentUser("MSFT", "1D");
+
+        assertEquals("stock_price_history_1min", response.source());
+        assertEquals(2, response.points().size());
+        assertEquals(DelayedMarketPriceService.DAILY_PRICE_SOURCE, response.priceSource());
+        assertEquals("NOT_READY_WITH_DAILY_FALLBACK", response.priceFreshnessStatus());
+        assertEquals(LocalDateTime.of(2026, 1, 5, 16, 0), response.targetDisplayMarketTime());
     }
 
     @Test
     void historyOneDayReturnsEmptyWhenNoNonNullIntradayTradingDateExists() {
-        when(historyRepository.findLatestTradingDateBySymbol("MSFT")).thenReturn(Optional.empty());
+        when(delayedMarketPriceService.loadOneDayHistoryForDisplay("MSFT"))
+                .thenReturn(new DelayedIntradayHistorySelection(List.of(), delayedPrice("MSFT")));
 
         StockHistoryResponse response = service.getStockHistoryForCurrentUser("MSFT", "1D");
 
         assertEquals("MSFT", response.symbol());
         assertTrue(response.points().isEmpty());
-        assertEquals("No stored intraday history is available for MSFT", response.message());
-        verify(historyRepository, never()).findBySymbolAndTradingDateOrderByTimestampAsc(anyString(), any(LocalDate.class));
+        assertEquals("No stored delayed intraday history is available for MSFT", response.message());
     }
 
     @Test
@@ -582,5 +690,76 @@ class StockMarketDataServiceImplTests {
         daily.setVolume(5000L);
         daily.setSource("TwelveData");
         return daily;
+    }
+
+    private DelayedMarketPrice delayedPrice(String symbol) {
+        return new DelayedMarketPrice(
+                symbol,
+                new BigDecimal("100.50"),
+                new BigDecimal("0.5000"),
+                LocalDateTime.of(2026, 1, 5, 9, 45),
+                LocalDateTime.of(2026, 1, 5, 9, 45),
+                15,
+                DelayedPriceFreshnessStatus.AVAILABLE,
+                true,
+                true,
+                "Prices shown are delayed by about 15 minutes.",
+                DelayedMarketPriceService.INTRADAY_PRICE_SOURCE,
+                "America/New_York",
+                LocalDateTime.of(2026, 1, 5, 10, 0),
+                LocalDate.of(2026, 1, 5)
+        );
+    }
+
+    private DelayedMarketPrice dailyDelayedPrice(String symbol, LocalDate tradingDate) {
+        return new DelayedMarketPrice(
+                symbol,
+                new BigDecimal("102.00"),
+                new BigDecimal("2.0000"),
+                tradingDate.atTime(16, 0),
+                tradingDate.atTime(16, 0),
+                15,
+                DelayedPriceFreshnessStatus.MARKET_CLOSED,
+                true,
+                true,
+                "Market is closed. This practice trade uses the latest stored daily close, not a live quote.",
+                DelayedMarketPriceService.DAILY_PRICE_SOURCE,
+                "America/New_York",
+                LocalDateTime.of(2026, 1, 5, 19, 0),
+                tradingDate
+        );
+    }
+
+    private DelayedMarketPrice preOpenDailyFallbackPrice(String symbol, LocalDate tradingDate) {
+        return new DelayedMarketPrice(
+                symbol,
+                new BigDecimal("102.00"),
+                new BigDecimal("2.0000"),
+                tradingDate.atTime(16, 0),
+                tradingDate.atTime(16, 0),
+                15,
+                DelayedPriceFreshnessStatus.NOT_READY_WITH_DAILY_FALLBACK,
+                true,
+                true,
+                "Today's delayed market display starts around 9:45 AM New York time. Showing the latest stored daily close.",
+                DelayedMarketPriceService.DAILY_PRICE_SOURCE,
+                "America/New_York",
+                LocalDateTime.of(2026, 1, 5, 19, 0),
+                tradingDate
+        );
+    }
+
+    private IntradayDayRangeProjection intradayRange(String highPrice, String lowPrice) {
+        return new IntradayDayRangeProjection() {
+            @Override
+            public BigDecimal getHighPrice() {
+                return new BigDecimal(highPrice);
+            }
+
+            @Override
+            public BigDecimal getLowPrice() {
+                return new BigDecimal(lowPrice);
+            }
+        };
     }
 }

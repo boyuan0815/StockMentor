@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,6 +47,50 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
     List<StockPriceHistory> findBySymbolAndTradingDateOrderByTimestampAsc(
             String symbol,
             LocalDate tradingDate
+    );
+
+    List<StockPriceHistory> findBySymbolAndTradingDateAndTimeIntervalAndTimestampLessThanEqualOrderByTimestampAsc(
+            String symbol,
+            LocalDate tradingDate,
+            String timeInterval,
+            LocalDateTime timestamp
+    );
+
+    Optional<StockPriceHistory> findTopBySymbolAndTradingDateAndTimeIntervalAndTimestampLessThanEqualOrderByTimestampDesc(
+            String symbol,
+            LocalDate tradingDate,
+            String timeInterval,
+            LocalDateTime timestamp
+    );
+
+    Optional<StockPriceHistory> findTopBySymbolAndTradingDateAndTimeIntervalAndTimestampLessThanEqualAndClosePriceGreaterThanOrderByTimestampDesc(
+            String symbol,
+            LocalDate tradingDate,
+            String timeInterval,
+            LocalDateTime timestamp,
+            BigDecimal closePrice
+    );
+
+    Optional<StockPriceHistory> findTopBySymbolAndTradingDateAndTimeIntervalOrderByTimestampAsc(
+            String symbol,
+            LocalDate tradingDate,
+            String timeInterval
+    );
+
+    @Query("""
+        select max(h.highPrice) as highPrice,
+               min(h.lowPrice) as lowPrice
+        from StockPriceHistory h
+        where h.symbol = :symbol
+        and h.tradingDate = :tradingDate
+        and h.timeInterval = :timeInterval
+        and h.timestamp <= :timestamp
+    """)
+    IntradayDayRangeProjection findDayRangeAtOrBefore(
+            @Param("symbol") String symbol,
+            @Param("tradingDate") LocalDate tradingDate,
+            @Param("timeInterval") String timeInterval,
+            @Param("timestamp") LocalDateTime timestamp
     );
 
     @Query("""

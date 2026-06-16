@@ -13,7 +13,11 @@ import net.boyuan.stockmentor.auth.model.AppUserRole;
 import net.boyuan.stockmentor.auth.model.AppUserStatus;
 import net.boyuan.stockmentor.auth.repository.AppUserRepository;
 import net.boyuan.stockmentor.market.stock.entity.Stock;
+import net.boyuan.stockmentor.market.stock.model.DelayedIntradayHistorySelection;
+import net.boyuan.stockmentor.market.stock.model.DelayedMarketPrice;
+import net.boyuan.stockmentor.market.stock.model.DelayedPriceFreshnessStatus;
 import net.boyuan.stockmentor.market.stock.repository.StockRepository;
+import net.boyuan.stockmentor.market.stock.service.DelayedMarketPriceService;
 import net.boyuan.stockmentor.market.stockdaily.entity.StockPriceDaily;
 import net.boyuan.stockmentor.market.stockdaily.repository.StockPriceDailyRepository;
 import net.boyuan.stockmentor.market.stockpricehistory.entity.StockPriceHistory;
@@ -39,6 +43,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
@@ -81,6 +86,8 @@ class StockMarketDataControllerSecurityTests {
 
     @MockitoBean
     private StockAiExplanationService stockAiExplanationService;
+    @MockitoBean
+    private DelayedMarketPriceService delayedMarketPriceService;
 
     private AppUser authUser;
 
@@ -94,6 +101,16 @@ class StockMarketDataControllerSecurityTests {
         ensureIntraday(ROUTE_SYMBOL);
         ensureDaily(ROUTE_SYMBOL);
 
+        when(delayedMarketPriceService.resolveForDisplay(anyString()))
+                .thenAnswer(invocation -> delayedPrice(invocation.getArgument(0)));
+        when(delayedMarketPriceService.loadOneDayHistoryForDisplay(eq(ROUTE_SYMBOL)))
+                .thenAnswer(invocation -> new DelayedIntradayHistorySelection(
+                        historyRepository.findBySymbolAndTradingDateOrderByTimestampAsc(
+                                ROUTE_SYMBOL,
+                                LocalDate.of(2026, 1, 7)
+                        ),
+                        delayedPrice(ROUTE_SYMBOL)
+                ));
         when(stockAiExplanationService.getOrGenerateExplanation(eq(ROUTE_SYMBOL), eq("7D")))
                 .thenReturn(new StockExplanationResponse(
                         ROUTE_SYMBOL,
@@ -133,6 +150,11 @@ class StockMarketDataControllerSecurityTests {
                 .andExpect(jsonPath("$.stocks[5].symbol").value("GOOG"))
                 .andExpect(jsonPath("$.stocks[5].currentPrice").value(422.120000))
                 .andExpect(jsonPath("$.stocks[5].percentChange").value(1.2500))
+                .andExpect(jsonPath("$.stocks[5].displayedPrice").value(422.000000))
+                .andExpect(jsonPath("$.stocks[5].priceFreshnessStatus").value("AVAILABLE"))
+                .andExpect(jsonPath("$.stocks[5].isPriceAvailable").value(true))
+                .andExpect(jsonPath("$.stocks[5].isTradeExecutable").value(true))
+                .andExpect(jsonPath("$.stocks[5].marketTimeZone").value("America/New_York"))
                 .andExpect(jsonPath("$.stocks[5].riskCategory").value("moderate"))
                 .andExpect(jsonPath("$.stocks[5].isWatchlisted").value(true));
 
@@ -143,6 +165,14 @@ class StockMarketDataControllerSecurityTests {
                 .andExpect(jsonPath("$.companyName").value("Google"))
                 .andExpect(jsonPath("$.currentPrice").value(422.120000))
                 .andExpect(jsonPath("$.percentChange").value(1.2500))
+                .andExpect(jsonPath("$.displayedPrice").value(422.000000))
+                .andExpect(jsonPath("$.priceSource").value("stock_price_history_1min"))
+                .andExpect(jsonPath("$.highPrice").value(423.000000))
+                .andExpect(jsonPath("$.lowPrice").value(419.000000))
+                .andExpect(jsonPath("$.analysisDataSource").value("stock_price_daily"))
+                .andExpect(jsonPath("$.snapshotHighPrice").value(430.000000))
+                .andExpect(jsonPath("$.snapshotLowPrice").value(410.000000))
+                .andExpect(jsonPath("$.snapshotTimeframe").value("7D"))
                 .andExpect(jsonPath("$.tradeSupported").value(true))
                 .andExpect(jsonPath("$.aiExplanationAvailable").value(true))
                 .andExpect(jsonPath("$.aiExplanationEndpoint").value("/api/stocks/GOOG/ai-explanation?timeframe=7D"));
@@ -153,7 +183,9 @@ class StockMarketDataControllerSecurityTests {
                 .andExpect(jsonPath("$.symbol").value("GOOG"))
                 .andExpect(jsonPath("$.timeframe").value("1D"))
                 .andExpect(jsonPath("$.source").value("stock_price_history_1min"))
-                .andExpect(jsonPath("$.points.length()").value(2));
+                .andExpect(jsonPath("$.points.length()").value(2))
+                .andExpect(jsonPath("$.targetDisplayMarketTime").value("2026-01-07T09:31:00"))
+                .andExpect(jsonPath("$.priceFreshnessStatus").value("AVAILABLE"));
 
         mockMvc.perform(get("/api/stocks/GOOG/history?timeframe=7D")
                         .with(httpBasic("stock-market-auth@example.com", "password")))
@@ -426,5 +458,24 @@ class StockMarketDataControllerSecurityTests {
             daily.setUpdatedAt(LocalDateTime.now());
             dailyRepository.save(daily);
         }
+    }
+
+    private DelayedMarketPrice delayedPrice(String symbol) {
+        return new DelayedMarketPrice(
+                symbol,
+                new BigDecimal("422.000000"),
+                new BigDecimal("0.4762"),
+                LocalDateTime.of(2026, 1, 7, 9, 31),
+                LocalDateTime.of(2026, 1, 7, 9, 31),
+                15,
+                DelayedPriceFreshnessStatus.AVAILABLE,
+                true,
+                true,
+                "Prices shown are delayed by about 15 minutes.",
+                DelayedMarketPriceService.INTRADAY_PRICE_SOURCE,
+                "America/New_York",
+                LocalDateTime.of(2026, 1, 7, 10, 0),
+                LocalDate.of(2026, 1, 7)
+        );
     }
 }

@@ -5,7 +5,10 @@ import net.boyuan.stockmentor.auth.model.AppUserRole;
 import net.boyuan.stockmentor.auth.model.AppUserStatus;
 import net.boyuan.stockmentor.auth.repository.AppUserRepository;
 import net.boyuan.stockmentor.market.stock.entity.Stock;
+import net.boyuan.stockmentor.market.stock.model.DelayedMarketPrice;
+import net.boyuan.stockmentor.market.stock.model.DelayedPriceFreshnessStatus;
 import net.boyuan.stockmentor.market.stock.repository.StockRepository;
+import net.boyuan.stockmentor.market.stock.service.DelayedMarketPriceService;
 import net.boyuan.stockmentor.papertrading.repository.PaperPositionRepository;
 import net.boyuan.stockmentor.papertrading.repository.PaperTradeTransactionRepository;
 import net.boyuan.stockmentor.papertrading.repository.PaperTradingAccountRepository;
@@ -21,6 +24,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
@@ -29,6 +33,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -54,6 +60,8 @@ class PaperTradingControllerSecurityTests {
     private PaperTradeTransactionRepository transactionRepository;
     @Autowired
     private UserBehaviorProfileRepository behaviorProfileRepository;
+    @MockitoBean
+    private DelayedMarketPriceService delayedMarketPriceService;
 
     private AppUser authUser;
     private AppUser otherUser;
@@ -69,6 +77,8 @@ class PaperTradingControllerSecurityTests {
         ensureStock("MSFT", "100.00");
         ensureStock("KO", "83.50");
         ensureStock("JNJ", "239.88");
+        when(delayedMarketPriceService.resolveForDisplay(anyString()))
+                .thenAnswer(invocation -> delayedPrice(invocation.getArgument(0)));
     }
 
     @Test
@@ -181,6 +191,8 @@ class PaperTradingControllerSecurityTests {
                         .content("{\"symbol\":\"MSFT\",\"quantity\":3}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.transaction.side").value("BUY"))
+                .andExpect(jsonPath("$.transaction.executionPrice").value(100.0000))
+                .andExpect(jsonPath("$.delayedPriceMetadata.priceFreshnessStatus").value("AVAILABLE"))
                 .andExpect(jsonPath("$.position.quantity").value(3));
 
         mockMvc.perform(post("/api/paper-trading/sell")
@@ -232,6 +244,18 @@ class PaperTradingControllerSecurityTests {
 
         assertTrue(accountRepository.findByUserUserId(authUser.getUserId()).isPresent());
         assertTrue(accountRepository.findByUserUserId(otherUser.getUserId()).isEmpty());
+    }
+
+    @Test
+    void buyIgnoresFrontendProvidedPrice() throws Exception {
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-auth@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"MSFT\",\"quantity\":1,\"price\":9999.99}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.transaction.executionPrice").value(100.0000))
+                .andExpect(jsonPath("$.transaction.grossAmount").value(100.0000))
+                .andExpect(jsonPath("$.delayedPriceMetadata.displayedPrice").value(100.00));
     }
 
     @Test
@@ -340,5 +364,29 @@ class PaperTradingControllerSecurityTests {
         stock.setCreatedAt(LocalDateTime.now());
         stock.setUpdatedAt(LocalDateTime.now());
         stockRepository.save(stock);
+    }
+
+    private DelayedMarketPrice delayedPrice(String symbol) {
+        BigDecimal price = switch (symbol) {
+            case "KO" -> new BigDecimal("83.50");
+            case "JNJ" -> new BigDecimal("239.88");
+            default -> new BigDecimal("100.00");
+        };
+        return new DelayedMarketPrice(
+                symbol,
+                price,
+                BigDecimal.ZERO,
+                LocalDateTime.of(2026, 1, 5, 9, 45),
+                LocalDateTime.of(2026, 1, 5, 9, 45),
+                15,
+                DelayedPriceFreshnessStatus.AVAILABLE,
+                true,
+                true,
+                "Practice trades use StockMentor's delayed stored price, not a live market quote.",
+                DelayedMarketPriceService.INTRADAY_PRICE_SOURCE,
+                "America/New_York",
+                LocalDateTime.of(2026, 1, 5, 10, 0),
+                LocalDateTime.of(2026, 1, 5, 9, 45).toLocalDate()
+        );
     }
 }

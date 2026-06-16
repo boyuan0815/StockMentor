@@ -5,7 +5,10 @@ import net.boyuan.stockmentor.auth.model.AppUserRole;
 import net.boyuan.stockmentor.auth.model.AppUserStatus;
 import net.boyuan.stockmentor.auth.service.CurrentUserService;
 import net.boyuan.stockmentor.market.stock.entity.Stock;
+import net.boyuan.stockmentor.market.stock.model.DelayedMarketPrice;
+import net.boyuan.stockmentor.market.stock.model.DelayedPriceFreshnessStatus;
 import net.boyuan.stockmentor.market.stock.repository.StockRepository;
+import net.boyuan.stockmentor.market.stock.service.DelayedMarketPriceService;
 import net.boyuan.stockmentor.papertrading.dto.PaperPortfolioResponse;
 import net.boyuan.stockmentor.papertrading.dto.PaperTradeExecutionResponse;
 import net.boyuan.stockmentor.papertrading.dto.PaperTradeRequest;
@@ -26,10 +29,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -53,6 +60,8 @@ class PaperTradingServiceImplTests {
     private StockRepository stockRepository;
     @Mock
     private UserBehaviorProfileService behaviorProfileService;
+    @Mock
+    private DelayedMarketPriceService delayedMarketPriceService;
 
     private PaperTradingServiceImpl service;
     private AppUser user;
@@ -65,12 +74,15 @@ class PaperTradingServiceImplTests {
                 positionRepository,
                 transactionRepository,
                 stockRepository,
-                behaviorProfileService
+                behaviorProfileService,
+                delayedMarketPriceService
         );
         ReflectionTestUtils.setField(service, "initialCash", INITIAL_CASH);
         ReflectionTestUtils.setField(service, "tradeFee", TRADE_FEE);
         user = user(1L);
-        when(currentUserService.getCurrentUser()).thenReturn(user);
+        lenient().when(currentUserService.getCurrentUser()).thenReturn(user);
+        lenient().when(delayedMarketPriceService.resolveForDisplay(anyString()))
+                .thenAnswer(invocation -> delayedPrice(invocation.getArgument(0), "100.00", true));
     }
 
     @Test
@@ -107,7 +119,8 @@ class PaperTradingServiceImplTests {
     void buySupportedSymbolUpdatesCashPositionTransactionAndBehavior() {
         PaperTradingAccount account = account(user, INITIAL_CASH.toPlainString());
         when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
-        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "100.00")));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "999.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPrice("MSFT", "100.00", true));
         when(positionRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.empty());
         when(positionRepository.save(any(PaperPosition.class))).thenAnswer(invocation -> {
             PaperPosition position = invocation.getArgument(0);
@@ -127,6 +140,7 @@ class PaperTradingServiceImplTests {
         assertEquals(new BigDecimal("100.3333"), response.position().averageCost());
         assertEquals(new BigDecimal("301.0000"), response.position().totalCost());
         assertEquals(PaperTradeSide.BUY.name(), response.transaction().side());
+        assertEquals(new BigDecimal("100.0000"), response.transaction().executionPrice());
         assertEquals(new BigDecimal("300.0000"), response.transaction().grossAmount());
         assertEquals(new BigDecimal("1.0000"), response.transaction().fee());
         assertEquals(new BigDecimal("301.0000"), response.transaction().netAmount());
@@ -134,6 +148,76 @@ class PaperTradingServiceImplTests {
         assertTrue(response.transaction().isCurrentSession());
         assertEquals(1, response.transaction().sessionNumber());
         verify(behaviorProfileService).recalculateBehaviorProfile(1L);
+    }
+
+    @Test
+    void buyAfterDelayedCloseUsesDailyCloseWhenAvailable() {
+        PaperTradingAccount account = account(user, INITIAL_CASH.toPlainString());
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "999.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPrice(
+                "MSFT",
+                "105.00",
+                true,
+                DelayedPriceFreshnessStatus.MARKET_CLOSED,
+                DelayedMarketPriceService.DAILY_PRICE_SOURCE
+        ));
+        when(positionRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.empty());
+        when(positionRepository.save(any(PaperPosition.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(transactionRepository.save(any(PaperTradeTransaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaperTradeExecutionResponse response = service.buyForCurrentUser(new PaperTradeRequest("MSFT", 1));
+
+        assertEquals(new BigDecimal("105.0000"), response.transaction().executionPrice());
+        assertEquals("MARKET_CLOSED", response.delayedPriceMetadata().priceFreshnessStatus());
+        assertEquals(DelayedMarketPriceService.DAILY_PRICE_SOURCE, response.delayedPriceMetadata().priceSource());
+    }
+
+    @Test
+    void buyAfterDelayedCloseUsesPendingIntradayWhenDailyCloseIsUnavailable() {
+        PaperTradingAccount account = account(user, INITIAL_CASH.toPlainString());
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "999.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPrice(
+                "MSFT",
+                "104.50",
+                true,
+                DelayedPriceFreshnessStatus.MARKET_CLOSED_PENDING_DAILY_CLOSE,
+                DelayedMarketPriceService.INTRADAY_PRICE_SOURCE
+        ));
+        when(positionRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.empty());
+        when(positionRepository.save(any(PaperPosition.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(transactionRepository.save(any(PaperTradeTransaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaperTradeExecutionResponse response = service.buyForCurrentUser(new PaperTradeRequest("MSFT", 1));
+
+        assertEquals(new BigDecimal("104.5000"), response.transaction().executionPrice());
+        assertEquals("MARKET_CLOSED_PENDING_DAILY_CLOSE", response.delayedPriceMetadata().priceFreshnessStatus());
+        assertEquals(DelayedMarketPriceService.INTRADAY_PRICE_SOURCE, response.delayedPriceMetadata().priceSource());
+        assertTrue(response.delayedPriceMetadata().dataNote().contains("daily close is not available yet"));
+    }
+
+    @Test
+    void buyRejectsDisplayOnlyDailyFallbackWhenTradeIsNotExecutable() {
+        PaperTradingAccount account = account(user, INITIAL_CASH.toPlainString());
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "999.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPrice(
+                "MSFT",
+                "102.00",
+                false,
+                DelayedPriceFreshnessStatus.FALLBACK_DAILY,
+                DelayedMarketPriceService.DAILY_PRICE_SOURCE
+        ));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.buyForCurrentUser(new PaperTradeRequest("MSFT", 1))
+        );
+
+        verify(positionRepository, never()).save(any(PaperPosition.class));
+        verify(transactionRepository, never()).save(any(PaperTradeTransaction.class));
+        verify(behaviorProfileService, never()).recalculateBehaviorProfile(anyLong());
     }
 
     @Test
@@ -149,16 +233,16 @@ class PaperTradingServiceImplTests {
     }
 
     @Test
-    void buyRejectsMissingStockMissingPriceNonPositivePriceAndInsufficientCash() {
+    void buyRejectsMissingStockUnavailableDelayedPriceAndInsufficientCash() {
         PaperTradingAccount account = account(user, "100.00");
         when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
         when(stockRepository.findBySymbolIn(anyCollection()))
                 .thenReturn(List.of())
-                .thenReturn(List.of(stock("MSFT", null)))
-                .thenReturn(List.of(stock("MSFT", "0.00")))
                 .thenReturn(List.of(stock("MSFT", "100.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT"))
+                .thenReturn(delayedPrice("MSFT", null, false))
+                .thenReturn(delayedPrice("MSFT", "100.00", true));
 
-        assertThrows(IllegalArgumentException.class, () -> service.buyForCurrentUser(new PaperTradeRequest("MSFT", 1)));
         assertThrows(IllegalArgumentException.class, () -> service.buyForCurrentUser(new PaperTradeRequest("MSFT", 1)));
         assertThrows(IllegalArgumentException.class, () -> service.buyForCurrentUser(new PaperTradeRequest("MSFT", 1)));
         assertThrows(IllegalArgumentException.class, () -> service.buyForCurrentUser(new PaperTradeRequest("MSFT", 2)));
@@ -173,7 +257,8 @@ class PaperTradingServiceImplTests {
         PaperTradingAccount account = account(user, "5000.00");
         PaperPosition position = position(user, "MSFT", 5, "100.00", "500.00");
         when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
-        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "120.00")));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "999.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPrice("MSFT", "120.00", true));
         when(positionRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.of(position));
         when(positionRepository.save(any(PaperPosition.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(transactionRepository.save(any(PaperTradeTransaction.class))).thenAnswer(invocation -> {
@@ -201,6 +286,7 @@ class PaperTradingServiceImplTests {
         PaperPosition position = position(user, "MSFT", 2, "100.00", "200.00");
         when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
         when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "120.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPrice("MSFT", "120.00", true));
         when(positionRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.of(position));
         when(transactionRepository.save(any(PaperTradeTransaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -216,7 +302,8 @@ class PaperTradingServiceImplTests {
         PaperTradingAccount account = account(user, "5000.00");
         PaperPosition position = position(user, "MSFT", 7, "412.1314", "2884.9200");
         when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
-        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "411.76")));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "999.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPrice("MSFT", "411.76", true));
         when(positionRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.of(position));
         when(transactionRepository.save(any(PaperTradeTransaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -233,6 +320,7 @@ class PaperTradingServiceImplTests {
         PaperTradingAccount account = account(user, "5000.00");
         when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
         when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "120.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPrice("MSFT", "120.00", true));
         when(positionRepository.findByUserUserIdAndSymbol(1L, "MSFT"))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(position(user, "MSFT", 1, "100.00", "100.00")));
@@ -247,11 +335,38 @@ class PaperTradingServiceImplTests {
     }
 
     @Test
+    void sellRejectsDisplayOnlyDailyFallbackWhenTradeIsNotExecutable() {
+        PaperTradingAccount account = account(user, "5000.00");
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "999.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPrice(
+                "MSFT",
+                "102.00",
+                false,
+                DelayedPriceFreshnessStatus.FALLBACK_DAILY,
+                DelayedMarketPriceService.DAILY_PRICE_SOURCE
+        ));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.sellForCurrentUser(new PaperTradeRequest("MSFT", 1))
+        );
+
+        assertTrue(exception.getMessage().contains("Delayed market price"));
+
+        verify(positionRepository, never()).save(any(PaperPosition.class));
+        verify(positionRepository, never()).delete(any(PaperPosition.class));
+        verify(transactionRepository, never()).save(any(PaperTradeTransaction.class));
+        verify(behaviorProfileService, never()).recalculateBehaviorProfile(anyLong());
+    }
+
+    @Test
     void portfolioAndTransactionsAreScopedToCurrentUser() {
         PaperTradingAccount account = account(user, "9500.00");
         when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
         when(positionRepository.findByUserUserIdOrderBySymbolAsc(1L)).thenReturn(List.of(position(user, "MSFT", 5, "100.00", "500.00")));
-        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "110.00")));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "999.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPrice("MSFT", "110.00", true));
         when(transactionRepository.sumCurrentSessionRealizedProfitLossByUserIdAndSide(1L, PaperTradeSide.SELL)).thenReturn(BigDecimal.ZERO);
         when(transactionRepository.sumCurrentSessionFeeByUserIdAndSideIn(eq(1L), anyList())).thenReturn(BigDecimal.ZERO);
         PaperTradeTransaction transaction = transaction(user, "MSFT", PaperTradeSide.BUY, 5, "100.00", "9500.00");
@@ -261,6 +376,9 @@ class PaperTradingServiceImplTests {
 
         assertEquals(1, portfolio.positions().size());
         assertEquals(new BigDecimal("10050.0000"), portfolio.totalPortfolioValue());
+        assertTrue(portfolio.portfolioValuationComplete());
+        assertEquals(1, portfolio.pricedPositionCount());
+        assertEquals(0, portfolio.unpricedPositionCount());
         assertEquals(BigDecimal.ZERO.setScale(4), portfolio.realizedProfitLoss());
         assertEquals(BigDecimal.ZERO.setScale(4), portfolio.totalFeesPaid());
         assertEquals(1, service.getCurrentUserTransactions(null, null, null, null, null, null, null).size());
@@ -305,6 +423,7 @@ class PaperTradingServiceImplTests {
         PaperTradingAccount account = account(user, INITIAL_CASH.toPlainString());
         when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
         when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "100.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPrice("MSFT", "100.00", true));
         when(positionRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.empty());
         when(positionRepository.save(any(PaperPosition.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(transactionRepository.save(any(PaperTradeTransaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -316,6 +435,46 @@ class PaperTradingServiceImplTests {
         assertNull(response.position().portfolioWeightPercent());
         verify(positionRepository).save(any(PaperPosition.class));
         verify(transactionRepository).save(any(PaperTradeTransaction.class));
+    }
+
+    @Test
+    void paperTradingServiceDoesNotInjectProviderOrAiClients() {
+        Set<String> fieldTypeNames = Arrays.stream(PaperTradingServiceImpl.class.getDeclaredFields())
+                .map(Field::getType)
+                .map(Class::getName)
+                .collect(Collectors.toSet());
+
+        assertFalse(fieldTypeNames.contains("net.boyuan.stockmentor.market.stock.service.StockApiClient"));
+        assertFalse(fieldTypeNames.contains("net.boyuan.stockmentor.ai.service.OpenAiClient"));
+        assertFalse(fieldTypeNames.contains("net.boyuan.stockmentor.scheduler.StockScheduler"));
+    }
+
+    @Test
+    void portfolioMarksPartialValuationWhenDelayedPriceIsUnavailable() {
+        PaperTradingAccount account = account(user, "9500.00");
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+        when(positionRepository.findByUserUserIdOrderBySymbolAsc(1L)).thenReturn(List.of(
+                position(user, "MSFT", 5, "100.00", "500.00"),
+                position(user, "KO", 2, "80.00", "160.00")
+        ));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT", "999.00"), stock("KO", "999.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPrice("MSFT", "110.00", true));
+        when(delayedMarketPriceService.resolveForDisplay("KO")).thenReturn(delayedPrice("KO", null, false));
+        when(transactionRepository.sumCurrentSessionRealizedProfitLossByUserIdAndSide(1L, PaperTradeSide.SELL)).thenReturn(BigDecimal.ZERO);
+        when(transactionRepository.sumCurrentSessionFeeByUserIdAndSideIn(eq(1L), anyList())).thenReturn(BigDecimal.ZERO);
+
+        PaperPortfolioResponse portfolio = service.getCurrentUserPortfolio();
+
+        assertEquals(new BigDecimal("10050.0000"), portfolio.totalPortfolioValue());
+        assertFalse(portfolio.portfolioValuationComplete());
+        assertEquals(1, portfolio.pricedPositionCount());
+        assertEquals(1, portfolio.unpricedPositionCount());
+        assertNotNull(portfolio.portfolioDataNote());
+        assertNull(portfolio.positions().stream()
+                .filter(position -> "KO".equals(position.symbol()))
+                .findFirst()
+                .orElseThrow()
+                .marketValue());
     }
 
     private AppUser user(Long userId) {
@@ -383,5 +542,42 @@ class PaperTradingServiceImplTests {
         transaction.setSessionNumber(1);
         transaction.setExecutedAt(LocalDateTime.now());
         return transaction;
+    }
+
+    private DelayedMarketPrice delayedPrice(String symbol, String price, boolean executable) {
+        return delayedPrice(
+                symbol,
+                price,
+                executable,
+                executable ? DelayedPriceFreshnessStatus.AVAILABLE : DelayedPriceFreshnessStatus.UNAVAILABLE,
+                executable ? DelayedMarketPriceService.INTRADAY_PRICE_SOURCE : null
+        );
+    }
+
+    private DelayedMarketPrice delayedPrice(
+            String symbol,
+            String price,
+            boolean executable,
+            DelayedPriceFreshnessStatus status,
+            String source
+    ) {
+        return new DelayedMarketPrice(
+                symbol,
+                price == null ? null : new BigDecimal(price),
+                new BigDecimal("0.5000"),
+                price == null ? null : LocalDateTime.of(2026, 1, 5, 9, 45),
+                LocalDateTime.of(2026, 1, 5, 9, 45),
+                15,
+                status,
+                price != null,
+                executable,
+                executable
+                        ? "Market is closed. This practice trade uses StockMentor's delayed stored price, not a live market quote. Today's daily close is not available yet when pending."
+                        : "Delayed market price is not available yet. Please try again later.",
+                source,
+                "America/New_York",
+                price == null ? null : LocalDateTime.of(2026, 1, 5, 10, 0),
+                LocalDateTime.of(2026, 1, 5, 9, 45).toLocalDate()
+        );
     }
 }

@@ -22,6 +22,7 @@ public record StockDetailResponse(
         BigDecimal highPrice,
         BigDecimal lowPrice,
         String dataSource,
+        String analysisDataSource,
         Boolean isFallback,
         Integer missingDataCount,
         Long latestAnalysisSnapshotId,
@@ -29,6 +30,21 @@ public record StockDetailResponse(
         Boolean isWatchlisted,
         Boolean aiExplanationAvailable,
         String aiExplanationEndpoint,
-        Boolean tradeSupported
+        Boolean tradeSupported,
+        BigDecimal displayedPrice,
+        BigDecimal displayedPercentChange,
+        LocalDateTime displayedMarketTime,
+        LocalDateTime targetDisplayMarketTime,
+        Integer dataDelayMinutes,
+        String priceFreshnessStatus,
+        Boolean isPriceAvailable,
+        Boolean isTradeExecutable,
+        String dataNote,
+        String priceSource,
+        String marketTimeZone,
+        LocalDateTime lastBackendUpdatedAt,
+        BigDecimal snapshotHighPrice,
+        BigDecimal snapshotLowPrice,
+        String snapshotTimeframe
 ) {
 }

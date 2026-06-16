@@ -137,6 +137,9 @@ Expected:
 
 - `currentPrice` and `percentChange` in US009 list/detail prefer the `stock`
   row values when that row exists
+- `currentPrice`, `percentChange`, and `lastUpdated` are legacy compatibility
+  fields; frontend display should prefer the delayed selector fields when
+  available
 - snapshot price fields are fallback values only when the `stock` row is
   missing
 - snapshot rows still provide analysis labels and metadata such as trend,
@@ -172,7 +175,7 @@ ORDER BY trading_date DESC LIMIT 10;
 
 Expected:
 
-- `1D` reads the latest non-null intraday `trading_date`
+- `1D` reads stored intraday rows at or before the backend delayed display cutoff
 - `7D` reads the latest stored daily candle rows
 - neither endpoint backfills missing rows
 
@@ -311,6 +314,7 @@ priceConsistency
 highPrice
 lowPrice
 dataSource
+analysisDataSource
 isFallback
 missingDataCount
 latestAnalysisSnapshotId
@@ -319,6 +323,21 @@ isWatchlisted
 aiExplanationAvailable
 aiExplanationEndpoint
 tradeSupported
+displayedPrice
+displayedPercentChange
+displayedMarketTime
+targetDisplayMarketTime
+dataDelayMinutes
+priceFreshnessStatus
+isPriceAvailable
+isTradeExecutable
+dataNote
+priceSource
+marketTimeZone
+lastBackendUpdatedAt
+snapshotHighPrice
+snapshotLowPrice
+snapshotTimeframe
 ```
 
 Expected:
@@ -326,10 +345,17 @@ Expected:
 - `tradeSupported = true` for supported symbols
 - `aiExplanationEndpoint = /api/stocks/MSFT/ai-explanation?timeframe=7D`
 - `currentPrice`, `percentChange`, `lastUpdated`, `isMarketOpen`, `timezone`,
-  and `source` come from the stored `stock` row when it exists
-- `highPrice` and `lowPrice` represent the latest `7D` analysis range when a
-  snapshot exists; they fall back to stock day high/low only when no snapshot
-  exists
+  and `source` are legacy compatibility fields from the stored `stock` row
+  when it exists
+- `displayedPrice`, `displayedPercentChange`, and `displayedMarketTime` are the
+  authoritative delayed educational market data fields for frontend display
+- `priceSource` is the authoritative displayed quote source
+- `dataSource` is a legacy analysis-source field; `analysisDataSource` is the
+  explicit latest analysis snapshot source
+- `highPrice` and `lowPrice` represent the displayed/latest day range for the
+  delayed market view; they may be `null` if no safe day-range data exists
+- `snapshotHighPrice`, `snapshotLowPrice`, and `snapshotTimeframe` represent
+  the latest `7D` analysis snapshot range
 - `aiExplanationAvailable` is based on stored explanation rows only for the
   latest displayed `7D` snapshot, configured OpenAI model, and
   `stock-explanation-v1` prompt version
@@ -394,7 +420,12 @@ source
 Expected:
 
 - points are ordered by `timestamp` ascending
-- rows come from the latest non-null `trading_date` for the symbol
+- rows come from stored 1-minute intraday data at or before the backend delayed
+  display cutoff
+- current-day intraday rows newer than `targetDisplayMarketTime` must not be
+  exposed through the `1D` response
+- `1D` can return stored intraday chart rows even when quote metadata uses daily
+  fallback during pre-open
 - no backfill or Twelve Data call occurs
 
 SQL comparison:
@@ -644,7 +675,8 @@ Tests run: <number>, Failures: 0, Errors: 0, Skipped: 0
 - Watchlist status is scoped to the authenticated current user.
 - `GET /api/stocks/{symbol}` normalizes lowercase symbols.
 - Unsupported symbols return HTTP 400.
-- `1D` history reads stored intraday rows or returns an empty safe response.
+- `1D` history reads stored intraday rows at or before the delayed display
+  cutoff, or returns an empty safe response.
 - `7D` history reads stored daily candle rows.
 - Unsupported timeframes return HTTP 400.
 - US009 endpoints do not mutate stock, snapshot, history, AI, behavior, or paper-trading tables.

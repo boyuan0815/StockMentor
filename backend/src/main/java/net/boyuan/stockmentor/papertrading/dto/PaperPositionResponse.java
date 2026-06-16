@@ -1,5 +1,7 @@
 package net.boyuan.stockmentor.papertrading.dto;
 
+import net.boyuan.stockmentor.market.stock.dto.DelayedPriceMetadataResponse;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
@@ -17,6 +19,10 @@ public record PaperPositionResponse(
         BigDecimal unrealizedProfitLossPercent,
         BigDecimal portfolioWeightPercent,
         String riskCategory,
-        LocalDateTime lastUpdated
+        LocalDateTime lastUpdated,
+        BigDecimal valuationPrice,
+        BigDecimal valuationMarketValue,
+        String valuationDataNote,
+        DelayedPriceMetadataResponse delayedPriceMetadata
 ) {
 }

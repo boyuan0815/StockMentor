@@ -17,6 +17,10 @@ public record PaperPortfolioResponse(
         BigDecimal totalFeesPaid,
         Integer currentSessionNumber,
         LocalDateTime lastResetAt,
-        List<PaperPositionResponse> positions
+        List<PaperPositionResponse> positions,
+        Integer pricedPositionCount,
+        Integer unpricedPositionCount,
+        Boolean portfolioValuationComplete,
+        String portfolioDataNote
 ) {
 }

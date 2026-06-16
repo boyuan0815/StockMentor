@@ -2,27 +2,46 @@ package net.boyuan.stockmentor.common.util;
 
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
 @Component
 public class MarketTimeService {
-    private static final ZoneId NY_ZONE = ZoneId.of("America/New_York");
+    public static final ZoneId NY_ZONE = ZoneId.of("America/New_York");
+    public static final int DELAYED_DATA_DELAY_MINUTES = 15;
+
+    private static final LocalTime MARKET_OPEN = LocalTime.of(9, 30);
+    private static final LocalTime MARKET_CLOSE = LocalTime.of(16, 0);
+    private static final LocalTime DELAYED_DISPLAY_OPEN = LocalTime.of(9, 45);
+    private static final LocalTime DELAYED_DISPLAY_CLOSE = LocalTime.of(16, 15);
+
+    private final Clock clock;
+
+    public MarketTimeService() {
+        this(Clock.systemUTC());
+    }
+
+    public MarketTimeService(Clock clock) {
+        this.clock = clock == null ? Clock.systemUTC() : clock;
+    }
 
     public boolean isMarketTradingTime() {
-        LocalTime time = LocalTime.now(NY_ZONE);
-        LocalTime open = LocalTime.of(9, 30);
-        LocalTime close = LocalTime.of(16, 0);
+        LocalTime time = currentNyTime();
 
-        return !time.isBefore(open) && !time.isAfter(close);
+        return !time.isBefore(MARKET_OPEN) && !time.isAfter(MARKET_CLOSE);
     }
 
     public boolean isWeekday() {
-        return isWeekday(LocalDate.now(NY_ZONE));
+        return isWeekday(currentNyDate());
     }
 
     public boolean isWeekday(LocalDate date) {
@@ -32,7 +51,7 @@ public class MarketTimeService {
     }
 
     public boolean isNonHoliday() {
-        return isNonHoliday(LocalDate.now(NY_ZONE));
+        return isNonHoliday(currentNyDate());
     }
 
     public boolean isNonHoliday(LocalDate date) {
@@ -40,7 +59,7 @@ public class MarketTimeService {
     }
 
     public boolean isTradingDay(){
-        return isTradingDay(LocalDate.now(NY_ZONE));
+        return isTradingDay(currentNyDate());
     }
 
     public boolean isTradingDay(LocalDate date) {
@@ -66,7 +85,7 @@ public class MarketTimeService {
     }
 
     public List<LocalDate> latestTradingDays(int count) {
-        return latestTradingDays(count, LocalDate.now(NY_ZONE));
+        return latestTradingDays(count, currentNyDate());
     }
 
     public List<LocalDate> latestTradingDays(int count, LocalDate referenceDate) {
@@ -82,6 +101,120 @@ public class MarketTimeService {
 
         tradingDays.sort(LocalDate::compareTo);
         return tradingDays;
+    }
+
+    public ZoneId getMarketTimeZone() {
+        return NY_ZONE;
+    }
+
+    public ZonedDateTime getCurrentNewYorkDateTime() {
+        return currentNyDateTime();
+    }
+
+    public LocalDate getCurrentNewYorkDate() {
+        return currentNyDate();
+    }
+
+    public LocalDateTime getDelayedTargetMarketTime() {
+        return getDelayedMarketSessionContext().targetDisplayMarketTime();
+    }
+
+    public boolean isDelayedDisplayWindow() {
+        return getDelayedMarketSessionContext().session() == DelayedMarketSession.ACTIVE_DELAYED_WINDOW;
+    }
+
+    public DelayedMarketSessionContext getDelayedMarketSessionContext() {
+        return getDelayedMarketSessionContext(currentNyDateTime());
+    }
+
+    DelayedMarketSessionContext getDelayedMarketSessionContext(ZonedDateTime currentNewYorkTime) {
+        ZonedDateTime normalizedNow = currentNewYorkTime.withZoneSameInstant(NY_ZONE);
+        LocalDateTime currentNyMinute = normalizedNow.toLocalDateTime().truncatedTo(ChronoUnit.MINUTES);
+        LocalDate currentDate = normalizedNow.toLocalDate();
+        LocalTime currentTime = normalizedNow.toLocalTime();
+
+        DelayedMarketSession session = delayedMarketSession(currentDate, currentTime);
+        LocalDate latestCompletedTradingDate = latestCompletedTradingDate(currentDate, currentTime, session);
+        LocalDate targetTradingDate = targetTradingDate(currentDate, latestCompletedTradingDate, session);
+        LocalDateTime targetDisplayMarketTime = targetDisplayMarketTime(currentNyMinute, targetTradingDate, session);
+
+        return new DelayedMarketSessionContext(
+                normalizedNow,
+                currentNyMinute,
+                targetDisplayMarketTime,
+                targetTradingDate,
+                latestCompletedTradingDate,
+                session,
+                NY_ZONE.getId(),
+                DELAYED_DATA_DELAY_MINUTES
+        );
+    }
+
+    public LocalDate previousTradingDayBefore(LocalDate date) {
+        LocalDate cursor = date.minusDays(1);
+        while (!isTradingDay(cursor)) {
+            cursor = cursor.minusDays(1);
+        }
+        return cursor;
+    }
+
+    private DelayedMarketSession delayedMarketSession(LocalDate currentDate, LocalTime currentTime) {
+        if (!isTradingDay(currentDate)) {
+            return DelayedMarketSession.NON_TRADING_DAY;
+        }
+        if (currentTime.isBefore(DELAYED_DISPLAY_OPEN)) {
+            return DelayedMarketSession.PRE_DELAYED_OPEN;
+        }
+        if (currentTime.isBefore(DELAYED_DISPLAY_CLOSE)) {
+            return DelayedMarketSession.ACTIVE_DELAYED_WINDOW;
+        }
+        return DelayedMarketSession.POST_DELAYED_CLOSE;
+    }
+
+    private LocalDate latestCompletedTradingDate(
+            LocalDate currentDate,
+            LocalTime currentTime,
+            DelayedMarketSession session
+    ) {
+        if (session == DelayedMarketSession.POST_DELAYED_CLOSE && !currentTime.isBefore(DELAYED_DISPLAY_CLOSE)) {
+            return currentDate;
+        }
+        return previousTradingDayBefore(currentDate);
+    }
+
+    private LocalDate targetTradingDate(
+            LocalDate currentDate,
+            LocalDate latestCompletedTradingDate,
+            DelayedMarketSession session
+    ) {
+        return switch (session) {
+            case ACTIVE_DELAYED_WINDOW, POST_DELAYED_CLOSE -> currentDate;
+            case PRE_DELAYED_OPEN, NON_TRADING_DAY -> latestCompletedTradingDate;
+        };
+    }
+
+    private LocalDateTime targetDisplayMarketTime(
+            LocalDateTime currentNyMinute,
+            LocalDate targetTradingDate,
+            DelayedMarketSession session
+    ) {
+        return switch (session) {
+            case ACTIVE_DELAYED_WINDOW ->
+                    currentNyMinute.minusMinutes(DELAYED_DATA_DELAY_MINUTES);
+            case PRE_DELAYED_OPEN, POST_DELAYED_CLOSE, NON_TRADING_DAY -> targetTradingDate.atTime(MARKET_CLOSE);
+        };
+    }
+
+    private ZonedDateTime currentNyDateTime() {
+        return Instant.now(clock).atZone(NY_ZONE);
+    }
+
+    private LocalDate currentNyDate() {
+        return currentNyDateTime().toLocalDate();
+    }
+
+    private LocalTime currentNyTime() {
+        return currentNyDateTime().toLocalTime();
     }
 
     private boolean isNyseHoliday(LocalDate date) {
@@ -142,5 +275,24 @@ public class MarketTimeService {
         int month = (h + l - 7 * m + 114) / 31;
         int day = ((h + l - 7 * m + 114) % 31) + 1;
         return LocalDate.of(year, month, day);
+    }
+
+    public enum DelayedMarketSession {
+        PRE_DELAYED_OPEN,
+        ACTIVE_DELAYED_WINDOW,
+        POST_DELAYED_CLOSE,
+        NON_TRADING_DAY
+    }
+
+    public record DelayedMarketSessionContext(
+            ZonedDateTime currentNewYorkTime,
+            LocalDateTime currentNyMinute,
+            LocalDateTime targetDisplayMarketTime,
+            LocalDate targetTradingDate,
+            LocalDate latestCompletedTradingDate,
+            DelayedMarketSession session,
+            String marketTimeZone,
+            int dataDelayMinutes
+    ) {
     }
 }

@@ -44,6 +44,15 @@ public class StockScheduler {
         }
     }
 
+    // 16:14: opportunistic early daily candle attempt; 19:00 remains the stable daily refresh fallback.
+    @Scheduled(cron = "0 14 16 * * MON-FRI", zone = "America/New_York")
+    private void fetchEarlyDailyAfterMarketClose() {
+        if (marketTimeService.isTradingDay()) {
+            LocalDate today = LocalDate.now(NY_ZONE);
+            stockService.refreshDailyForDate(SYMBOLS, today);
+        }
+    }
+
     // 16:50 and 18:50: Twelve Data free-tier data may lag, so repair the full trading day.
     @Scheduled(cron = "0 50 16,18 * * MON-FRI", zone = "America/New_York")
     private void backfillPostMarketIntradayData() {
@@ -52,12 +61,12 @@ public class StockScheduler {
         }
     }
 
-    // 19:00: update daily candles soon after each trading day instead of waiting for weekend catch-up.
+    // 19:00: stable daily candle refresh after provider lag, separate from the early 16:14 attempt.
     @Scheduled(cron = "0 00 19 * * MON-FRI", zone = "America/New_York")
-    private void fetchDailyAfterMarketClose() {
+    private void backfillDailyAfterMarketClose() {
         if (marketTimeService.isTradingDay()) {
             LocalDate today = LocalDate.now(NY_ZONE);
-            stockService.backfillMissingDaily(SYMBOLS, today, today);
+            stockService.refreshDailyForDate(SYMBOLS, today);
         }
     }
 
