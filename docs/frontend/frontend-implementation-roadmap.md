@@ -124,7 +124,8 @@ Acceptance:
 Frontend implementation should consume the existing backend contract:
 
 - US009 stock responses expose delayed display price/time/freshness fields.
-- US009 `1D` history is capped by the backend delayed display cutoff and can still return stored intraday rows when
-  quote metadata uses daily fallback during pre-open.
+- US009 `1D` history uses backend-returned stored intraday rows only.
+- Frontend must not fill or invent missing `1D` rows.
+- `1D` history may return intraday rows even when quote metadata uses daily fallback during pre-open.
 - US010 paper trading uses backend-decided delayed stored price metadata; frontend sends only `symbol` and `quantity`.
 - Legacy stock fields remain for compatibility, but frontend display should prefer delayed fields.

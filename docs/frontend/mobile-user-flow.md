@@ -98,7 +98,10 @@ Detail and action routes:
 
 - Backend: `GET /api/stocks/{symbol}`, `GET /api/stocks/{symbol}/history`.
 - Use case: US009 View Stock Market Data.
-- Sections: delayed price summary, displayed market time when available, last backend update time when available, simple chart, timeframe tabs, risk/trend labels, data/fallback note, watchlist action, AI explanation action, practice trade action.
+- Sections: delayed price summary, displayed market time from backend delayed metadata, last backend update time when
+  available, simple chart, timeframe tabs, risk/trend labels, data/fallback note, watchlist action, AI explanation
+  action, practice trade action.
+- Use `priceFreshnessStatus`, `isPriceAvailable`, and `dataNote` for unavailable or fallback delayed data states.
 - Empty: empty chart state if backend returns no points.
 - Guardrail: chart must show timeframe and data/fallback notes when available. The UI may refetch about once per displayed minute during market display hours, but it must not imply immediate market data.
 - Detail `highPrice`/`lowPrice` describe the displayed/latest day range. `analysisDataSource`, `snapshotHighPrice`,

@@ -37,6 +37,22 @@
 - Avoid unrelated rewrites and avoid changing public API response fields without checking usage.
 - Keep changes beginner-friendly, explainable, and scoped to the task.
 
+## Current Backend Use Case Map
+
+- US001 Register Account: `POST /api/auth/register`.
+- US002 Login Account: `POST /api/auth/login` and current-user bootstrap `GET /api/auth/me`.
+- US003 Manage System Users: admin endpoints under `/api/admin/users`.
+- US004 Complete Onboarding Quiz: onboarding endpoints under `/api/user/onboarding`.
+- US005 View User Investment Profile: `GET /api/user/profile`.
+- US006 Show AI Stock Suggestions: normal user endpoints under `/api/stocks/ai-suggestions`.
+- US007 Monitor and Maintain AI Stock Suggestions: admin endpoints under `/api/admin/ai-suggestions`.
+- US008 Maintain Stock Market Data: admin stock maintenance endpoint `POST /api/admin/stocks/backfill`.
+- US009 View Stock Market Data: normal user stock viewing endpoints under `/api/stocks`.
+- US010 Simulate Paper Trades: paper-trading endpoints under `/api/paper-trading`.
+- US011 Retrieve Stock Market Data: scheduler jobs in `StockScheduler`.
+- US012 View AI Stock Explanation: `GET /api/stocks/{symbol}/ai-explanation`.
+- Watchlist endpoints under `/api/watchlist` are a US009/US006 supporting sub-flow, not a standalone use case.
+
 ## Auth And Account Management Rules
 
 - StockMentor uses Spring Security HTTP Basic Auth for the FYP MVP. Do not add JWT, refresh tokens, sessions, OAuth,
@@ -94,6 +110,16 @@
   correct an earlier 16:14 provider value. Do not synthesize daily close from the final 1-minute candle.
 - Saturday catch-up should remain a safety net for missing daily candles and safe intraday cleanup.
 
+## Admin Stock Maintenance Rules
+
+- US008 admin stock maintenance lives at `POST /api/admin/stocks/backfill` and requires both ADMIN role and a valid
+  `X-Admin-Token`.
+- Current supported maintenance types are `INTRADAY_DATE`, `DAILY_RANGE`, `DAILY_MISSING`, and `CLEANUP_1MIN`.
+- US008 may call Twelve Data through backend services for backfill/repair only. It must not train AI, call OpenAI,
+  create user profiles, create paper-trading records, or create AI suggestion/explanation records.
+- Keep historical daily maintenance insert-missing-only unless explicitly working on the current-day scheduler refresh
+  path.
+
 ## Analysis Snapshot Rules
 
 - For `1D` analysis, prefer complete-enough 1-minute intraday data.
@@ -145,6 +171,20 @@
   safe response instead of backfilling or failing.
 - `7D`, `1M`, `3M`, `YTD`, and `1Y` stock history should read stored daily candles only. Date-range timeframes should
   calculate from the latest stored daily candle date, not from the current system date.
+
+## Watchlist Rules
+
+- Watchlist endpoints live under `/api/watchlist` and are a supporting sub-flow for US009 stock browsing and US006
+  suggestion actions.
+- Current watchlist endpoints are:
+  `GET /api/watchlist`,
+  `POST /api/watchlist/{symbol}`,
+  and `DELETE /api/watchlist/{symbol}`.
+- Watchlist logic must resolve the authenticated user through `CurrentUserService`; never accept or trust
+  frontend-provided `userId`.
+- Watchlist actions are limited to the supported StockMentor stock universe and should be idempotent where practical.
+- Watchlist actions must not call Twelve Data, OpenAI, scheduler/backfill flows, stock analysis snapshot creation,
+  behavior recalculation, or paper-trading services.
 
 ## AI Explanation Rules
 
@@ -323,14 +363,14 @@
 ## Configuration And Secrets
 
 - Never hardcode API keys or admin tokens.
+- Keep real local secrets out of tracked files. Local `application.yaml` / `application.yml` files should stay ignored;
+  tracked examples such as `backend/src/main/resources/application-example.yaml` must use placeholders only.
 - Keep the namespaced admin token property as `stockmentor.admin.token`.
 - Keep paper-trading config under `stockmentor.paper-trading`, currently including `initial-cash` and `trade-fee`.
 - Keep `backend/src/main/resources/application-example.yaml` updated when configuration fields are added.
 
 ## Known Future Work
 
-- Paper-trading completeness belongs in a separate scope: portfolio reset, transaction filters, complete realized P/L,
-  and advanced order features are not part of the current AI suggestion worktree.
 - Advanced paper-trading order features such as limit orders, stop orders, stop-limit orders, automation, margin, short
   selling, and brokerage integration are out of scope unless explicitly requested.
 - JWT may be added later, but backend business logic should continue to rely on `CurrentUserService` for current-user

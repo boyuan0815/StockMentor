@@ -44,7 +44,10 @@ Every confirmation modal must:
 - Do not use wording that implies immediate market data.
 - Frontend must not invent displayed price, displayed market time, or missing 1-minute candles.
 - If backend returns empty history points or a message, show the backend message.
-- Use backend delayed display metadata when available, and show displayed market time and last backend update time separately.
+- Use backend delayed display metadata as the preferred display source.
+- Handle unavailable delayed data states through backend fields such as `priceFreshnessStatus`, `isPriceAvailable`, and
+  `dataNote`.
+- Show displayed market time and last backend update time separately.
 - Practice trade confirmation must say: "Practice trade uses StockMentor's delayed stored price, not a live market quote."
 
 ## Cooldown Rules

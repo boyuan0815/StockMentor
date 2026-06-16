@@ -25,7 +25,8 @@ Use this checklist after frontend implementation begins. This documentation task
 - View stock list.
 - View stock detail.
 - Change chart timeframe.
-- Confirm delayed data badge/note appears when supported by backend.
+- Confirm delayed data badge/note appears from backend delayed metadata.
+- Confirm unavailable/null price states use `priceFreshnessStatus`, `isPriceAvailable`, and `dataNote`.
 - Confirm 9:30-9:44 AM New York opening message is clear when backend indicates current-day delayed data is not ready.
 - Confirm after 4:15 PM New York wording does not imply the market is still updating.
 - View empty chart state when backend returns no points.

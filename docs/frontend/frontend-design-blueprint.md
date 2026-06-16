@@ -95,7 +95,7 @@ StockMentor's intended stock display model is 15-minute delayed educational mark
 Concept:
 
 ```text
-displayMarketTime = current New York market time - 15 minutes
+displayedMarketTime = current New York market time - 15 minutes
 
 9:45 AM NY time displays 9:30 AM stored candle/data
 9:46 AM NY time displays 9:31 AM stored candle/data
@@ -238,8 +238,8 @@ The MVP chart can be a simple educational line chart based on backend history po
 - Do not add advanced trading indicators.
 - Candlestick charts are optional only if easy later.
 - The chart should help beginners understand movement, not simulate a professional trading terminal.
-- For intraday display, the latest visible point should normally be no later than the backend-decided displayed market
-  time, about 15 minutes behind current New York market time.
+- During the active delayed display window, the latest visible intraday point should normally be no later than the
+  backend-decided displayed market time, about 15 minutes behind current New York market time.
 - The frontend must not silently invent or fill missing 1-minute candles.
 
 ## FYP Demo Story

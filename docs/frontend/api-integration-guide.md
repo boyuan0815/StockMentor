@@ -173,8 +173,8 @@ behavior, the backend may instead select the latest completed trading day or sto
 Frontend responsibilities:
 
 - Show "15-minute delayed educational market data" wording.
-- Show delayed badge/note on stock list/detail when backend provides delayed data.
-- Show displayed market time if backend exposes it.
+- Show delayed badge/note on stock list/detail from expected backend delayed metadata.
+- Use `priceFreshnessStatus`, `isPriceAvailable`, and `dataNote` to handle unavailable or null delayed data states.
 - Show last backend update time separately if available.
 - Never calculate trusted displayed price, displayed market time, or paper-trading execution price in the frontend.
 - Never call Twelve Data directly.

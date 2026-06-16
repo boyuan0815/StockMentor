@@ -1,4 +1,4 @@
-**# Backend API Screen Map
+# Backend API Screen Map
 
 This file maps frontend screens to the current Spring Boot backend API surface. Future frontend implementation chats
 should use this file instead of guessing endpoint names.
@@ -20,8 +20,11 @@ Common conventions:
 The intended product behavior is 15-minute delayed educational market data:
 
 ```text
-displayMarketTime = current New York market time - 15 minutes
+displayedMarketTime = current New York market time - 15 minutes
 ```
+
+This formula applies during the active delayed display window. During pre-open, post-close, weekend, or holiday
+behavior, the backend may select the latest completed trading day or stored daily close metadata instead.
 
 Current backend contract: stock list/detail/history responses expose delayed display fields such as `displayedPrice`,
 `displayedPercentChange`, `displayedMarketTime`, `targetDisplayMarketTime`, `dataDelayMinutes`,
@@ -107,4 +110,4 @@ snapshot. `priceSource` is the authoritative displayed quote source.
 - `AdminUpdateUserStatusRequest`: `status`.
 - `AdminBackfillRequest`: `type`, `symbols`, `date`, `startDate`, `endDate`.
 
-For full field lists, mirror the Java records in `backend/src/main/java/net/boyuan/stockmentor/**/dto`.**
+For full field lists, mirror the Java records in `backend/src/main/java/net/boyuan/stockmentor/**/dto`.
