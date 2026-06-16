@@ -131,7 +131,7 @@ Keep it visible but not frightening.
 - Show source/fallback notes when backend provides them.
 - No advanced trading indicators.
 - Candlestick chart is optional only if easy later.
-- For intraday charts, label the latest visible point as delayed when backend supports delayed display metadata.
+- For intraday charts, label the latest visible point as delayed using backend delayed display metadata.
 - Missing-data copy: "Some minute-level data may be missing because provider data and free-tier retrieval are delayed."
 
 ## Accessibility And HCI Basics

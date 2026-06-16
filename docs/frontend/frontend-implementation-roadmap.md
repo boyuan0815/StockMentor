@@ -46,8 +46,9 @@ Acceptance:
 - Uses stored backend data only.
 - Chart shows timeframe and data/fallback notes.
 - AI explanation has educational disclaimer.
-- Stock data is labeled as 15-minute delayed educational market data when backend supports delayed display metadata.
-- Current backend lacks dedicated delayed display fields, so full delayed display is a backend follow-up.
+- Stock data is labeled as 15-minute delayed educational market data.
+- UI prefers backend delayed display fields such as `displayedPrice`, `displayedPercentChange`, `priceSource`,
+  `displayedMarketTime`, `targetDisplayMarketTime`, and `priceFreshnessStatus`.
 
 ## Phase 4: AI Suggestions
 
@@ -80,7 +81,7 @@ Acceptance:
 - No external brokerage, OpenAI, or Twelve Data calls.
 - Frontend never sends price.
 - Copy states that practice trades use StockMentor's delayed stored price, not a live market quote.
-- Full delayed execution-price consistency is a backend follow-up while backend buy/sell still uses stock `currentPrice`.
+- Backend buy/sell uses the delayed stored market price selector.
 
 ## Phase 6: Admin Web/Tablet
 
@@ -118,15 +119,12 @@ Acceptance:
 - Backend CORS implementation.
 - Separate admin web project.
 
-## Backend Follow-Ups For 15-Minute Delayed Market Data
+## Backend Contract For 15-Minute Delayed Market Data
 
-Future backend implementation will likely need changes in:
+Frontend implementation should consume the existing backend contract:
 
-- `StockMarketDataController`, `StockMarketDataServiceImpl`, and stock response DTOs: expose delayed display price/time/freshness fields for US009.
-- `StockPriceHistoryRepository`: query closest stored 1-minute candle at or before displayed market time.
-- `StockPriceDailyRepository`: support fallback display when intraday delayed data is unavailable.
-- `MarketTimeService`: centralize New York displayed-market-time rules, including before 9:45 AM and after 4:15 PM behavior.
-- `StockScheduler` and stock backfill service paths: preserve current retrieval cadence while supporting delayed-display quality.
-- `AdminStockController` and `StockService`: keep US008 maintenance/backfill/cleanup as tools that improve stored data quality.
-- `PaperTradingServiceImpl` and paper-trading DTOs: select and expose backend-decided delayed execution price/time for US010.
-- Stock and paper-trading tests: cover delayed stock display, missing delayed candles, opening/closing behavior, and delayed paper-trade execution.
+- US009 stock responses expose delayed display price/time/freshness fields.
+- US009 `1D` history is capped by the backend delayed display cutoff and can still return stored intraday rows when
+  quote metadata uses daily fallback during pre-open.
+- US010 paper trading uses backend-decided delayed stored price metadata; frontend sends only `symbol` and `quantity`.
+- Legacy stock fields remain for compatibility, but frontend display should prefer delayed fields.

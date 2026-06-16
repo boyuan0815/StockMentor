@@ -164,8 +164,11 @@ Rules:
 Intended product behavior:
 
 ```text
-displayMarketTime = current New York market time - 15 minutes
+displayedMarketTime = current New York market time - 15 minutes
 ```
+
+This formula describes the active delayed display window only. During pre-open, post-close, weekend, or holiday
+behavior, the backend may instead select the latest completed trading day or stored daily close metadata.
 
 Frontend responsibilities:
 
@@ -178,27 +181,18 @@ Frontend responsibilities:
 - Use backend history points as returned.
 - Do not silently invent or fill missing 1-minute candles.
 
-Current backend caveat:
+Current backend contract:
 
-- Current stock DTOs do not expose dedicated delayed display fields.
-- Current paper-trading buy/sell accepts only `symbol` and `quantity`, and backend decides price.
-- Current paper-trading backend uses the stock row's `currentPrice`; full 15-minute delayed execution consistency is a
-  backend follow-up.
-
-Possible future backend fields:
-
-- `displayedPrice`
-- `displayedMarketTime`
-- `dataDelayMinutes`
-- `priceFreshnessStatus`
-- `isPriceAvailable`
-- `dataNote`
-- `lastUpdated` or `lastBackendUpdatedAt`, depending on whether the existing `lastUpdated` field clearly represents
-  backend update time
-
-Possible future backend paper-trading behavior:
-
-- compute `paperTradeDisplayTime = current NY time - 15 minutes`
-- select the closest stored 1-minute candle at or before that display time
-- expose selected execution price and display time in buy/sell preview or execution response
-- reject or clearly report unavailable trades if delayed candle data is too stale or unavailable
+- Stock list/detail/history responses expose backend delayed display fields including `displayedPrice`,
+  `displayedPercentChange`, `displayedMarketTime`, `targetDisplayMarketTime`, `dataDelayMinutes`,
+  `priceFreshnessStatus`, `isPriceAvailable`, `isTradeExecutable`, `dataNote`, `priceSource`, `marketTimeZone`, and
+  where applicable `lastBackendUpdatedAt`.
+- Frontend display should prefer `displayedPrice`, `displayedPercentChange`, `priceSource`, `displayedMarketTime`,
+  `targetDisplayMarketTime`, and `priceFreshnessStatus`.
+- Legacy `currentPrice`, `percentChange`, and `lastUpdated` are backward-compatible stock table snapshot fields.
+- Stock detail `dataSource` is a legacy analysis-source field. Use `analysisDataSource`, `snapshotHighPrice`,
+  `snapshotLowPrice`, and `snapshotTimeframe` for latest analysis snapshot metadata.
+- Stock detail `highPrice` and `lowPrice` describe the displayed/latest day range selected by the delayed market view.
+- `1D` history can return stored intraday chart rows even when quote metadata uses daily fallback during pre-open.
+- Paper-trading buy/sell accepts only `symbol` and `quantity`; backend decides execution price using the delayed stored
+  market price selector.

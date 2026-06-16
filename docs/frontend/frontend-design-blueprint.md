@@ -119,15 +119,16 @@ UI language:
 - "Latest stored delayed price"
 - "Practice trades use StockMentor's delayed stored price, not a live market quote"
 
-Current backend caveat:
+Current backend contract:
 
-- Current stock list/detail DTOs expose fields such as `currentPrice`, `percentChange`, and `lastUpdated`.
-- Current backend APIs do not yet expose dedicated delayed display fields such as `displayedPrice`,
-  `displayedMarketTime`, `dataDelayMinutes`, `priceFreshnessStatus`, `isPriceAvailable`, or `dataNote`. The backend may
-  reuse existing `lastUpdated` if it clearly represents backend update time, or add `lastBackendUpdatedAt` only if
-  needed.
-- Frontend docs describe the intended product behavior and backend follow-up. Frontend implementation must not invent
-  trusted prices or displayed market times while those fields are absent.
+- Stock list/detail/history DTOs expose delayed fields such as `displayedPrice`, `displayedPercentChange`,
+  `displayedMarketTime`, `targetDisplayMarketTime`, `dataDelayMinutes`, `priceFreshnessStatus`, `isPriceAvailable`,
+  `isTradeExecutable`, `dataNote`, `priceSource`, `marketTimeZone`, and where applicable `lastBackendUpdatedAt`.
+- Frontend display should prefer delayed fields over legacy `currentPrice`, `percentChange`, and `lastUpdated`.
+- Stock detail `dataSource` is a legacy analysis-source field; `analysisDataSource`, `snapshotHighPrice`,
+  `snapshotLowPrice`, and `snapshotTimeframe` describe the latest analysis snapshot.
+- `highPrice` and `lowPrice` describe the displayed/latest day range selected by the delayed market view.
+- Frontend implementation must not invent trusted prices or displayed market times.
 
 Opening and closing behavior:
 

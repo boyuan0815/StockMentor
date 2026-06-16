@@ -89,8 +89,9 @@ Detail and action routes:
 - Use case: US009 View Stock Market Data.
 - Sections: supported stock list, search/filter, risk/trend/volatility labels, watchlist marker, delayed data badge/note.
 - Empty: no stored stock data message.
-- Intended display: show backend-provided delayed display price and displayed market time when backend supports them.
-- Current caveat: existing DTOs expose `currentPrice`, `percentChange`, and `lastUpdated`, not dedicated delayed display fields.
+- Intended display: show backend-provided `displayedPrice`, `displayedPercentChange`, `displayedMarketTime`,
+  `targetDisplayMarketTime`, `priceFreshnessStatus`, and `priceSource`.
+- Legacy `currentPrice`, `percentChange`, and `lastUpdated` are compatibility fields, not preferred display fields.
 - Guardrail: list is read-only and must not call Twelve Data or invent delayed prices.
 
 ### Stock Detail
@@ -100,6 +101,9 @@ Detail and action routes:
 - Sections: delayed price summary, displayed market time when available, last backend update time when available, simple chart, timeframe tabs, risk/trend labels, data/fallback note, watchlist action, AI explanation action, practice trade action.
 - Empty: empty chart state if backend returns no points.
 - Guardrail: chart must show timeframe and data/fallback notes when available. The UI may refetch about once per displayed minute during market display hours, but it must not imply immediate market data.
+- Detail `highPrice`/`lowPrice` describe the displayed/latest day range. `analysisDataSource`, `snapshotHighPrice`,
+  `snapshotLowPrice`, and `snapshotTimeframe` describe the latest analysis snapshot.
+- `1D` history can return stored intraday chart rows even when quote metadata uses daily fallback during pre-open.
 - Opening copy: "Today's delayed market display starts around 9:45 AM New York time."
 - Missing data copy: "Some minute-level data may be missing because provider data and free-tier retrieval are delayed."
 
@@ -133,8 +137,7 @@ Detail and action routes:
 - Empty: no positions yet, show browse stocks CTA.
 - Guardrail: every buy, sell, and reset requires confirmation.
 - Price concept: practice trades must use the backend-decided price. The frontend must not send or invent price.
-- Intended future consistency: paper trade execution price should match the same 15-minute delayed stored market-data concept used by stock display.
-- Current caveat: current backend buy/sell uses the stock row `currentPrice`; delayed execution-price selection is a backend follow-up.
+- Backend buy/sell uses the same delayed stored market-data selector concept used by stock display.
 - Required copy: "Practice trade uses StockMentor's delayed stored price, not a live market quote."
 
 ### Profile / Settings / Logout
