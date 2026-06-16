@@ -113,3 +113,6 @@ test/
 !backend/src/test/
 !backend/src/test/java/
 !backend/src/test/java/**
+
+.agents/
+skills-lock.json
