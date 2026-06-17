@@ -1,6 +1,11 @@
 # Frontend Implementation Roadmap
 
-This roadmap sequences future frontend implementation. It does not authorize coding outside a scoped implementation task.
+This roadmap sequences future frontend implementation. It does not authorize coding outside a scoped implementation
+task.
+
+Detailed execution planning now lives in `docs/frontend/frontend-implementation-master-plan.md` and copy-paste phase
+prompts live in `docs/frontend/frontend-phase-prompts.md`. Use those two docs as the detailed source of truth; keep this
+roadmap as a high-level overview.
 
 ## Phase 1: Foundation
 
@@ -29,7 +34,7 @@ Acceptance:
 - New beginner is routed to onboarding.
 - Completed beginner is routed to dashboard.
 - Admin is routed to admin shell.
-- Logout clears credentials, admin token, query cache, and storage abstraction state.
+- Logout clears credentials, admin token, query cache if present, and storage abstraction state.
 
 ## Phase 3: Beginner Stock Learning
 
@@ -112,7 +117,8 @@ Acceptance:
 
 ## Deferred Decisions
 
-- React Query dependency installation.
+- React Query may be recommended in Phase 1, but dependency installation requires a separate user-approved task before
+  package files are changed.
 - SecureStore use for native demo.
 - Chart library.
 - UI library.

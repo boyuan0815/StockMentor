@@ -54,7 +54,7 @@ MVP behavior:
 - Requests include `Authorization: Basic ...`.
 - `POST /api/auth/login` updates `lastLoginAt`.
 - `GET /api/auth/me` bootstraps the current session without updating `lastLoginAt`.
-- Logout clears credentials and query cache.
+- Logout clears credentials and query cache if present.
 
 Credential storage decision:
 
