@@ -2,9 +2,11 @@
 
 ## Project Scope
 
-- StockMentor is currently backend-only. The Spring Boot backend lives under `backend/`.
-- There is no frontend implementation yet. If a frontend is added later, it must call the backend only; it must not call
-  OpenAI or Twelve Data directly.
+- The Spring Boot backend lives under `backend/`.
+- The Expo / React Native frontend lives under `frontend/`. The current frontend has the Phase 1 route shell, API core,
+  session providers, theme tokens, and placeholder screens only; feature workflows are still implemented in later
+  frontend phases.
+- The frontend must call the Spring Boot backend only; it must not call OpenAI or Twelve Data directly.
 
 ## Frontend Planning Rules
 

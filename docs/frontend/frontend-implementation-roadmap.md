@@ -9,6 +9,8 @@ roadmap as a high-level overview.
 
 ## Phase 1: Foundation
 
+- Status: complete. The current `frontend/` folder has the StockMentor route shell, API core, session providers, theme
+  tokens, and placeholder screens.
 - Replace Expo starter routes with StockMentor route groups.
 - Add theme tokens and shared layout components.
 - Add `AuthProvider`.

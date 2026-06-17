@@ -9,8 +9,9 @@ Each implementation phase is intended to run in a separate branch/worktree after
 ## Baseline To Assume
 
 - Frontend stack: TypeScript, React Native, Expo, Expo Router.
-- Current `frontend/` app is still close to the Expo starter scaffold. Future chats must inspect the current codebase
-  before editing because files may differ from this plan.
+- Current `frontend/` app has the Phase 1 StockMentor route shell, API core, in-memory session providers, theme tokens,
+  base UI primitives, and placeholder screens. Future chats must inspect the current codebase before editing because
+  files may differ from this plan.
 - The Spring Boot backend is the only app data source.
 - Use `EXPO_PUBLIC_API_BASE_URL` for the backend base URL.
 - Read these docs before each phase: `AGENTS.md`, `docs/frontend/frontend-design-blueprint.md`,
@@ -56,8 +57,8 @@ Every phase must preserve these rules:
 - Default rule: do not install dependencies.
 - If a phase explicitly allows a dependency, Codex must explain why it is needed, choose an Expo-compatible option,
   update only the correct `frontend/` package and lock files, and verify the app still runs.
-- React Query remains a Phase 1 recommendation decision. Phase 1 may recommend it for server state, but dependency
-  installation must be a separate user-approved task.
+- React Query was not added in Phase 1. If it is adopted for server state in a later phase, dependency installation
+  must be a separate user-approved task.
 - Do not add chart dependencies by default. For MVP charts, first use existing dependencies and backend-returned points.
   If existing dependencies cannot support a simple educational chart, implement a safe non-chart fallback or minimal
   placeholder and report a specific chart dependency recommendation for a separate user-approved dependency task. Do
@@ -104,6 +105,7 @@ normal implementation phases must not edit, stage, or commit `.agents/` or `skil
 
 ## Phase 1: Frontend Foundation, Route Shell, And API Core
 
+- Status: completed. Preserve the foundation and make compatible additions in later phases.
 - Suggested branch/worktree: `codex/frontend-foundation-shell`.
 - Required skills: `building-native-ui`, `native-data-fetching`, `frontend-design`.
 - Purpose: replace the starter shell with StockMentor foundations that later feature phases can safely build on.
