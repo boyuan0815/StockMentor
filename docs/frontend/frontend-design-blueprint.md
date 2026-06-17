@@ -23,8 +23,9 @@ It should be read with:
 - Admin is not a separate Vite, Next.js, or React web project for the MVP.
 - The Spring Boot backend is the only source of app data.
 
-The current `frontend/` folder is still the Expo starter scaffold. Future frontend work should replace starter screens
-with StockMentor routes, but this documentation task does not implement screens.
+The current `frontend/` folder has the Phase 1 StockMentor route shell, API core, in-memory session providers, theme
+tokens, base UI primitives, and placeholder screens. Future frontend work should build on that foundation rather than
+returning to Expo starter routes.
 
 ## Final Use Case Map
 
@@ -164,11 +165,11 @@ frontend/app/
     login.tsx
     register.tsx
   (onboarding)/
-    index.tsx
-    result.tsx
+    onboarding/index.tsx
+    onboarding/result.tsx
   (user)/
     _layout.tsx
-    index.tsx
+    dashboard.tsx
     stocks/index.tsx
     stocks/[symbol].tsx
     stocks/[symbol]/explanation.tsx
@@ -180,13 +181,13 @@ frontend/app/
     profile.tsx
   (admin)/
     _layout.tsx
-    index.tsx
-    users/index.tsx
-    users/[userId].tsx
-    stocks/maintenance.tsx
-    ai-suggestions/index.tsx
-    ai-suggestions/batches/[batchId].tsx
-    ai-suggestions/jobs/[jobId].tsx
+    admin.tsx
+    admin/users/index.tsx
+    admin/users/[userId].tsx
+    admin/stocks/maintenance.tsx
+    admin/ai-suggestions/index.tsx
+    admin/ai-suggestions/batches/[batchId].tsx
+    admin/ai-suggestions/jobs/[jobId].tsx
 ```
 
 Routes belong in `app/`. Components, types, utilities, API functions, hooks, and theme tokens should live outside

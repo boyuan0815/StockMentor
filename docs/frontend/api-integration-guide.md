@@ -17,9 +17,11 @@ The frontend must not:
 
 ## API Client Direction
 
-Implementation should later create a typed API layer. Do not add code during documentation-only tasks.
+The Phase 1 frontend foundation includes a typed API client core, auth API foundation, backend base URL helper, Basic
+Auth header support, admin token header support, request timeout/cancellation handling, JSON parsing, and normalized
+`ApiError`. Later phases should add feature-specific modules on top of that core.
 
-Recommended modules:
+Recommended later modules:
 
 - `authApi`
 - `profileApi`

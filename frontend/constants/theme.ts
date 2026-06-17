@@ -5,26 +5,58 @@
 
 import { Platform } from 'react-native';
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+const tintColorLight = '#2563EB';
+const tintColorDark = '#93C5FD';
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
+    text: '#0F172A',
+    mutedText: '#64748B',
+    background: '#F8FAFC',
+    surface: '#FFFFFF',
     tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
+    secondaryTint: '#0F766E',
+    border: '#E2E8F0',
+    icon: '#64748B',
+    tabIconDefault: '#64748B',
     tabIconSelected: tintColorLight,
+    success: '#15803D',
+    caution: '#B45309',
+    destructive: '#B91C1C',
+    softBlue: '#DBEAFE',
+    softTeal: '#CCFBF1',
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
+    text: '#F8FAFC',
+    mutedText: '#CBD5E1',
+    background: '#0F172A',
+    surface: '#1E293B',
     tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
+    secondaryTint: '#5EEAD4',
+    border: '#334155',
+    icon: '#CBD5E1',
+    tabIconDefault: '#94A3B8',
     tabIconSelected: tintColorDark,
+    success: '#86EFAC',
+    caution: '#FCD34D',
+    destructive: '#FCA5A5',
+    softBlue: '#1E3A8A',
+    softTeal: '#134E4A',
   },
+};
+
+export const Spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 24,
+  xxl: 32,
+};
+
+export const Radius = {
+  sm: 6,
+  md: 8,
 };
 
 export const Fonts = Platform.select({

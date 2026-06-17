@@ -116,3 +116,9 @@ test/
 
 .agents/
 skills-lock.json
+
+review-name-status.txt
+review-stat.txt
+review-summary.txt
+review-full.patch
+review-full.patchreview-summary.txt

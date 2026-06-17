@@ -31,7 +31,7 @@ reference files. Use them as guidance only; do not modify, stage, or commit `.ag
 
 Task: Implement StockMentor frontend foundation, route shell, and API core only.
 
-Suggested branch/worktree name: `codex/frontend-foundation-shell`. Do not create a branch or worktree unless I
+Suggested branch/worktree name: `frontend-foundation-shell`. Do not create a branch or worktree unless I
 explicitly ask. Do not stage or commit.
 
 Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
@@ -106,7 +106,7 @@ reference files. Use them as guidance only; do not modify, stage, or commit `.ag
 
 Task: Implement StockMentor auth, role routing, onboarding, and profile screens.
 
-Suggested branch/worktree name: `codex/frontend-auth-onboarding-profile`. Do not create a branch or worktree unless I
+Suggested branch/worktree name: `frontend-auth-onboarding-profile`. Do not create a branch or worktree unless I
 explicitly ask. Do not stage or commit.
 
 Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
@@ -188,7 +188,7 @@ reference files. Use them as guidance only; do not modify, stage, or commit `.ag
 Task: Implement beginner stock learning screens with delayed educational market data, watchlist, chart, and AI
 explanation.
 
-Suggested branch/worktree name: `codex/frontend-stock-learning`. Do not create a branch or worktree unless I explicitly
+Suggested branch/worktree name: `frontend-stock-learning`. Do not create a branch or worktree unless I explicitly
 ask. Do not stage or commit.
 
 Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
@@ -275,7 +275,7 @@ reference files. Use them as guidance only; do not modify, stage, or commit `.ag
 
 Task: Implement StockMentor AI stock suggestions screens and actions.
 
-Suggested branch/worktree name: `codex/frontend-ai-suggestions`. Do not create a branch or worktree unless I explicitly
+Suggested branch/worktree name: `frontend-ai-suggestions`. Do not create a branch or worktree unless I explicitly
 ask. Do not stage or commit.
 
 Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
@@ -351,7 +351,7 @@ reference files. Use them as guidance only; do not modify, stage, or commit `.ag
 
 Task: Implement StockMentor paper-trading account, portfolio, buy/sell, reset, and transactions.
 
-Suggested branch/worktree name: `codex/frontend-paper-trading`. Do not create a branch or worktree unless I explicitly
+Suggested branch/worktree name: `frontend-paper-trading`. Do not create a branch or worktree unless I explicitly
 ask. Do not stage or commit.
 
 Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
@@ -431,7 +431,7 @@ reference files. Use them as guidance only; do not modify, stage, or commit `.ag
 
 Task: Implement the StockMentor admin web/tablet console in the same Expo codebase.
 
-Suggested branch/worktree name: `codex/frontend-admin-console`. Do not create a branch or worktree unless I explicitly
+Suggested branch/worktree name: `frontend-admin-console`. Do not create a branch or worktree unless I explicitly
 ask. Do not stage or commit.
 
 Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
@@ -518,7 +518,7 @@ reference files. Use them as guidance only; do not modify, stage, or commit `.ag
 
 Task: Run final frontend integration, demo, testing, design, and accessibility polish for StockMentor.
 
-Suggested branch/worktree name: `codex/frontend-integration-polish`. Do not create a branch or worktree unless I
+Suggested branch/worktree name: `frontend-integration-polish`. Do not create a branch or worktree unless I
 explicitly ask. Do not stage or commit.
 
 Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
