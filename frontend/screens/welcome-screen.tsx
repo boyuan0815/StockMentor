@@ -1,4 +1,4 @@
-import { Link } from 'expo-router';
+import { Link, type Href } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { ActionButton } from '@/components/foundation/action-button';
@@ -27,10 +27,10 @@ export function WelcomeScreen() {
       </View>
 
       <View style={styles.actions}>
-        <Link href="/login" asChild>
+        <Link href={'/login' as Href} asChild>
           <ActionButton label="Sign in placeholder" />
         </Link>
-        <Link href="/register" asChild>
+        <Link href={'/register' as Href} asChild>
           <ActionButton label="Create account placeholder" variant="secondary" />
         </Link>
       </View>

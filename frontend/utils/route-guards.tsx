@@ -1,4 +1,4 @@
-import { Redirect } from 'expo-router';
+import { Redirect, type Href } from 'expo-router';
 import type { PropsWithChildren } from 'react';
 
 import { PlaceholderScreen } from '@/components/foundation/placeholder-screen';
@@ -39,7 +39,7 @@ export function ProtectedRoute({
   }
 
   if (!isAuthenticated || !user) {
-    return <Redirect href="/login" />;
+    return <Redirect href={'/login' as Href} />;
   }
 
   if (allowedRoles && (!user.role || !allowedRoles.includes(user.role))) {
@@ -51,7 +51,7 @@ export function ProtectedRoute({
   }
 
   if (requireCompletedOnboarding && user.mustCompleteOnboarding) {
-    return <Redirect href="/onboarding" />;
+    return <Redirect href={'/onboarding' as Href} />;
   }
 
   return <>{children}</>;
