@@ -36,16 +36,45 @@ export function isAbortError(error: unknown) {
   return error instanceof Error && error.name === 'AbortError';
 }
 
-export function createHttpApiError(status: number, body: BackendErrorBody | null) {
-  const message = body?.message || `Request failed with status ${status}`;
+export function createHttpApiError(status: number, body: BackendErrorBody | string | null) {
+  const parsedBody = typeof body === 'string' ? { message: body } : body;
+  const message =
+    parsedBody?.message ||
+    parsedBody?.detail ||
+    parsedBody?.error ||
+    parsedBody?.title ||
+    getDefaultHttpErrorMessage(status);
 
   return new ApiError({
     status,
     message,
-    code: body?.code || 'HTTP_ERROR',
-    field: body?.field,
+    code: parsedBody?.code || 'HTTP_ERROR',
+    field: parsedBody?.field,
     retryable: status === 0 || status >= 500 || status === 408 || status === 429,
   });
+}
+
+function getDefaultHttpErrorMessage(status: number) {
+  switch (status) {
+    case 400:
+      return 'The request could not be accepted. Check the details and try again.';
+    case 401:
+      return 'The sign-in details were not accepted.';
+    case 403:
+      return 'This account does not have access to that action.';
+    case 404:
+      return 'The requested StockMentor resource was not found.';
+    case 409:
+      return 'That change conflicts with the current account state.';
+    case 429:
+      return 'Too many requests were sent. Wait a moment and try again.';
+    default:
+      if (status >= 500) {
+        return 'The StockMentor backend is unavailable right now.';
+      }
+
+      return `Request failed with status ${status}`;
+  }
 }
 
 export function normalizeUnknownApiError(error: unknown) {

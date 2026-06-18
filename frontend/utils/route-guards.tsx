@@ -13,11 +13,7 @@ type ProtectedRouteProps = PropsWithChildren<{
 }>;
 
 export function PublicOnlyRoute({ children }: PropsWithChildren) {
-  const { isAuthenticated, user, status } = useAuthSession();
-
-  if (status === 'loading') {
-    return <RouteLoadingScreen />;
-  }
+  const { isAuthenticated, user } = useAuthSession();
 
   if (isAuthenticated && user) {
     return <Redirect href={getPostAuthRoute(user)} />;
@@ -32,9 +28,9 @@ export function ProtectedRoute({
   requireOnboarding = false,
   requireCompletedOnboarding = false,
 }: ProtectedRouteProps) {
-  const { isAuthenticated, user, status } = useAuthSession();
+  const { isAuthenticated, isBootstrapping, onboardingMode, user } = useAuthSession();
 
-  if (status === 'loading') {
+  if (isBootstrapping) {
     return <RouteLoadingScreen />;
   }
 
@@ -46,7 +42,7 @@ export function ProtectedRoute({
     return <Redirect href={getPostAuthRoute(user)} />;
   }
 
-  if (requireOnboarding && !user.mustCompleteOnboarding) {
+  if (requireOnboarding && !user.mustCompleteOnboarding && onboardingMode !== 'retake') {
     return <Redirect href={getPostAuthRoute(user)} />;
   }
 

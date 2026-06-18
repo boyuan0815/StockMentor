@@ -11,27 +11,27 @@ export function WelcomeScreen() {
   return (
     <Screen contentStyle={styles.content}>
       <PageHeader
-        eyebrow="StockMentor foundation"
+        eyebrow="StockMentor"
         title="Learn the market without the rush"
-        description="A calm frontend shell for beginner-friendly stock learning, delayed educational market data, and paper-trading practice."
+        description="A calm place to set up a beginner investing profile before exploring delayed educational market data and practice tools."
       />
 
       <View style={styles.ledgerCard}>
         <Text selectable style={styles.ledgerLabel}>
-          Foundation status
+          Beginner-first setup
         </Text>
         <Text selectable style={styles.ledgerText}>
-          Phase 1 sets up routes, session state, API plumbing, and base UI. The actual login,
-          onboarding, stock, practice, and admin workflows arrive in later phases.
+          Create an account, answer the onboarding quiz, and let the backend save your profile.
+          StockMentor keeps this phase focused on account access and profile setup.
         </Text>
       </View>
 
       <View style={styles.actions}>
         <Link href={'/login' as Href} asChild>
-          <ActionButton label="Sign in placeholder" />
+          <ActionButton label="Sign in" />
         </Link>
         <Link href={'/register' as Href} asChild>
-          <ActionButton label="Create account placeholder" variant="secondary" />
+          <ActionButton label="Create account" variant="secondary" />
         </Link>
       </View>
 

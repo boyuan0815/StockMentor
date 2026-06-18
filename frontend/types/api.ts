@@ -17,6 +17,9 @@ export type NormalizedApiError = {
 export type BackendErrorBody = {
   status?: number;
   message?: string;
+  error?: string;
+  detail?: string;
+  title?: string;
   code?: string;
   field?: string;
 };

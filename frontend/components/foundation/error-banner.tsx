@@ -9,7 +9,7 @@ type ErrorBannerProps = {
 
 export function ErrorBanner({ message, title = 'Something went wrong' }: ErrorBannerProps) {
   return (
-    <View style={styles.container}>
+    <View accessibilityLiveRegion="polite" style={styles.container}>
       <Text selectable style={styles.title}>
         {title}
       </Text>

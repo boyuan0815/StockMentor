@@ -10,6 +10,7 @@ type ActionButtonProps = PressableProps & {
 };
 
 export function ActionButton({
+  accessibilityState,
   disabled,
   label,
   style,
@@ -22,6 +23,7 @@ export function ActionButton({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ ...accessibilityState, disabled: Boolean(disabled) }}
       disabled={disabled}
       style={(state) => [
         styles.base,

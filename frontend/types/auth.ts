@@ -19,3 +19,5 @@ export type BasicAuthCredentials = {
   username: string;
   password: string;
 };
+
+export type OnboardingMode = 'initial' | 'retake';

@@ -77,6 +77,7 @@ Non-scope:
 - Do not implement full auth/onboarding screens, stock screens, paper trading, AI suggestions, or admin tables.
 - Do not modify backend files, frontend package files, lock files, `.agents/`, `skills-lock.json`, or unrelated docs.
 - Do not call OpenAI, Twelve Data, scheduler/backfill internals, or paper-trading internals.
+- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
 
 Dependency policy:
 - Default: do not install dependencies.
@@ -161,6 +162,7 @@ Non-scope:
 - Do not implement stock browsing, AI suggestions, paper trading, or admin console features beyond route placeholders.
 - Do not calculate risk scores, behavior profile, AI suggestions, or AI explanations in the frontend.
 - Do not modify backend files, frontend package files, lock files, `.agents/`, or `skills-lock.json`.
+- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
 
 Dependency policy:
 - Do not install dependencies.
@@ -244,6 +246,7 @@ Non-scope:
 - Do not implement AI suggestion refresh, paper-trading buy/sell, admin stock maintenance, or backend changes.
 - Do not call Twelve Data or OpenAI directly.
 - Do not modify backend files, frontend package files, lock files, `.agents/`, or `skills-lock.json`.
+- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
 
 Dependency policy:
 - Default: do not install dependencies.
@@ -326,6 +329,7 @@ Non-scope:
 - Do not call OpenAI directly.
 - Do not calculate behavior profile in the frontend.
 - Do not modify backend files, frontend package files, lock files, `.agents/`, or `skills-lock.json`.
+- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
 
 Dependency policy:
 - Do not install dependencies.
@@ -405,6 +409,7 @@ Non-scope:
 - Do not send price from the frontend.
 - Do not implement advanced orders, brokerage integration, frontend behavior profile calculation, or backend changes.
 - Do not modify backend files, frontend package files, lock files, `.agents/`, or `skills-lock.json`.
+- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
 
 Dependency policy:
 - Do not install dependencies.
@@ -492,6 +497,7 @@ Non-scope:
 - Do not implement admin AI explanation maintenance screens unless backend endpoints exist.
 - Do not implement backend CORS.
 - Do not modify backend files, frontend package files, lock files, `.agents/`, or `skills-lock.json`.
+- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
 
 Dependency policy:
 - Do not install dependencies.
@@ -563,6 +569,7 @@ Non-scope:
 - Do not implement backend CORS or backend changes.
 - Do not modify backend files, `.agents/`, or `skills-lock.json`.
 - Do not modify frontend package files or lock files unless I explicitly approve a testing dependency.
+- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
 
 Dependency policy:
 - Do not install dependencies by default.
