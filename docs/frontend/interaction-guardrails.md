@@ -79,6 +79,10 @@ Do not pull-to-refresh write actions.
 - Show backend validation as authoritative.
 - Keep messages specific, such as "Quantity must be a whole positive number."
 - Preserve entered values after validation errors except passwords if security requires clearing them.
+- After the first invalid account-form submit, live-validate edited fields until all fields are valid and make disabled submit buttons visibly disabled.
+- Map backend-known registration conflicts to exact fields, such as duplicated email or username, instead of relying only on a global banner.
+- Auth forms should be keyboard-aware and must not hide focused inputs under iOS safe areas, Dynamic Island, or fixed
+  headers.
 
 ## HCI And Accessibility
 
@@ -89,6 +93,15 @@ Do not pull-to-refresh write actions.
 - Web admin should support keyboard-friendly focus order.
 - Loading states must explain what is happening.
 - Empty states should tell the user what to do next.
+
+## Onboarding Recovery Guardrails
+
+- Onboarding submit sends only `{ answers: [{ questionId, optionId }] }` and never sends frontend-calculated risk/profile
+  data.
+- If onboarding submit times out or reports an account-state mismatch, provide a refresh-account-state action; if
+  `GET /api/auth/me` shows onboarding is complete, route out of the quiz.
+- Post-onboarding AI suggestion generation is backend background work and must not block the user-facing onboarding
+  response.
 
 ## Route Guardrails
 

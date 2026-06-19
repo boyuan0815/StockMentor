@@ -3,8 +3,9 @@
 ## Project Scope
 
 - The Spring Boot backend lives under `backend/`.
-- The Expo / React Native frontend lives under `frontend/`. The current frontend has the Phase 1 route shell, API core,
-  session providers, theme tokens, and placeholder screens only; feature workflows are still implemented in later
+- The Expo / React Native frontend lives under `frontend/`. The current frontend has the Phase 1 route shell and API
+  core plus the landed Phase 2B/2.5 auth, register/login, role routing, onboarding, profile, dashboard placeholder,
+  and HCI-polished account flows. Stock, AI suggestion, paper-trading, and full admin console workflows remain later
   frontend phases.
 - The frontend must call the Spring Boot backend only; it must not call OpenAI or Twelve Data directly.
 
@@ -64,6 +65,8 @@
   username, BCrypt password hash, `status = ACTIVE`, `isDeleted = false`, and `onboardingCompleted = false`.
 - Registration username rules are 3-30 characters with letters, numbers, dot, underscore, and hyphen only. Usernames
   must not contain `@`, spaces, or ambiguous special characters.
+- Duplicate registration conflicts should return HTTP 409 with structured `fields` for `email` and/or `username` when
+  the backend can identify the duplicated field, so the frontend can show exact field-level recovery.
 - Registration must not create onboarding profiles, behavior profiles, paper-trading accounts, positions, transactions,
   watchlist rows, AI suggestion rows, AI explanations, stock snapshots, stock data, or scheduler jobs.
 - US002 login lives at `POST /api/auth/login`, requires Basic Auth, updates `lastLoginAt`, and returns a safe user
@@ -74,6 +77,10 @@
 - `AuthUserResponse.mustCompleteOnboarding` is true only for `BEGINNER_INVESTOR` users who have not completed onboarding
   or do not have an investment profile. It must be false for admins.
 - Auth responses must never expose `passwordHash`, raw credentials, tokens, admin token values, API keys, or secrets.
+- API authentication and authorization failures should return JSON 401/403 bodies for frontend clients instead of
+  relying on empty browser Basic Auth challenges.
+- Local Expo Web/Safari CORS is configured through `stockmentor.cors.allowed-origins`; unauthenticated `OPTIONS /**`
+  preflight must remain permitted while real endpoint authentication stays unchanged.
 - `AppUserDetailsService` and `CurrentUserService` must continue rejecting inactive or deleted users.
 - Normal user backend logic should resolve the authenticated user through `CurrentUserService`; do not accept or trust
   frontend-provided `userId`.

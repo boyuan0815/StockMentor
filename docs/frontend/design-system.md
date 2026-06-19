@@ -112,10 +112,12 @@ Keep it visible but not frightening.
 
 - Labels must be clear.
 - Validation messages must be specific.
-- Password fields should support show/hide.
+- Password fields should use an accessible eye/eye-off visibility affordance when existing icon support is available.
 - Quantity inputs accept whole shares only.
 - Submit buttons disable while pending.
 - Errors should say what happened and how to recover.
+- Keyboard-aware auth forms must keep focused inputs visible above the software keyboard and outside the iOS safe area/Dynamic Island.
+- Field-level validation and backend-known conflicts should identify the exact field whenever possible.
 
 ## Modals
 

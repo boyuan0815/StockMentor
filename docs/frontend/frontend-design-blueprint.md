@@ -23,9 +23,10 @@ It should be read with:
 - Admin is not a separate Vite, Next.js, or React web project for the MVP.
 - The Spring Boot backend is the only source of app data.
 
-The current `frontend/` folder has the Phase 1 StockMentor route shell, API core, in-memory session providers, theme
-tokens, base UI primitives, and placeholder screens. Future frontend work should build on that foundation rather than
-returning to Expo starter routes.
+The current `frontend/` folder has the Phase 1 StockMentor route shell and API core plus the landed Phase 2B/2.5
+account experience: memory-only Basic Auth, welcome/register/login, auth bootstrap, role routing, onboarding,
+onboarding result, profile, dashboard placeholder, admin placeholders, and mobile HCI polish. Future frontend work
+should build on that foundation rather than returning to Expo starter routes.
 
 ## Final Use Case Map
 
@@ -259,7 +260,7 @@ read-only status links. Do not cram full admin tables, filters, or destructive m
 Use this ownership model during implementation:
 
 - React Query later for server state, caching, loading state, invalidation, and request deduplication.
-- `AuthProvider` for Basic Auth/session state and role routing.
+- `AuthSessionProvider` for memory-only Basic Auth/session state, role routing, onboarding mode, admin token state, and logout cleanup.
 - `ThemeProvider` for theme mode and design tokens.
 - Local component state for forms, modals, quantity inputs, filters, and confirmation dialogs.
 - No Redux, Zustand, or broad global store unless a clear implementation need appears later.

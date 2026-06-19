@@ -23,13 +23,14 @@ Do not add backend calls to OpenAI or Twelve Data. The frontend only calls the S
 
 ## Phase 2: Auth And Onboarding
 
-- Welcome.
-- Register.
-- Login.
-- `/api/auth/me` bootstrap.
-- Onboarding required routing.
-- Onboarding quiz.
-- Onboarding result / profile summary.
+- Status: complete through Phase 2B/2.5.
+- Welcome, register, and login are implemented with memory-only Basic Auth credentials, local pending state,
+  duplicate-submit guards, keyboard-aware layouts, and sanitized dev diagnostics.
+- `/api/auth/me` bootstrap, role routing, onboarding required routing, logout, and admin placeholder routing are implemented.
+- Onboarding is implemented as a one-question-at-a-time mobile flow with fixed bottom actions, all-question validation,
+  exact `{ answers: [{ questionId, optionId }] }` submit payloads, result/profile states, confirmed retake, and
+  timeout/account-state recovery.
+- Profile summary, profile reload, account refresh, and retake confirmation are implemented.
 
 Acceptance:
 
@@ -124,7 +125,8 @@ Acceptance:
 - SecureStore use for native demo.
 - Chart library.
 - UI library.
-- Backend CORS implementation.
+- Ongoing local CORS origin maintenance through `stockmentor.cors.allowed-origins` when testing Expo Web from a new LAN
+  or tunnel origin.
 - Separate admin web project.
 
 ## Backend Contract For 15-Minute Delayed Market Data

@@ -10,8 +10,9 @@ Each implementation phase is intended to run in a separate branch/worktree after
 
 - Frontend stack: TypeScript, React Native, Expo, Expo Router.
 - Current `frontend/` app has the Phase 1 StockMentor route shell, API core, in-memory session providers, theme tokens,
-  base UI primitives, and placeholder screens. Future chats must inspect the current codebase before editing because
-  files may differ from this plan.
+  base UI primitives, and the landed Phase 2B/2.5 account flows: welcome, register, login, auth bootstrap, role
+  routing, onboarding, onboarding result, profile, dashboard placeholder, and admin placeholders. Future chats must
+  inspect the current codebase before editing because files may differ from this plan.
 - The Spring Boot backend is the only app data source.
 - Use `EXPO_PUBLIC_API_BASE_URL` for the backend base URL.
 - Read these docs before each phase: `AGENTS.md`, `docs/frontend/frontend-design-blueprint.md`,
@@ -128,6 +129,8 @@ normal implementation phases must not edit, stage, or commit `.agents/` or `skil
 
 ## Phase 2: Auth, Role Routing, Onboarding, And Profile
 
+- Status: completed through Phase 2B/2.5. Preserve the memory-only Basic Auth MVP, role routing,
+  onboarding/profile flows, and HCI/accessibility polish when building later phases.
 - Suggested branch/worktree: `codex/frontend-auth-onboarding-profile`.
 - Required skills: `building-native-ui`, `native-data-fetching`, `frontend-design`, `accessibility`.
 - Purpose: make account entry and onboarding complete enough to unlock user/admin flows.

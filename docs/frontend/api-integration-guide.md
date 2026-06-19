@@ -17,14 +17,13 @@ The frontend must not:
 
 ## API Client Direction
 
-The Phase 1 frontend foundation includes a typed API client core, auth API foundation, backend base URL helper, Basic
-Auth header support, admin token header support, request timeout/cancellation handling, JSON parsing, and normalized
-`ApiError`. Later phases should add feature-specific modules on top of that core.
+The frontend foundation includes a typed API client core, backend base URL helper, Basic Auth header support, admin token
+header support, request timeout/cancellation handling, JSON parsing, normalized `ApiError`, sanitized auth diagnostics,
+and the landed auth/profile API modules used by Phase 2B/2.5. Later feature phases should add stock, suggestion,
+watchlist, paper-trading, and admin API modules on top of that core.
 
 Recommended later modules:
 
-- `authApi`
-- `profileApi`
 - `stocksApi`
 - `suggestionsApi`
 - `watchlistApi`
@@ -46,6 +45,10 @@ EXPO_PUBLIC_API_BASE_URL=http://localhost:8080
 Only `EXPO_PUBLIC_` variables are available in the client bundle. Never put secrets, admin tokens, OpenAI keys, Twelve
 Data keys, database passwords, or write credentials in `EXPO_PUBLIC_` values.
 
+For Expo Web/Safari local testing, the backend must allow the active web origin through
+`stockmentor.cors.allowed-origins` and must permit unauthenticated `OPTIONS` preflight. This is configuration, not
+frontend secret storage.
+
 ## Basic Auth MVP
 
 The backend currently uses HTTP Basic Auth.
@@ -65,6 +68,8 @@ Credential storage decision:
 - Native demo may optionally use `expo-secure-store` later only after approval.
 - Web admin should avoid persistent password storage.
 - Admin token must never be hardcoded or committed.
+- Basic Auth credentials remain memory-only in the Phase 2B/2.5 MVP and must not be written to localStorage,
+  SecureStore, AsyncStorage, files, logs, or diagnostics without a separately approved storage design.
 - Long-term improvement could be JWT/session auth, but that is not MVP scope.
 
 ## Admin Token UX
@@ -104,6 +109,8 @@ Expected handling:
 - `403`: forbidden, show role/admin permission message.
 - `404`: missing stock/user/transaction, show not-found state.
 - `409`: conflict, such as duplicate account or admin self-disable.
+  Duplicate registration can include `fields.email` and/or `fields.username`; map those to the matching form fields
+  when present.
 - Network timeout: show retry for reads, re-enable writes.
 - Backend unavailable: show friendly outage state.
 
