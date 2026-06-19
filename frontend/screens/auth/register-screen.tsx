@@ -1,12 +1,13 @@
 import { Link, type Href } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { clearAuthDiagnostics } from '@/api/diagnostics';
+import { normalizeUnknownApiError } from '@/api/errors';
 import { AuthDiagnosticsPanel } from '@/components/debug/auth-diagnostics-panel';
-import { ErrorBanner } from '@/components/foundation/error-banner';
 import { ActionButton } from '@/components/foundation/action-button';
-import { PageHeader } from '@/components/foundation/page-header';
-import { Screen } from '@/components/foundation/screen';
+import { AuthFormLayout } from '@/components/foundation/auth-form-layout';
+import { ErrorBanner } from '@/components/foundation/error-banner';
 import { FormTextField } from '@/components/forms/form-text-field';
 import { Colors, Spacing } from '@/constants/theme';
 import { useAuthSession } from '@/providers/auth-session-provider';
@@ -27,30 +28,78 @@ export function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fieldErrors, setFieldErrors] = useState<RegisterFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [isPending, setIsPending] = useState(false);
 
+  useEffect(() => {
+    clearAuthDiagnostics();
+  }, []);
+
   const handleEmailChange = (value: string) => {
+    clearAuthDiagnostics();
     setEmail(value);
     setFormError(null);
-    setFieldErrors((current) => ({ ...current, email: undefined }));
+    if (hasAttemptedSubmit) {
+      const nextValidation = validateRegisterFields({
+        confirmPassword,
+        email: value.trim().toLowerCase(),
+        password,
+        username: username.trim(),
+      });
+      setFieldErrors((current) => ({ ...current, email: nextValidation.email }));
+    }
   };
 
   const handleUsernameChange = (value: string) => {
+    clearAuthDiagnostics();
     setUsername(value);
     setFormError(null);
-    setFieldErrors((current) => ({ ...current, username: undefined }));
+    if (hasAttemptedSubmit) {
+      const nextValidation = validateRegisterFields({
+        confirmPassword,
+        email: email.trim().toLowerCase(),
+        password,
+        username: value.trim(),
+      });
+      setFieldErrors((current) => ({ ...current, username: nextValidation.username }));
+    }
   };
 
   const handlePasswordChange = (value: string) => {
+    clearAuthDiagnostics();
     setPassword(value);
     setFormError(null);
-    setFieldErrors((current) => ({ ...current, password: undefined }));
+    if (hasAttemptedSubmit) {
+      const nextValidation = validateRegisterFields({
+        confirmPassword,
+        email: email.trim().toLowerCase(),
+        password: value,
+        username: username.trim(),
+      });
+      setFieldErrors((current) => ({
+        ...current,
+        confirmPassword: nextValidation.confirmPassword,
+        password: nextValidation.password,
+      }));
+    }
   };
 
   const handleConfirmPasswordChange = (value: string) => {
+    clearAuthDiagnostics();
     setConfirmPassword(value);
     setFormError(null);
-    setFieldErrors((current) => ({ ...current, confirmPassword: undefined }));
+    if (hasAttemptedSubmit) {
+      const nextValidation = validateRegisterFields({
+        confirmPassword: value,
+        email: email.trim().toLowerCase(),
+        password,
+        username: username.trim(),
+      });
+      setFieldErrors((current) => ({
+        ...current,
+        confirmPassword: nextValidation.confirmPassword,
+      }));
+    }
   };
 
   const handleSubmit = async () => {
@@ -66,13 +115,22 @@ export function RegisterScreen() {
       password,
       username: trimmedUsername,
     });
+    const hasUnresolvedFieldErrors = Object.values(fieldErrors).some(Boolean);
 
-    setFieldErrors(nextErrors);
+    setHasAttemptedSubmit(true);
     setFormError(null);
 
     if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors((current) => ({ ...current, ...nextErrors }));
       return;
     }
+
+    if (hasUnresolvedFieldErrors) {
+      setFormError('Update the highlighted account details and try again.');
+      return;
+    }
+
+    setFieldErrors(nextErrors);
 
     setIsPending(true);
     try {
@@ -83,19 +141,46 @@ export function RegisterScreen() {
         confirmPassword,
       });
     } catch (error) {
-      setFormError(getApiErrorMessage(error, 'register'));
+      const apiError = normalizeUnknownApiError(error);
+      if (apiError.status === 409 && apiError.fields) {
+        const conflictErrors: RegisterFieldErrors = {};
+        if (apiError.fields.email) {
+          conflictErrors.email = apiError.fields.email;
+        }
+        if (apiError.fields.username) {
+          conflictErrors.username = apiError.fields.username;
+        }
+
+        if (Object.keys(conflictErrors).length > 0) {
+          setFieldErrors((current) => ({ ...current, ...conflictErrors }));
+          setFormError('Update the highlighted account details and try again.');
+        } else {
+          setFormError(getApiErrorMessage(error, 'register'));
+        }
+      } else {
+        setFormError(getApiErrorMessage(error, 'register'));
+      }
     } finally {
       setIsPending(false);
     }
   };
 
+  const currentValidationErrors = hasAttemptedSubmit
+    ? validateRegisterFields({
+        confirmPassword,
+        email: email.trim().toLowerCase(),
+        password,
+        username: username.trim(),
+      })
+    : {};
+  const hasCurrentValidationErrors = Object.keys(currentValidationErrors).length > 0;
+  const hasDisplayedFieldErrors = Object.values(fieldErrors).some(Boolean);
+
   return (
-    <Screen contentStyle={styles.content}>
-      <PageHeader
-        eyebrow="Start calmly"
-        title="Create your StockMentor account"
-        description="Registration creates a beginner account and sends you to the onboarding quiz."
-      />
+    <AuthFormLayout
+      eyebrow="Start calmly"
+      title="Create your StockMentor account"
+      description="Registration creates a beginner account and sends you to the onboarding quiz.">
 
       {formError ? <ErrorBanner title="Account was not created" message={formError} /> : null}
       <AuthDiagnosticsPanel />
@@ -153,7 +238,7 @@ export function RegisterScreen() {
         />
         <ActionButton
           accessibilityLabel={isPending ? 'Creating account' : 'Create account'}
-          disabled={isPending}
+          disabled={isPending || hasCurrentValidationErrors || hasDisplayedFieldErrors}
           label={isPending ? 'Creating account...' : 'Create account'}
           onPress={handleSubmit}
         />
@@ -167,7 +252,7 @@ export function RegisterScreen() {
           <ActionButton disabled={isPending} label="Sign in" variant="secondary" />
         </Link>
       </View>
-    </Screen>
+    </AuthFormLayout>
   );
 }
 
@@ -214,9 +299,6 @@ function validateRegisterFields({
 }
 
 const styles = StyleSheet.create({
-  content: {
-    gap: Spacing.xl,
-  },
   form: {
     gap: Spacing.lg,
   },

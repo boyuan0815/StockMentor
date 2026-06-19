@@ -1,21 +1,31 @@
 import { StyleSheet, Text, View } from 'react-native';
-
+import type { ReactNode } from 'react';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 
 type ErrorBannerProps = {
   title?: string;
-  message: string;
+  message?: string;
+  children?: ReactNode;
 };
 
-export function ErrorBanner({ message, title = 'Something went wrong' }: ErrorBannerProps) {
+export function ErrorBanner({
+  message,
+  title = 'Something went wrong',
+  children,
+}: ErrorBannerProps) {
   return (
-    <View accessibilityLiveRegion="polite" style={styles.container}>
+    <View accessibilityLiveRegion="assertive" accessibilityRole="alert" style={styles.container}>
       <Text selectable style={styles.title}>
         {title}
       </Text>
-      <Text selectable style={styles.message}>
-        {message}
-      </Text>
+
+      {children ? (
+        children
+      ) : message ? (
+        <Text selectable style={styles.message}>
+          {message}
+        </Text>
+      ) : null}
     </View>
   );
 }

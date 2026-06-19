@@ -2,14 +2,13 @@ import { Link, type Href } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { ActionButton } from '@/components/foundation/action-button';
-import { EmptyState } from '@/components/foundation/empty-state';
 import { PageHeader } from '@/components/foundation/page-header';
 import { Screen } from '@/components/foundation/screen';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 
 export function WelcomeScreen() {
   return (
-    <Screen contentStyle={styles.content}>
+    <Screen scroll="auto" contentStyle={styles.content}>
       <PageHeader
         eyebrow="StockMentor"
         title="Learn the market without the rush"
@@ -35,17 +34,21 @@ export function WelcomeScreen() {
         </Link>
       </View>
 
-      <EmptyState
-        title="Backend-only data source"
-        description="Future screens will call only the Spring Boot backend. The frontend will not call OpenAI, Twelve Data, brokerage APIs, or scheduler internals directly."
-      />
+      <Text selectable style={styles.dataNote}>
+        Frontend screens call only the Spring Boot backend. Stock browsing, suggestions, and
+        practice tools arrive in later phases.
+      </Text>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   content: {
+    alignSelf: 'center',
     gap: Spacing.lg,
+    justifyContent: 'center',
+    maxWidth: 520,
+    width: '100%',
   },
   ledgerCard: {
     backgroundColor: Colors.light.surface,
@@ -68,5 +71,11 @@ const styles = StyleSheet.create({
   },
   actions: {
     gap: Spacing.sm,
+  },
+  dataNote: {
+    color: Colors.light.mutedText,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
   },
 });

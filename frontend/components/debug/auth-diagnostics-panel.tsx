@@ -13,7 +13,7 @@ export function AuthDiagnosticsPanel() {
   const lastRequest = diagnostics.lastAuthRequest;
   const resultText = lastRequest
     ? getResultText(lastRequest)
-    : 'No auth request has been sent from this screen yet.';
+    : 'No request sent for current input yet.';
 
   return (
     <View style={styles.container}>

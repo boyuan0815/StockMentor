@@ -1,5 +1,6 @@
 package net.boyuan.stockmentor.common.exception;
 
+import net.boyuan.stockmentor.auth.exception.RegistrationConflictException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -13,6 +14,14 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    @ExceptionHandler(RegistrationConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleRegistrationConflict(RegistrationConflictException exception) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", 409);
+        error.put("message", exception.getMessage());
+        error.put("fields", exception.getFields());
+        return new ResponseEntity<>(error, HttpStatus.CONFLICT);
+    }
 
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleResourceNotFound(ResourceNotFoundException exception) {

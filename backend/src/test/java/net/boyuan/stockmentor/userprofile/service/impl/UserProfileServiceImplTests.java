@@ -31,6 +31,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
@@ -66,16 +67,20 @@ class UserProfileServiceImplTests {
 
     private UserProfileServiceImpl service;
     private AppUser user;
+    private List<Runnable> backgroundTasks;
 
     @BeforeEach
     void setUp() {
+        backgroundTasks = new ArrayList<>();
+        TaskExecutor backgroundTaskExecutor = backgroundTasks::add;
         service = new UserProfileServiceImpl(
                 currentUserService,
                 appUserRepository,
                 profileRepository,
                 behaviorProfileService,
                 stockAiSuggestionTriggerService,
-                transactionManager
+                transactionManager,
+                backgroundTaskExecutor
         );
         user = user(1L, false);
         lenient().when(currentUserService.getCurrentUser()).thenReturn(user);
@@ -152,6 +157,10 @@ class UserProfileServiceImplTests {
 
         triggerAfterCommit();
 
+        verify(stockAiSuggestionTriggerService, never()).handleOnboardingCompleted(any());
+        assertEquals(1, backgroundTasks.size());
+        runBackgroundTasks();
+
         verify(stockAiSuggestionTriggerService).handleOnboardingCompleted(user);
         ArgumentCaptor<TransactionDefinition> definitionCaptor = ArgumentCaptor.forClass(TransactionDefinition.class);
         verify(transactionManager).getTransaction(definitionCaptor.capture());
@@ -212,6 +221,9 @@ class UserProfileServiceImplTests {
 
         triggerAfterCommit();
 
+        assertEquals(1, backgroundTasks.size());
+        runBackgroundTasks();
+
         verify(stockAiSuggestionTriggerService).handleProfileRetaken(eq(user), any(UserInvestmentProfile.class));
     }
 
@@ -269,6 +281,9 @@ class UserProfileServiceImplTests {
         service.completeOnboarding(validRequest());
 
         assertDoesNotThrow(this::triggerAfterCommit);
+        assertTrue(user.getOnboardingCompleted());
+        assertEquals(1, backgroundTasks.size());
+        assertDoesNotThrow(this::runBackgroundTasks);
         verify(transactionManager).rollback(any(TransactionStatus.class));
     }
 
@@ -292,6 +307,8 @@ class UserProfileServiceImplTests {
         service.completeOnboarding(validRequest());
 
         assertDoesNotThrow(this::triggerAfterCommit);
+        assertEquals(1, backgroundTasks.size());
+        assertDoesNotThrow(this::runBackgroundTasks);
     }
 
     @Test
@@ -315,6 +332,12 @@ class UserProfileServiceImplTests {
     private void triggerAfterCommit() {
         List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
         synchronizations.forEach(TransactionSynchronization::afterCommit);
+    }
+
+    private void runBackgroundTasks() {
+        List<Runnable> tasks = new ArrayList<>(backgroundTasks);
+        backgroundTasks.clear();
+        tasks.forEach(Runnable::run);
     }
 
     private OnboardingSubmitRequest validRequest() {

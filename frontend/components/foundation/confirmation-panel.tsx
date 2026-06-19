@@ -9,6 +9,7 @@ type ConfirmationPanelProps = {
   confirmLabel: string;
   cancelLabel?: string;
   pending?: boolean;
+  pendingLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -20,10 +21,11 @@ export function ConfirmationPanel({
   onCancel,
   onConfirm,
   pending = false,
+  pendingLabel = 'Working...',
   title,
 }: ConfirmationPanelProps) {
   return (
-    <View style={styles.container}>
+    <View accessibilityLiveRegion={pending ? 'polite' : 'none'} style={styles.container}>
       <View style={styles.copy}>
         <Text selectable style={styles.title}>
           {title}
@@ -35,7 +37,7 @@ export function ConfirmationPanel({
       <View style={styles.actions}>
         <ActionButton
           disabled={pending}
-          label={pending ? 'Starting...' : confirmLabel}
+          label={pending ? pendingLabel : confirmLabel}
           onPress={onConfirm}
           variant="secondary"
         />

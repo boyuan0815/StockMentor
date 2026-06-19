@@ -144,9 +144,11 @@ class AuthControllerSecurityTests {
                                   "password": "ValidPass123",
                                   "confirmPassword": "ValidPass123"
                                 }
-                                """.formatted(suffix.toUpperCase(), suffix)))
+                """.formatted(suffix.toUpperCase(), suffix)))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.status").value(409));
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.fields.email").value("Email is already registered."))
+                .andExpect(jsonPath("$.fields.username").doesNotExist());
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -157,9 +159,26 @@ class AuthControllerSecurityTests {
                                   "password": "ValidPass123",
                                   "confirmPassword": "ValidPass123"
                                 }
-                                """.formatted(suffix, suffix.toUpperCase())))
+                """.formatted(suffix, suffix.toUpperCase())))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.status").value(409));
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.fields.email").doesNotExist())
+                .andExpect(jsonPath("$.fields.username").value("Username is already taken."));
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "DUPLICATE-%s@EXAMPLE.COM",
+                                  "username": "DUPLICATE%s",
+                                  "password": "ValidPass123",
+                                  "confirmPassword": "ValidPass123"
+                                }
+                                """.formatted(suffix.toUpperCase(), suffix.toUpperCase())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.fields.email").value("Email is already registered."))
+                .andExpect(jsonPath("$.fields.username").value("Username is already taken."));
     }
 
     @Test

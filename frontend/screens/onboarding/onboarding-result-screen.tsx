@@ -72,7 +72,7 @@ export function OnboardingResultScreen() {
   const hasProfile = Boolean(profile?.investmentProfile);
 
   return (
-    <Screen contentStyle={styles.content}>
+    <Screen scroll="auto" contentStyle={styles.content}>
       <PageHeader
         eyebrow="Profile saved"
         title="Your beginner profile is ready"
@@ -95,10 +95,16 @@ export function OnboardingResultScreen() {
             description="The backend did not return an investment profile for this account yet."
           />
           <ActionButton
+            disabled={isLoading || isRefreshingUser}
+            label={isLoading ? 'Loading profile...' : 'Try loading profile again'}
+            onPress={loadProfile}
+            variant="secondary"
+          />
+          <ActionButton
             disabled={isRefreshingUser}
             label={isRefreshingUser ? 'Refreshing...' : 'Refresh account state'}
             onPress={handleRefreshUser}
-            variant="secondary"
+            variant="ghost"
           />
           {user?.mustCompleteOnboarding ? (
             <Link href={'/onboarding' as Href} asChild>
@@ -122,7 +128,10 @@ export function OnboardingResultScreen() {
 
 const styles = StyleSheet.create({
   content: {
+    alignSelf: 'center',
     gap: Spacing.xl,
+    maxWidth: 620,
+    width: '100%',
   },
   stack: {
     gap: Spacing.md,

@@ -100,7 +100,7 @@ export function ProfileScreen() {
   const hasProfile = Boolean(profile?.investmentProfile);
 
   return (
-    <Screen contentStyle={styles.content}>
+    <Screen scroll="auto" contentStyle={styles.content}>
       <PageHeader
         eyebrow="Profile"
         title="Your StockMentor account"
@@ -135,10 +135,16 @@ export function ProfileScreen() {
             description="The backend returned no investment profile. Refresh account state, then return to onboarding if StockMentor asks you to complete it."
           />
           <ActionButton
+            disabled={isLoading || isRefreshingUser}
+            label={isLoading ? 'Loading profile...' : 'Try loading profile again'}
+            onPress={loadProfile}
+            variant="secondary"
+          />
+          <ActionButton
             disabled={isRefreshingUser}
             label={isRefreshingUser ? 'Refreshing...' : 'Refresh account state'}
             onPress={handleRefreshUser}
-            variant="secondary"
+            variant="ghost"
           />
         </View>
       )}
@@ -150,6 +156,7 @@ export function ProfileScreen() {
           onCancel={() => setIsRetakeConfirming(false)}
           onConfirm={handleStartRetake}
           pending={isRetakeStarting}
+          pendingLabel="Opening quiz..."
           title="Retake onboarding?"
         />
       ) : (
@@ -174,7 +181,10 @@ export function ProfileScreen() {
 
 const styles = StyleSheet.create({
   content: {
+    alignSelf: 'center',
     gap: Spacing.xl,
+    maxWidth: 620,
+    width: '100%',
   },
   accountCard: {
     backgroundColor: Colors.light.surface,

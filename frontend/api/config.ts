@@ -14,6 +14,21 @@ export function getApiBaseUrl() {
     });
   }
 
+  try {
+    const url = new URL(baseUrl);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('Unsupported API protocol');
+    }
+  } catch (error) {
+    throw new ApiError({
+      status: 0,
+      message: 'EXPO_PUBLIC_API_BASE_URL must be a valid http or https URL.',
+      code: 'INVALID_BASE_URL',
+      retryable: false,
+      cause: error,
+    });
+  }
+
   return baseUrl.replace(/\/+$/, '');
 }
 

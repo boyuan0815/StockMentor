@@ -1,6 +1,5 @@
 package net.boyuan.stockmentor.userprofile.service.impl;
 
-import lombok.RequiredArgsConstructor;
 import net.boyuan.stockmentor.ai.dto.SuggestionTriggerResult;
 import net.boyuan.stockmentor.ai.service.StockAiSuggestionTriggerService;
 import net.boyuan.stockmentor.auth.entity.AppUser;
@@ -26,6 +25,8 @@ import net.boyuan.stockmentor.userprofile.model.RiskTolerance;
 import net.boyuan.stockmentor.userprofile.repository.UserInvestmentProfileRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -46,7 +47,6 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class UserProfileServiceImpl implements net.boyuan.stockmentor.userprofile.service.UserProfileService {
     private static final Logger log = LoggerFactory.getLogger(UserProfileServiceImpl.class);
     private static final String ONBOARDING_ALREADY_COMPLETED = "Onboarding has already been completed. Use retake instead.";
@@ -103,6 +103,25 @@ public class UserProfileServiceImpl implements net.boyuan.stockmentor.userprofil
     private final UserBehaviorProfileService behaviorProfileService;
     private final StockAiSuggestionTriggerService stockAiSuggestionTriggerService;
     private final PlatformTransactionManager transactionManager;
+    private final TaskExecutor backgroundTaskExecutor;
+
+    public UserProfileServiceImpl(
+            CurrentUserService currentUserService,
+            AppUserRepository appUserRepository,
+            UserInvestmentProfileRepository profileRepository,
+            UserBehaviorProfileService behaviorProfileService,
+            StockAiSuggestionTriggerService stockAiSuggestionTriggerService,
+            PlatformTransactionManager transactionManager,
+            @Qualifier("stockMentorBackgroundTaskExecutor") TaskExecutor backgroundTaskExecutor
+    ) {
+        this.currentUserService = currentUserService;
+        this.appUserRepository = appUserRepository;
+        this.profileRepository = profileRepository;
+        this.behaviorProfileService = behaviorProfileService;
+        this.stockAiSuggestionTriggerService = stockAiSuggestionTriggerService;
+        this.transactionManager = transactionManager;
+        this.backgroundTaskExecutor = backgroundTaskExecutor;
+    }
 
     @Override
     @Transactional(readOnly = true)
@@ -188,21 +207,34 @@ public class UserProfileServiceImpl implements net.boyuan.stockmentor.userprofil
             @Override
             public void afterCommit() {
                 try {
-                    TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
-                    transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-                    transactionTemplate.executeWithoutResult(status -> {
-                        SuggestionTriggerResult result = trigger.get();
-                        logTriggerResult(user, profile, result);
-                    });
+                    backgroundTaskExecutor.execute(() -> runBackgroundSuggestionTrigger(trigger, user, profile));
                 } catch (RuntimeException e) {
-                    log.warn("US004 after-commit AI suggestion trigger failed userId={} profileId={} profileVersion={}",
-                            user.getUserId(),
-                            profile.getProfileId(),
-                            profile.getProfileVersion(),
-                            e);
+                    log.warn("US004 after-commit AI suggestion trigger could not be scheduled userId={} profileId={} profileVersion={}",
+                            user.getUserId(), profile.getProfileId(), profile.getProfileVersion(), e);
                 }
             }
         });
+    }
+
+    private void runBackgroundSuggestionTrigger(
+            Supplier<SuggestionTriggerResult> trigger,
+            AppUser user,
+            UserInvestmentProfile profile
+    ) {
+        try {
+            TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+            transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            transactionTemplate.executeWithoutResult(status -> {
+                SuggestionTriggerResult result = trigger.get();
+                logTriggerResult(user, profile, result);
+            });
+        } catch (RuntimeException e) {
+            log.warn("US004 background AI suggestion trigger failed userId={} profileId={} profileVersion={}",
+                    user.getUserId(),
+                    profile.getProfileId(),
+                    profile.getProfileVersion(),
+                    e);
+        }
     }
 
     private void logTriggerResult(AppUser user, UserInvestmentProfile profile, SuggestionTriggerResult result) {

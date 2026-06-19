@@ -12,7 +12,7 @@ export function DashboardScreen() {
   const { user } = useAuthSession();
 
   return (
-    <Screen contentStyle={styles.content}>
+    <Screen scroll="auto" contentStyle={styles.content}>
       <PageHeader
         eyebrow="Dashboard"
         title={`Welcome${user?.username ? `, ${user.username}` : ''}`}
@@ -44,7 +44,11 @@ export function DashboardScreen() {
 
 const styles = StyleSheet.create({
   content: {
+    alignSelf: 'center',
     gap: Spacing.lg,
+    justifyContent: 'center',
+    maxWidth: 560,
+    width: '100%',
   },
   statusCard: {
     backgroundColor: Colors.light.surface,

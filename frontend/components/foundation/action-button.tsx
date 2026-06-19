@@ -10,6 +10,7 @@ type ActionButtonProps = PressableProps & {
 };
 
 export function ActionButton({
+  accessibilityLabel,
   accessibilityState,
   disabled,
   label,
@@ -22,6 +23,7 @@ export function ActionButton({
 
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
       accessibilityState={{ ...accessibilityState, disabled: Boolean(disabled) }}
       disabled={disabled}
@@ -33,7 +35,7 @@ export function ActionButton({
         typeof style === 'function' ? style(state) : style,
       ]}
       {...props}>
-      <Text style={[styles.label, labelStyle]}>{label}</Text>
+      <Text style={[styles.label, labelStyle, disabled ? styles.disabledLabel : undefined]}>{label}</Text>
     </Pressable>
   );
 }
@@ -93,7 +95,9 @@ const styles = StyleSheet.create({
     borderColor: Colors.light.destructive,
   },
   disabled: {
-    opacity: 0.55,
+    backgroundColor: '#E2E8F0',
+    borderColor: '#CBD5E1',
+    opacity: 1,
   },
   pressed: {
     opacity: 0.86,
@@ -113,5 +117,8 @@ const styles = StyleSheet.create({
   },
   dangerLabel: {
     color: Colors.light.surface,
+  },
+  disabledLabel: {
+    color: Colors.light.mutedText,
   },
 });

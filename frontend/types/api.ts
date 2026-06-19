@@ -4,6 +4,7 @@ export type ApiErrorCode =
   | 'TIMEOUT'
   | 'ABORTED'
   | 'MISSING_BASE_URL'
+  | 'INVALID_BASE_URL'
   | 'UNKNOWN_ERROR';
 
 export type NormalizedApiError = {
@@ -11,6 +12,7 @@ export type NormalizedApiError = {
   message: string;
   code?: ApiErrorCode | string;
   field?: string;
+  fields?: Record<string, string>;
   retryable: boolean;
 };
 
@@ -22,4 +24,5 @@ export type BackendErrorBody = {
   title?: string;
   code?: string;
   field?: string;
+  fields?: Record<string, string>;
 };

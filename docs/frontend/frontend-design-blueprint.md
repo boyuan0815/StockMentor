@@ -206,6 +206,40 @@ After login and onboarding, beginner users should see a simple tab-based shell:
 Stacks inside tabs should open detail screens for stock detail, AI explanation, buy/sell tickets, transaction detail,
 onboarding retake, and settings.
 
+Mobile HCI rules for account and quiz flows:
+
+- Screens should avoid casual scroll/bounce when content fits the viewport. Use scroll only when content exceeds the
+  screen or when the software keyboard requires it.
+- Mobile page identity must respect the iOS safe area and Dynamic Island. Fixed or sticky headers belong below the top
+  inset and must not overlap the page content.
+- Forms must be keyboard-aware so the active input remains visible, selectable, editable, and paste-friendly.
+- Auth form headers should share the keyboard-aware scroll context or otherwise prove they cannot overlap iOS system
+  UI, safe areas, or focused fields.
+- After the first invalid submit, forms should live-validate edited fields until every field is valid and the submit
+  button can clearly re-enable.
+- Recoverable errors must stay visible on the same screen, preserve user input, and explain the next action.
+- Design account recovery states for beginner users who should not need to guess what went wrong. Prefer field-level
+  errors for the exact field when the backend can identify it, keep page context visible in longer forms, and remove
+  explanations that add cognitive load without helping the user recover.
+- Disabled submit buttons must look disabled, not like active primary actions with only reduced opacity.
+- Password visibility controls should use a clear accessible eye/eye-off affordance when the project already has icon
+  support.
+- Onboarding-style quizzes should show one question at a time on mobile, with visible progress, Back/Next controls, and
+  all-answer validation before submit.
+- Quiz action buttons should stay fixed at the bottom safe area while the question content scrolls only when needed.
+- Question changes may use a subtle quick slide/fade transition; avoid slow or distracting motion.
+- During final quiz submit, replace the quiz with a clear processing state and a non-exact saving indicator rather than
+  relying only on button text.
+- Onboarding completion should treat timeout or account-state mismatch as recoverable: refresh the authenticated user
+  state and leave the quiz when the backend has already completed onboarding.
+- Selected option cards should use background, border, or a compact check affordance. Avoid text badges that can
+  overflow on small screens.
+- Do not display duplicated option text twice. If an option description repeats the label, show only the label.
+- Dev diagnostics must stay development-only and must never expose passwords, Basic Auth values, authorization headers,
+  admin tokens, request bodies, API keys, or secrets.
+- Forgot-password UI must stay future-scoped until the backend has a reset-token or OTP design with email delivery,
+  expiry, cooldown/rate limiting, and abuse protection.
+
 ## Admin Web/Tablet Experience
 
 Admin uses the same Expo codebase but a different layout:

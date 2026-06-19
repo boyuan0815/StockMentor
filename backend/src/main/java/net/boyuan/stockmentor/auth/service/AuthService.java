@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import net.boyuan.stockmentor.auth.dto.AuthUserResponse;
 import net.boyuan.stockmentor.auth.dto.RegisterRequest;
 import net.boyuan.stockmentor.auth.entity.AppUser;
+import net.boyuan.stockmentor.auth.exception.RegistrationConflictException;
 import net.boyuan.stockmentor.auth.model.AppUserRole;
 import net.boyuan.stockmentor.auth.model.AppUserStatus;
 import net.boyuan.stockmentor.auth.repository.AppUserRepository;
@@ -38,11 +39,10 @@ public class AuthService {
         String username = normalizeUsername(request.username());
         validateRegistration(request, email, username);
 
-        if (appUserRepository.existsByEmailIgnoreCase(email)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email is already registered");
-        }
-        if (appUserRepository.existsByUsernameIgnoreCase(username)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Username is already registered");
+        boolean emailExists = appUserRepository.existsByEmailIgnoreCase(email);
+        boolean usernameExists = appUserRepository.existsByUsernameIgnoreCase(username);
+        if (emailExists || usernameExists) {
+            throw new RegistrationConflictException(emailExists, usernameExists);
         }
 
         LocalDateTime now = LocalDateTime.now();

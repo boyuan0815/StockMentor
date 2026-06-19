@@ -8,14 +8,16 @@ export class ApiError extends Error implements NormalizedApiError {
   status: number;
   code?: NormalizedApiError['code'];
   field?: string;
+  fields?: Record<string, string>;
   retryable: boolean;
 
-  constructor({ status, message, code, field, retryable, cause }: ApiErrorInput) {
+  constructor({ status, message, code, field, fields, retryable, cause }: ApiErrorInput) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.field = field;
+    this.fields = fields;
     this.retryable = retryable;
 
     if (cause !== undefined) {
@@ -50,6 +52,7 @@ export function createHttpApiError(status: number, body: BackendErrorBody | stri
     message,
     code: parsedBody?.code || 'HTTP_ERROR',
     field: parsedBody?.field,
+    fields: parsedBody?.fields,
     retryable: status === 0 || status >= 500 || status === 408 || status === 429,
   });
 }

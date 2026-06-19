@@ -1,15 +1,26 @@
 import { normalizeUnknownApiError } from '@/api/errors';
 
 type ErrorCopyContext = 'login' | 'register' | 'profile' | 'onboarding' | 'logout' | 'generic';
+type ErrorCopyOptions = {
+  loginIdentifier?: string;
+};
 
 const CONNECTION_HINT =
   'Check EXPO_PUBLIC_API_BASE_URL and that the backend is reachable from this device.';
 
-export function getApiErrorMessage(error: unknown, context: ErrorCopyContext = 'generic') {
+export function getApiErrorMessage(
+  error: unknown,
+  context: ErrorCopyContext = 'generic',
+  options: ErrorCopyOptions = {},
+) {
   const apiError = normalizeUnknownApiError(error);
 
   if (apiError.code === 'MISSING_BASE_URL') {
     return `StockMentor does not have a backend address configured. ${CONNECTION_HINT}`;
+  }
+
+  if (apiError.code === 'INVALID_BASE_URL') {
+    return `StockMentor has an invalid backend address configured. Use a full http or https URL, then restart Expo. ${CONNECTION_HINT}`;
   }
 
   if (apiError.code === 'TIMEOUT') {
@@ -17,11 +28,20 @@ export function getApiErrorMessage(error: unknown, context: ErrorCopyContext = '
   }
 
   if (apiError.code === 'NETWORK_ERROR' || apiError.status === 0) {
-    return `StockMentor could not reach the backend. ${CONNECTION_HINT}`;
+    return `StockMentor could not reach the backend. This can happen when the server is offline, the phone cannot reach the URL, or a web request is blocked before the backend responds. ${CONNECTION_HINT}`;
   }
 
   if (apiError.status === 401) {
     if (context === 'login') {
+      const trimmedIdentifier = options.loginIdentifier?.trim();
+      if (trimmedIdentifier?.includes('@')) {
+        return `The email “${trimmedIdentifier}” or password was not accepted.`;
+      }
+
+      if (trimmedIdentifier) {
+        return `The username “${trimmedIdentifier}” or password was not accepted.`;
+      }
+
       return 'The email, username, or password was not accepted. Check the details and try again.';
     }
 

@@ -1,25 +1,74 @@
-import type { PropsWithChildren } from 'react';
-import { ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useState, type PropsWithChildren } from 'react';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Colors, Spacing } from '@/constants/theme';
 
 type ScreenProps = PropsWithChildren<{
-  scroll?: boolean;
+  scroll?: boolean | 'auto';
   contentStyle?: StyleProp<ViewStyle>;
+  keyboardAware?: boolean;
 }>;
 
-export function Screen({ children, contentStyle, scroll = true }: ScreenProps) {
-  if (!scroll) {
-    return <View style={[styles.container, styles.content, contentStyle]}>{children}</View>;
+export function Screen({ children, contentStyle, keyboardAware = false, scroll = true }: ScreenProps) {
+  const insets = useSafeAreaInsets();
+  const [containerHeight, setContainerHeight] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
+  const shouldAutoScroll =
+    scroll === 'auto' && containerHeight > 0 && contentHeight > containerHeight + 1;
+  const safeAreaContentStyle = {
+    paddingBottom: Math.max(Spacing.xl, insets.bottom + Spacing.md),
+    paddingTop: Math.max(Spacing.xl, insets.top + Spacing.md),
+  };
+
+  const staticContent = (
+    <View
+      onLayout={(event) => setContentHeight(event.nativeEvent.layout.height)}
+      style={[styles.content, safeAreaContentStyle, contentStyle]}>
+      {children}
+    </View>
+  );
+
+  const content = scroll === true || shouldAutoScroll ? (
+    <ScrollView
+      alwaysBounceVertical={false}
+      bounces={false}
+      contentContainerStyle={[styles.content, safeAreaContentStyle, contentStyle]}
+      contentInsetAdjustmentBehavior="automatic"
+      keyboardShouldPersistTaps="handled"
+      onContentSizeChange={(_, height) => setContentHeight(height)}
+      onLayout={(event) => setContainerHeight(event.nativeEvent.layout.height)}
+      overScrollMode="never"
+      showsVerticalScrollIndicator={scroll !== 'auto'}
+      style={styles.container}>
+      {children}
+    </ScrollView>
+  ) : (
+    <View
+      onLayout={(event) => setContainerHeight(event.nativeEvent.layout.height)}
+      style={styles.container}>
+      {staticContent}
+    </View>
+  );
+
+  if (!keyboardAware) {
+    return content;
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, contentStyle]}
-      contentInsetAdjustmentBehavior="automatic">
-      {children}
-    </ScrollView>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}>
+      {content}
+    </KeyboardAvoidingView>
   );
 }
 

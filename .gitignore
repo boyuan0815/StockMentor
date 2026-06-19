@@ -122,5 +122,6 @@ review-stat.txt
 review-summary.txt
 review-full.patch
 review-full.patchreview-summary.txt
+review-numstat.txt
 
 cloudflared.exe

@@ -9,6 +9,7 @@ import {
   type TextInputProps,
 } from 'react-native';
 
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 
 type FormTextFieldProps = Omit<
@@ -50,6 +51,7 @@ export function FormTextField({
         <TextInput
           accessibilityHint={error || helperText}
           accessibilityLabel={label}
+          accessibilityState={{ disabled: !editable }}
           autoCapitalize={autoCapitalize}
           autoCorrect={autoCorrect}
           editable={editable}
@@ -57,6 +59,7 @@ export function FormTextField({
           onChangeText={onChangeText}
           secureTextEntry={effectiveSecureTextEntry}
           style={[styles.input, secureTextEntry ? styles.inputWithToggle : undefined]}
+          textAlignVertical="center"
           value={value}
           {...props}
         />
@@ -64,6 +67,7 @@ export function FormTextField({
           <Pressable
             accessibilityLabel={isPasswordVisible ? `Hide ${label}` : `Show ${label}`}
             accessibilityRole="button"
+            accessibilityState={{ disabled: !editable }}
             disabled={!editable}
             hitSlop={8}
             onPress={() => setIsPasswordVisible((current) => !current)}
@@ -72,7 +76,11 @@ export function FormTextField({
               pressed && editable ? styles.pressed : undefined,
               !editable ? styles.disabled : undefined,
             ]}>
-            <Text style={styles.toggleText}>{isPasswordVisible ? 'Hide' : 'Show'}</Text>
+            <IconSymbol
+              color={editable ? Colors.light.tint : Colors.light.mutedText}
+              name={isPasswordVisible ? 'eye.slash' : 'eye'}
+              size={22}
+            />
           </Pressable>
         ) : null}
       </View>
@@ -125,13 +133,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 44,
-    minWidth: 58,
+    minWidth: 52,
     paddingHorizontal: Spacing.md,
-  },
-  toggleText: {
-    color: Colors.light.tint,
-    fontSize: 14,
-    fontWeight: '800',
   },
   helper: {
     color: Colors.light.mutedText,

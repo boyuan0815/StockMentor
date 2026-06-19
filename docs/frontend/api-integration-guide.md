@@ -93,6 +93,7 @@ status: number
 message: string
 code?: string
 field?: string
+fields?: Record<string, string>
 retryable: boolean
 ```
 
@@ -105,6 +106,27 @@ Expected handling:
 - `409`: conflict, such as duplicate account or admin self-disable.
 - Network timeout: show retry for reads, re-enable writes.
 - Backend unavailable: show friendly outage state.
+
+HCI requirements:
+
+- Missing or invalid `EXPO_PUBLIC_API_BASE_URL`, timeout, network/CORS-like failures, and real HTTP responses should
+  have distinct user-facing copy.
+- Failed auth/register writes must keep the form mounted, preserve entered values, and re-enable actions after the
+  request settles.
+- Auth forms should mirror verified backend format rules on the client before sending a request, while keeping backend
+  validation authoritative.
+- When the backend can identify exact validation or conflict fields, surface those messages on the matching inputs so
+  beginner users can recover without guessing.
+- Server-reported field conflicts should keep the related submit action disabled until the affected field is edited and
+  client-side validation passes again.
+- If an onboarding submit times out or returns an account-state mismatch, show a recovery action that refreshes
+  `GET /api/auth/me`; if the refreshed user no longer needs onboarding, route out of the quiz instead of trapping them.
+- Dev diagnostics may show sanitized API base URL, auth method/path, status, code, and normalized message only. They
+  must never show passwords, Basic Auth values, `Authorization`, `X-Admin-Token`, admin token values, request bodies,
+  API keys, or secrets.
+
+Forgot-password/reset is not part of the Basic Auth MVP. A real flow requires backend reset-token or OTP design, email
+delivery, expiry, cooldown/rate limiting, and abuse protection before the frontend should expose an enabled action.
 
 ## React Query Direction
 

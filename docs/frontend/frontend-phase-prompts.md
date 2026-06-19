@@ -148,6 +148,24 @@ Scope:
 - Route `ADMIN` users to the admin shell, beginners with `mustCompleteOnboarding=true` to onboarding, and completed
   beginners to the dashboard.
 - Add loading, empty, validation, 401/403/409, backend unavailable, and duplicate-submit states.
+- Keep auth forms keyboard-aware, preserve failed-submit input, avoid route-level loading unmounts during submit, and
+  avoid unnecessary scroll/bounce when content fits.
+- Respect iOS safe-area and Dynamic Island insets; custom auth/onboarding page identity must not sit under system UI.
+- After a first invalid submit, live-validate account fields until all fields are valid, and make disabled submit
+  buttons visually disabled.
+- Onboarding should use a mobile-friendly one-question-at-a-time flow, validate every backend-returned question before
+  submit, and avoid displaying duplicated option label/description text.
+- Keep onboarding Back/Next/Finish controls fixed at the bottom safe area, use compact selected-state affordances that
+  cannot overflow, and show a clear processing state during final save.
+- If onboarding final submit times out or reports an account-state mismatch, offer a refresh-account recovery path and
+  route out of the quiz when `GET /api/auth/me` shows onboarding is complete.
+- Validate login/register field formats on the client before requests when backend rules are known.
+- Use beginner-proof recovery: preserve input, keep long-form page identity visible, and map backend-known duplicate or
+  validation errors to the exact field whenever possible.
+- Avoid user-facing implementation disclaimers in loading or processing states when they add cognitive load without
+  helping the user recover.
+- Do not enable forgot-password UI unless the backend has a verified reset-token or OTP contract; otherwise keep it
+  clearly future-scoped.
 
 Backend endpoints:
 - `POST /api/auth/register`
@@ -560,6 +578,11 @@ Scope:
 - Run the frontend testing checklist and FYP demo story.
 - Polish loading, empty, error, cooldown, confirmation, and unavailable states.
 - Review mobile HCI, web/tablet admin UI, keyboard behavior, touch targets, contrast, and AI disclaimer wording.
+- Confirm fit-to-screen pages do not casually scroll/bounce, mobile forms keep focused inputs visible above the
+  keyboard, recoverable errors preserve input, password visibility controls are accessible, and diagnostics do not
+  expose secrets.
+- Confirm mobile quiz actions stay fixed, question transitions are subtle, selected option UI does not overflow, and
+  final-submit processing copy does not imply an exact backend analysis percentage.
 - Verify delayed market data display correctness and paper-trading no-price payload rule.
 - Use Playwright/web testing for Expo Web where practical.
 

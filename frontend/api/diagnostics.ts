@@ -23,6 +23,16 @@ let diagnosticsState: AuthDiagnosticsState = {
 
 const listeners = new Set<Listener>();
 
+export function clearAuthDiagnostics() {
+  if (!__DEV__) {
+    return;
+  }
+
+  updateDiagnostics({
+    lastAuthRequest: null,
+  });
+}
+
 export function recordAuthRequestStart(method: string, path: string) {
   if (!__DEV__ || !isAuthPath(path)) {
     return;

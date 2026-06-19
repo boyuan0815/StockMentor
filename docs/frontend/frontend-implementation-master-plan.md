@@ -285,4 +285,21 @@ normal implementation phases must not edit, stage, or commit `.agents/` or `skil
 - AI screens use educational wording and disclaimers.
 - Loading, empty, error, cooldown, confirmation, and duplicate-submit states are implemented.
 - Mobile touch targets are around 44x44 or larger; admin web supports keyboard-friendly navigation.
+- Mobile forms keep focused inputs visible above the keyboard and preserve entered values after recoverable errors.
+- Mobile page headers respect safe-area and Dynamic Island insets; page identity is never hidden under system UI.
+- Fit-to-screen mobile pages do not casually scroll or bounce; scrolling is reserved for overflow and keyboard avoidance.
+- Onboarding-style mobile quizzes use one-question-at-a-time progress and hide duplicated option label/description text.
+- Onboarding quiz actions stay fixed at the bottom safe area, selected answers avoid overflow-prone text badges, and
+  final submit shows a clear processing state with a non-exact saving indicator.
+- Auth screens validate client-side field formats that mirror backend constraints before sending API requests.
+- Account forms use no-guesswork recovery: keep long-form page context visible and attach backend-known duplicate or
+  validation errors to the exact field whenever possible.
+- After an invalid submit, account forms live-validate until all fields are valid; disabled submit buttons must be
+  visually disabled rather than active-looking.
+- Final processing states use user-friendly status copy and avoid implementation disclaimers that add cognitive load.
+- Onboarding submit responses must not be blocked by post-onboarding AI suggestion generation; long-running follow-up
+  work should run in the backend as background best-effort work, and frontend timeout/state-mismatch recovery should refresh
+  account state before asking the user to retry.
+- Forgot-password affordances remain disabled or future-scoped until a backend reset-token or OTP flow is explicitly
+  designed.
 - Expo Go and Expo Web checks are run where the phase requires them.

@@ -23,6 +23,10 @@ const MAPPING = {
   'lock.shield.fill': 'admin-panel-settings',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
+  checkmark: 'check',
+  'checkmark.circle.fill': 'check-circle',
+  eye: 'visibility',
+  'eye.slash': 'visibility-off',
 } as IconMapping;
 
 /**

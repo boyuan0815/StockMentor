@@ -250,6 +250,8 @@
 - Profile response may include behavior summary through read-only behavior summary retrieval.
 - First onboarding triggers AI suggestions after commit using `ONBOARDING_COMPLETED`; retake triggers after commit using
   `RETAKE_QUIZ`.
+- Post-onboarding AI suggestion generation must run as background best-effort work after the profile/user state is
+  saved. It must not delay, fail, or roll back the onboarding/profile response.
 - AI suggestion trigger failures must be caught/logged and must not roll back onboarding/profile saves.
 - `GET /api/user/profile` and `GET /api/user/onboarding/questions` must be read-only and must not trigger AI generation.
 

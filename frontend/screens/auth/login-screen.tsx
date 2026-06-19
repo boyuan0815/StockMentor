@@ -1,16 +1,17 @@
 import { Link, type Href } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { clearAuthDiagnostics } from '@/api/diagnostics';
 import { AuthDiagnosticsPanel } from '@/components/debug/auth-diagnostics-panel';
-import { ErrorBanner } from '@/components/foundation/error-banner';
 import { ActionButton } from '@/components/foundation/action-button';
-import { PageHeader } from '@/components/foundation/page-header';
-import { Screen } from '@/components/foundation/screen';
+import { AuthFormLayout } from '@/components/foundation/auth-form-layout';
+import { ErrorBanner } from '@/components/foundation/error-banner';
 import { FormTextField } from '@/components/forms/form-text-field';
 import { Colors, Spacing } from '@/constants/theme';
 import { useAuthSession } from '@/providers/auth-session-provider';
 import { getApiErrorMessage } from '@/utils/api-error-copy';
+import { normalizeUnknownApiError } from '@/api/errors';
 
 type LoginFieldErrors = {
   identity?: string;
@@ -23,18 +24,35 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [isPending, setIsPending] = useState(false);
+  const [loginAuthError, setLoginAuthError] = useState<{
+    kind: 'email' | 'username';
+    value: string;
+  } | null>(null);
+
+  useEffect(() => {
+    clearAuthDiagnostics();
+  }, []);
 
   const handleIdentityChange = (value: string) => {
+    clearAuthDiagnostics();
     setIdentity(value);
     setFormError(null);
-    setFieldErrors((current) => ({ ...current, identity: undefined }));
+    setLoginAuthError(null);
+    if (hasAttemptedSubmit) {
+      setFieldErrors(validateLoginFields({ identity: value, password }));
+    }
   };
 
   const handlePasswordChange = (value: string) => {
+    clearAuthDiagnostics();
     setPassword(value);
     setFormError(null);
-    setFieldErrors((current) => ({ ...current, password: undefined }));
+    setLoginAuthError(null);
+    if (hasAttemptedSubmit) {
+      setFieldErrors(validateLoginFields({ identity, password: value }));
+    }
   };
 
   const handleSubmit = async () => {
@@ -42,16 +60,10 @@ export function LoginScreen() {
       return;
     }
 
-    const nextErrors: LoginFieldErrors = {};
     const trimmedIdentity = identity.trim();
+    const nextErrors = validateLoginFields({ identity, password });
 
-    if (!trimmedIdentity) {
-      nextErrors.identity = 'Enter your email or username.';
-    }
-    if (!password) {
-      nextErrors.password = 'Enter your password.';
-    }
-
+    setHasAttemptedSubmit(true);
     setFieldErrors(nextErrors);
     setFormError(null);
 
@@ -66,21 +78,46 @@ export function LoginScreen() {
         password,
       });
     } catch (error) {
-      setFormError(getApiErrorMessage(error, 'login'));
+      const apiError = normalizeUnknownApiError(error);
+
+      if (apiError.status === 401 && trimmedIdentity) {
+        setLoginAuthError({
+          kind: trimmedIdentity.includes('@') ? 'email' : 'username',
+          value: trimmedIdentity,
+        });
+        setFormError(null);
+      } else {
+        setLoginAuthError(null);
+        setFormError(getApiErrorMessage(error, 'login', { loginIdentifier: trimmedIdentity }));
+      }
     } finally {
       setIsPending(false);
     }
   };
 
-  return (
-    <Screen contentStyle={styles.content}>
-      <PageHeader
-        eyebrow="Welcome back"
-        title="Sign in to StockMentor"
-        description="Use your email or username. Your password stays only in this in-memory app session."
-      />
+  const currentValidationErrors = hasAttemptedSubmit
+    ? validateLoginFields({ identity, password })
+    : {};
+  const hasCurrentValidationErrors = Object.keys(currentValidationErrors).length > 0;
+  const hasDisplayedFieldErrors = Object.values(fieldErrors).some(Boolean);
 
-      {formError ? <ErrorBanner title="Sign in failed" message={formError} /> : null}
+  return (
+    <AuthFormLayout
+      eyebrow="Welcome back"
+      title="Sign in to StockMentor"
+      description="Use your email or username. Your password stays only in this app session.">
+
+      {loginAuthError ? (
+        <ErrorBanner title="Sign in failed">
+          <Text selectable style={styles.errorMessage}>
+            The {loginAuthError.kind}{' '}
+            <Text style={styles.errorEmphasis}>{loginAuthError.value}</Text>{' '}
+            or password was not accepted.
+          </Text>
+        </ErrorBanner>
+      ) : formError ? (
+        <ErrorBanner title="Sign in failed" message={formError} />
+      ) : null}
       <AuthDiagnosticsPanel />
 
       <View style={styles.form}>
@@ -111,7 +148,7 @@ export function LoginScreen() {
         />
         <ActionButton
           accessibilityLabel={isPending ? 'Signing in' : 'Sign in'}
-          disabled={isPending}
+          disabled={isPending || hasCurrentValidationErrors || hasDisplayedFieldErrors}
           label={isPending ? 'Signing in...' : 'Sign in'}
           onPress={handleSubmit}
         />
@@ -125,14 +162,36 @@ export function LoginScreen() {
           <ActionButton disabled={isPending} label="Create an account" variant="secondary" />
         </Link>
       </View>
-    </Screen>
+    </AuthFormLayout>
   );
 }
 
+function validateLoginFields({ identity, password }: { identity: string; password: string }) {
+  const errors: LoginFieldErrors = {};
+  const trimmedIdentity = identity.trim();
+
+  if (!trimmedIdentity) {
+    errors.identity = 'Enter your email or username.';
+  } else if (trimmedIdentity.includes('@') && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(trimmedIdentity)) {
+    errors.identity = 'Enter a valid email address.';
+  } else if (!trimmedIdentity.includes('@') && !isValidUsername(trimmedIdentity)) {
+    errors.identity = 'Use 3 to 30 letters, numbers, dots, underscores, or hyphens.';
+  }
+
+  if (!password) {
+    errors.password = 'Enter your password.';
+  } else if (password.length < 8 || password.length > 72) {
+    errors.password = 'Password must be 8 to 72 characters.';
+  }
+
+  return errors;
+}
+
+function isValidUsername(value: string) {
+  return value.length >= 3 && value.length <= 30 && /^[A-Za-z0-9._-]+$/.test(value);
+}
+
 const styles = StyleSheet.create({
-  content: {
-    gap: Spacing.xl,
-  },
   form: {
     gap: Spacing.lg,
   },
@@ -143,5 +202,13 @@ const styles = StyleSheet.create({
     color: Colors.light.mutedText,
     fontSize: 15,
     lineHeight: 22,
+  },
+  errorMessage: {
+    color: Colors.light.text,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  errorEmphasis: {
+    fontWeight: '800',
   },
 });
