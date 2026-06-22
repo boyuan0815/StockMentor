@@ -4,9 +4,8 @@
 
 - The Spring Boot backend lives under `backend/`.
 - The Expo / React Native frontend lives under `frontend/`. The current frontend has the Phase 1 route shell and API
-  core plus the landed Phase 2B/2.5 auth, register/login, role routing, onboarding, profile, dashboard placeholder,
-  and HCI-polished account flows. Stock, AI suggestion, paper-trading, and full admin console workflows remain later
-  frontend phases.
+  core, the landed Phase 2B/2.5 account flows, and the Phase 3B stock-learning surfaces for Watchlist, Stocks, Search,
+  stock detail, delayed market metadata, watchlist actions, and the on-demand AI explanation drawer.
 - The frontend must call the Spring Boot backend only; it must not call OpenAI or Twelve Data directly.
 
 ## Frontend Planning Rules
@@ -20,6 +19,19 @@
 - AI wording must stay educational and never real financial advice.
 - Stock data UI should be described as delayed educational market data; do not imply immediate market quotes.
 - `AGENTS.md` is an index; detailed frontend design lives in `docs/frontend/`.
+- Preserve the Phase 3B stock UI standard in future frontend work: compact full-width tables, minimal page titles,
+  centered dark-navy toast feedback, market notice marquee strips, brand navy `#052344`, and movement colors where
+  green means increase and red means decrease.
+- The beginner tabs are `Watchlist`, `Stocks`, `Search`, `Suggestions`, `Practice`, and `Profile`. Hidden routes such
+  as stock detail, contextual search, and practice-trade placeholders should use `href: null`.
+- For tab/context routes, do not rely on `router.canGoBack()` alone. Pass explicit return params such as
+  `returnTo=stocks|watchlist|search-context|search-tab` so back actions return to the real origin.
+- Use `frontend/utils/safe-storage.ts` for best-effort local persistence. AsyncStorage/native-module failures must
+  never red-screen the app; safe storage must fall back to in-memory session values.
+- Placeholder practice-trade UI may navigate to the existing placeholder route, but it must not execute real or paper
+  trades unless a future phase explicitly implements the US010 frontend ticket.
+- If Expo tooling regenerates `frontend/.gitignore`, remove that explicit file before final status unless the user
+  separately approves keeping it.
 
 ## Build And Verification
 
@@ -165,6 +177,8 @@
   jobs, trigger backfill, or create synthetic candles.
 - `displayedMarketTime` means the actual stored price timestamp selected by the backend; `targetDisplayMarketTime` means
   the ideal backend-calculated delayed cutoff.
+- Stock detail responses may expose `previousClose`, `displayedAbsoluteChange`, and `displayedVolume` for the quote
+  panel. Show those fields only when present; do not derive trusted movement or volume in the frontend.
 - In `StockDetailResponse`, `highPrice` and `lowPrice` mean the displayed/latest day range for the delayed market view.
   The latest `7D` analysis snapshot range belongs in `snapshotHighPrice`, `snapshotLowPrice`, and `snapshotTimeframe`.
   `priceSource` is the displayed quote source. `dataSource` is a legacy analysis-source field; use
@@ -194,6 +208,8 @@
 - Watchlist actions are limited to the supported StockMentor stock universe and should be idempotent where practical.
 - Watchlist actions must not call Twelve Data, OpenAI, scheduler/backfill flows, stock analysis snapshot creation,
   behavior recalculation, or paper-trading services.
+- Watchlist responses may include the same delayed educational display fields used by stock list/detail responses, while
+  keeping legacy price/change fields backward compatible.
 
 ## AI Explanation Rules
 

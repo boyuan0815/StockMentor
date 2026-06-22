@@ -11,8 +11,10 @@ Each implementation phase is intended to run in a separate branch/worktree after
 - Frontend stack: TypeScript, React Native, Expo, Expo Router.
 - Current `frontend/` app has the Phase 1 StockMentor route shell, API core, in-memory session providers, theme tokens,
   base UI primitives, and the landed Phase 2B/2.5 account flows: welcome, register, login, auth bootstrap, role
-  routing, onboarding, onboarding result, profile, dashboard placeholder, and admin placeholders. Future chats must
-  inspect the current codebase before editing because files may differ from this plan.
+  routing, onboarding, onboarding result, profile, and admin placeholders. It also has the Phase 3B stock-learning
+  surfaces: Watchlist, Stocks, Search, stock detail, history summary/list, watchlist actions, safe storage for search
+  history/latest viewed stocks, and on-demand AI explanation drawer. Future chats must inspect the current codebase
+  before editing because files may differ from this plan.
 - The Spring Boot backend is the only app data source.
 - Use `EXPO_PUBLIC_API_BASE_URL` for the backend base URL.
 - Read these docs before each phase: `AGENTS.md`, `docs/frontend/frontend-design-blueprint.md`,
@@ -31,7 +33,12 @@ Every phase must preserve these rules:
   and `quantity`.
 - Stock display must prefer delayed fields: `displayedPrice`, `displayedPercentChange`, `displayedMarketTime`,
   `targetDisplayMarketTime`, `priceFreshnessStatus`, `priceSource`, `isPriceAvailable`, and `dataNote`.
+- Stock detail may use `previousClose`, `displayedAbsoluteChange`, and `displayedVolume` when the backend provides
+  them. Do not derive trusted absolute change or volume in the frontend.
 - Legacy stock fields such as `currentPrice`, `percentChange`, and `lastUpdated` are compatibility/fallback only.
+- Use `safe-storage.ts` for non-sensitive same-device persistence. Direct AsyncStorage failures must never red-screen
+  app flows.
+- Preserve deterministic stock navigation by passing explicit return params instead of relying on tab history alone.
 - AI wording must stay educational and must not present financial advice, price predictions, or buy/sell pressure.
 - Admin token must remain session-only and must never be hardcoded, committed, or placed in `EXPO_PUBLIC_` variables.
 - Real app flows must not silently use mock backend responses.
@@ -45,8 +52,8 @@ Every phase must preserve these rules:
 ## Worktree And Merge Model
 
 - Phase 1 and Phase 2 are sequential and should be merged before most feature phases start.
-- Phase 3 should preferably merge before Phase 4 and Phase 5 because it establishes stock cards, delayed-data display,
-  watchlist patterns, and chart conventions.
+- Phase 3 should preferably merge before Phase 4 and Phase 5 because it establishes compact stock tables,
+  delayed-data display, watchlist/search patterns, safe storage, and placeholder practice-trade navigation.
 - Phase 4, Phase 5, and Phase 6 can run in parallel after Phase 2 if each branch avoids shared foundation rewrites.
 - Phase 7 must run last after all selected feature phases are merged.
 - Avoid overlapping edits to shared files such as root layouts, theme tokens, API client core, auth/session providers,
@@ -60,7 +67,7 @@ Every phase must preserve these rules:
   update only the correct `frontend/` package and lock files, and verify the app still runs.
 - React Query was not added in Phase 1. If it is adopted for server state in a later phase, dependency installation
   must be a separate user-approved task.
-- Do not add chart dependencies by default. For MVP charts, first use existing dependencies and backend-returned points.
+- Do not add chart dependencies by default. For future charts, first use existing dependencies and backend-returned points.
   If existing dependencies cannot support a simple educational chart, implement a safe non-chart fallback or minimal
   placeholder and report a specific chart dependency recommendation for a separate user-approved dependency task. Do
   not install a chart library in Phase 3 unless the user explicitly approves it in that implementation chat.
@@ -156,29 +163,35 @@ normal implementation phases must not edit, stage, or commit `.agents/` or `skil
 
 ## Phase 3: Beginner Stock Learning, Delayed Data, Chart, Watchlist, And AI Explanation
 
+- Status: Phase 3B working standard is compact table-first stock learning. Preserve its UI/navigation conventions in
+  later phases.
 - Suggested branch/worktree: `codex/frontend-stock-learning`.
 - Required skills: `building-native-ui`, `native-data-fetching`, `frontend-design`, `vercel-react-native-skills`.
 - Purpose: implement the stock-learning experience that demonstrates delayed educational market data.
 - Prerequisites: Phase 2 merged.
-- Likely changes: user home/stocks routes, stocks API module, watchlist API module, AI explanation API module, stock
-  cards, delayed-data badges, simple chart component, watchlist controls.
-- Must not change: backend, admin console, paper-trading writes beyond navigation links, package files, or lock files.
+- Likely changes: user Watchlist/Stocks/Search routes, stocks API module, watchlist API module, AI explanation API
+  module, compact table components, market notice marquee, safe storage, delayed-data helpers, and watchlist controls.
+- Must not change: admin console, real paper-trading writes beyond placeholder navigation links, package files, or lock
+  files unless the user explicitly scopes that work.
 - Endpoints involved: `GET /api/stocks`, `GET /api/stocks/{symbol}`,
   `GET /api/stocks/{symbol}/history?timeframe=1D|7D|1M|3M|YTD|1Y`,
-  `GET /api/stocks/{symbol}/ai-explanation?timeframe=7D`, `GET /api/watchlist`, `POST /api/watchlist/{symbol}`,
+  `GET /api/stocks/{symbol}/ai-explanation?timeframe=1D|7D|1M|3M`, `GET /api/watchlist`, `POST /api/watchlist/{symbol}`,
   `DELETE /api/watchlist/{symbol}`.
 - Dependency policy: do not install chart dependencies by default. First use existing dependencies and backend-returned
   points. If existing dependencies cannot support a simple educational chart, implement a safe non-chart fallback or
   minimal placeholder and report a specific chart-library recommendation for a separate user-approved dependency task.
-- Scope: stock list/detail/history, delayed metadata display, unavailable data states, simple educational line chart,
-  watchlist add/remove, AI explanation with disclaimer, safe pull-to-refresh for reads.
+- Scope: Watchlist table, Stocks/Paper Trade table, Search tab/contextual search, stock detail/history summary,
+  delayed metadata display, unavailable data states, watchlist add/remove, AI explanation drawer with disclaimer, safe
+  storage for search history/latest viewed stocks, and safe pull-to-refresh for reads.
 - Out of scope: AI suggestion refresh, paper-trading execution, admin maintenance actions.
-- Acceptance: UI prefers delayed fields, shows `priceFreshnessStatus`/`isPriceAvailable`/`dataNote`, never invents
-  missing candles, labels stock data as delayed educational data, and never calls Twelve Data or OpenAI directly.
-- Verification: stock list/detail/history manual checks, empty history state, 1D pre-open wording when backend returns
-  fallback metadata, AI explanation unavailable state, watchlist duplicate-tap prevention, lint/type checks.
-- Handoff: report chart implementation choice, any dependency added, delayed-field rendering behavior, and reusable
-  stock components available to later phases.
+- Acceptance: UI prefers delayed fields, hides raw backend source/status/time from compact rows, shows market notice
+  marquee with full copy, never invents missing candles, labels stock data as delayed educational data, never calls
+  Twelve Data/OpenAI directly, and practice-trade CTAs navigate only to the placeholder route until Phase 5.
+- Verification: Watchlist/Stocks/Search/detail manual checks, deterministic back navigation, empty history state, 1D
+  pre-open/closed wording, AI explanation on-demand/no-prefetch behavior, watchlist duplicate-tap prevention, safe
+  storage fallback, lint/type checks.
+- Handoff: report chart/history-summary choice, any dependency added, delayed-field rendering behavior, route return
+  params, and reusable stock components available to later phases.
 
 ## Phase 4: AI Stock Suggestions
 

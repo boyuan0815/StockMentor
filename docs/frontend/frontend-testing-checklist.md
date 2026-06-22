@@ -21,16 +21,37 @@ Use this checklist after frontend implementation begins. This documentation task
 - Complete onboarding.
 - View investment profile.
 - Retake onboarding with confirmation.
-- View home dashboard.
-- View stock list.
+- View Watchlist tab.
+- Confirm Watchlist title is `Watchlists`, logo appears when asset exists, search/refresh are icon-only, tabs are
+  `All`, `US`, `HK`, `MY`, and table rows have no hearts.
+- Confirm Watchlist sorting cycles default -> ascending -> descending -> default for Symbol, Price, and Chg %, with
+  small up/down icon states.
+- Confirm Watchlist refreshes on focus after add/remove from detail.
+- View Stocks tab.
+- Confirm Stocks page title is compact `Paper Trade`, tabs are `US`, `MY`, `HK`, and `MY`/`HK` show planned states only.
+- Confirm Stocks table columns are `No.`, `Symbol`, `Price`, `Chg %`, `Action`, and the practice-trade button does not
+  trigger row navigation.
+- View Search tab and contextual search from Watchlist, Stocks, and Detail.
+- Confirm empty Search shows Search History and max three Latest Viewed Stocks only, not all supported stocks.
+- Confirm typed Search results show symbol/name plus heart toggle only, no price/change.
 - View stock detail.
-- Change chart timeframe.
+- Confirm Stock Detail header stays blank at top, shows symbol/company only after the main identity block is gone, and
+  shows symbol plus compact quote only after the main price block is gone.
+- Confirm detail quote panel shows displayed price, direction marker, absolute change, percent change, High, Low, and
+  full Volume when backend fields are present.
+- Confirm Volume is not truncated with ellipsis.
+- Change history timeframe.
 - Confirm delayed data badge/note appears from backend delayed metadata.
 - Confirm unavailable/null price states use `priceFreshnessStatus`, `isPriceAvailable`, and `dataNote`.
 - Confirm 9:30-9:44 AM New York opening message is clear when backend indicates current-day delayed data is not ready.
 - Confirm after 4:15 PM New York wording does not imply the market is still updating.
 - View empty chart state when backend returns no points.
-- View AI explanation and unavailable state.
+- Confirm market notice marquee preserves full copy, has no ellipsis, and scrolls long text.
+- View AI explanation drawer and unavailable state.
+- Confirm AI endpoint is not called on initial stock detail load.
+- Confirm AI drawer titles are `View AI Stock Explanation` and `Close AI Stock Explanation`.
+- Confirm backend cache/generated status messages are hidden while disclaimer/data window remain visible.
+- Confirm `YTD` and `1Y` show unsupported AI explanation copy without sending a request.
 - View AI suggestions.
 - Refresh suggestions when allowed.
 - Cooldown display disables refresh when not allowed.
@@ -41,6 +62,7 @@ Use this checklist after frontend implementation begins. This documentation task
 - Confirm sell.
 - Confirm reset.
 - Confirm buy/sell copy says practice trades use StockMentor's delayed stored price and that frontend does not send price.
+- Confirm Phase 3B `Practice Trade` placeholder CTAs do not call buy/sell APIs.
 - View transactions and transaction detail.
 - Logout clears session.
 
@@ -90,6 +112,8 @@ Use `backend-api-screen-map.md` as the endpoint checklist. Every screen should v
 - `409` conflict such as duplicate account or admin self-disable.
 - Backend unavailable.
 - Network timeout.
+- AsyncStorage/native module unavailable; search history and latest viewed stocks must fall back safely without a red
+  screen.
 - AI explanation unavailable.
 - AI suggestions fallback used.
 - Insufficient cash.
@@ -109,6 +133,24 @@ Use `backend-api-screen-map.md` as the endpoint checklist. Every screen should v
 - Tap stock backfill/cleanup rapidly.
 
 Each case should send at most one write request while pending.
+
+## Navigation Regression Tests
+
+- Stocks -> Detail -> Back returns Stocks.
+- Watchlist -> Detail -> Back returns Watchlist.
+- Search tab -> Detail -> Back returns Search tab.
+- Stocks -> Search Context -> Back returns Stocks.
+- Watchlist -> Search Context -> Back returns Watchlist.
+- Detail -> Search Context -> Back returns the same Detail.
+- Search Context -> Detail -> Back returns Search Context with original params.
+- Stock list -> Practice Trade placeholder -> Back returns Stock list.
+- Detail -> Practice Trade placeholder -> Back returns same Detail.
+
+## Phase 3B Protected-File Checks
+
+- `frontend/.gitignore` is absent unless explicitly approved.
+- `.agents` and `skills-lock.json` are not modified.
+- Package/lock files change only when a dependency was explicitly approved.
 
 ## Demo Script
 

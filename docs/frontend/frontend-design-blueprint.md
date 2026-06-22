@@ -23,10 +23,11 @@ It should be read with:
 - Admin is not a separate Vite, Next.js, or React web project for the MVP.
 - The Spring Boot backend is the only source of app data.
 
-The current `frontend/` folder has the Phase 1 StockMentor route shell and API core plus the landed Phase 2B/2.5
-account experience: memory-only Basic Auth, welcome/register/login, auth bootstrap, role routing, onboarding,
-onboarding result, profile, dashboard placeholder, admin placeholders, and mobile HCI polish. Future frontend work
-should build on that foundation rather than returning to Expo starter routes.
+The current `frontend/` folder has the Phase 1 StockMentor route shell and API core, the landed Phase 2B/2.5 account
+experience, and the Phase 3B stock-learning UI: Watchlist, Stocks, Search, stock detail, history summary/list,
+watchlist actions, safe storage for search history/latest viewed stocks, and on-demand AI explanation drawer. Future
+frontend work should build on that foundation rather than returning to Expo starter routes or older card-heavy stock
+screens.
 
 ## Final Use Case Map
 
@@ -130,7 +131,13 @@ Current backend contract:
 - Stock detail `dataSource` is a legacy analysis-source field; `analysisDataSource`, `snapshotHighPrice`,
   `snapshotLowPrice`, and `snapshotTimeframe` describe the latest analysis snapshot.
 - `highPrice` and `lowPrice` describe the displayed/latest day range selected by the delayed market view.
+- Stock detail may expose `previousClose`, `displayedAbsoluteChange`, and `displayedVolume`; show these only when the
+  backend returns them.
 - Frontend implementation must not invent trusted prices or displayed market times.
+
+Known future backend pass: `displayedPercentChange` currently uses same-day open or first intraday open as the baseline,
+while `displayedAbsoluteChange` uses `previousClose`. Do not correct this inconsistency in the frontend by inventing a
+new percent change.
 
 Opening and closing behavior:
 
@@ -198,14 +205,30 @@ Routes belong in `app/`. Components, types, utilities, API functions, hooks, and
 
 After login and onboarding, beginner users should see a simple tab-based shell:
 
-- Home
+- Watchlist
 - Stocks
+- Search
 - Suggestions
 - Practice
 - Profile
 
 Stacks inside tabs should open detail screens for stock detail, AI explanation, buy/sell tickets, transaction detail,
 onboarding retake, and settings.
+
+Phase 3B stock UI conventions:
+
+- Watchlist page title is `Watchlists`; it uses the StockMentor logo, icon-only search/refresh, market tabs
+  `All`, `US`, `HK`, `MY`, and a full-width table with `No.`, `Symbol`, `Price`, `Chg %`.
+- Stocks page title is compact `Paper Trade`; it uses market tabs `US`, `MY`, `HK` and a table with
+  `No.`, `Symbol`, `Price`, `Chg %`, `Action`.
+- Search is both a visible bottom tab and a hidden contextual route `/stocks/search-context`. Empty search shows Search
+  History and max three Latest Viewed Stocks, never the full supported stock list.
+- Stock detail uses a dynamic fixed header: blank at top, identity only after the main identity block is covered, and
+  symbol plus compact quote only after the main price block is covered.
+- Market notice copy is a shallow-red marquee strip that preserves the full backend-derived sentence with no string
+  slicing or ellipsis.
+- Toasts are centered dark-navy layers with white text and auto-dismiss behavior.
+- Practice-trade CTAs navigate to the placeholder route only until a real US010 frontend ticket phase.
 
 Mobile HCI rules for account and quiz flows:
 
@@ -265,15 +288,16 @@ Use this ownership model during implementation:
 - Local component state for forms, modals, quantity inputs, filters, and confirmation dialogs.
 - No Redux, Zustand, or broad global store unless a clear implementation need appears later.
 
-## Chart MVP
+## History And Chart Direction
 
-The MVP chart can be a simple educational line chart based on backend history points.
+Phase 3B ships a compact history summary/list because no chart dependency is part of the approved baseline. A real line
+or candlestick chart requires a separate dependency task.
 
 - Show selected timeframe.
 - Show data source and fallback notes when available.
 - Do not add advanced trading indicators.
 - Candlestick charts are optional only if easy later.
-- The chart should help beginners understand movement, not simulate a professional trading terminal.
+- The history display should help beginners understand movement, not simulate a professional trading terminal.
 - During the active delayed display window, the latest visible intraday point should normally be no later than the
   backend-decided displayed market time, about 15 minutes behind current New York market time.
 - The frontend must not silently invent or fill missing 1-minute candles.

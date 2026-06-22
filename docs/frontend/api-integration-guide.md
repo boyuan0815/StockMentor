@@ -34,6 +34,10 @@ Recommended later modules:
 
 Use `fetch` or Expo-compatible fetch. Avoid Axios unless a later implementation task gives a strong reason.
 
+Phase 3B stock-learning modules live outside `frontend/app` and should remain the pattern for future work: route files
+stay thin, API calls go through the existing Basic Auth API client, DTO types live in `frontend/types`, and stock display
+helpers live in `frontend/utils`.
+
 ## Base URL
 
 Use:
@@ -71,6 +75,16 @@ Credential storage decision:
 - Basic Auth credentials remain memory-only in the Phase 2B/2.5 MVP and must not be written to localStorage,
   SecureStore, AsyncStorage, files, logs, or diagnostics without a separately approved storage design.
 - Long-term improvement could be JWT/session auth, but that is not MVP scope.
+
+## Safe Local Storage
+
+Use `frontend/utils/safe-storage.ts` for non-sensitive same-device persistence such as search history and latest viewed
+stocks. Safe storage wraps AsyncStorage and falls back to in-memory session values if the native module is unavailable
+or throws. Direct AsyncStorage calls are not allowed in app flows because Expo Go/native-module issues must not
+red-screen the app.
+
+Safe storage must not hold passwords, Basic Auth values, admin tokens, `Authorization`, `X-Admin-Token`, API keys,
+request bodies containing secrets, or private diagnostics.
 
 ## Admin Token UX
 
@@ -214,16 +228,44 @@ Frontend responsibilities:
 
 Current backend contract:
 
-- Stock list/detail/history responses expose backend delayed display fields including `displayedPrice`,
+- Stock list/detail/history and watchlist stock responses expose backend delayed display fields including `displayedPrice`,
   `displayedPercentChange`, `displayedMarketTime`, `targetDisplayMarketTime`, `dataDelayMinutes`,
   `priceFreshnessStatus`, `isPriceAvailable`, `isTradeExecutable`, `dataNote`, `priceSource`, `marketTimeZone`, and
   where applicable `lastBackendUpdatedAt`.
-- Frontend display should prefer `displayedPrice`, `displayedPercentChange`, `priceSource`, `displayedMarketTime`,
-  `targetDisplayMarketTime`, and `priceFreshnessStatus`.
+- Frontend display should prefer `displayedPrice`, `displayedPercentChange`, `displayedMarketTime`,
+  `targetDisplayMarketTime`, and `priceFreshnessStatus`, but compact stock rows must not expose raw `priceSource`,
+  backend table names, or raw freshness enum values to users.
 - Legacy `currentPrice`, `percentChange`, and `lastUpdated` are backward-compatible stock table snapshot fields.
 - Stock detail `dataSource` is a legacy analysis-source field. Use `analysisDataSource`, `snapshotHighPrice`,
   `snapshotLowPrice`, and `snapshotTimeframe` for latest analysis snapshot metadata.
 - Stock detail `highPrice` and `lowPrice` describe the displayed/latest day range selected by the delayed market view.
+- Stock detail may expose `previousClose`, `displayedAbsoluteChange`, and `displayedVolume`. Use these backend fields
+  for the quote panel when present. Do not calculate trusted absolute change or volume in the frontend.
+- Watchlist stock rows expose the same delayed display fields as stock list/detail rows while keeping legacy
+  `currentPrice` and `percentChange` compatibility fields.
 - `1D` history can return stored intraday chart rows even when quote metadata uses daily fallback during pre-open.
 - Paper-trading buy/sell accepts only `symbol` and `quantity`; backend decides execution price using the delayed stored
   market price selector.
+
+Known backend formula issue for a future backend pass:
+
+- `displayedPercentChange` currently comes from the delayed price selector and uses same-day open or the first
+  intraday open as the baseline.
+- `displayedAbsoluteChange` uses `previousClose` as the baseline.
+- These fields are therefore inconsistent for broker-style display. Future backend work should align displayed percent
+  change to the previous-close baseline if StockMentor wants broker-style movement semantics. Do not fix this in the
+  frontend by inventing a percent change.
+
+## Phase 3B Stock Endpoint Usage
+
+- `GET /api/stocks` is the source for the Stocks table and typed search universe.
+- `GET /api/watchlist` is the source for the Watchlist table and should use delayed fields from watchlist row DTOs.
+- `GET /api/stocks/{symbol}` is the source for stock detail. Clear old detail state when `symbol` changes so stale
+  stock content never flashes.
+- `GET /api/stocks/{symbol}/history?timeframe=1D|7D|1M|3M|YTD|1Y` powers the history summary/list. Use returned points
+  exactly; do not fill, smooth, or synthesize missing candles.
+- `GET /api/stocks/{symbol}/ai-explanation?timeframe=1D|7D|1M|3M` is called only after the user opens the AI drawer.
+  Do not prefetch this endpoint from list/detail initial load. For `YTD` and `1Y`, show unsupported explanation copy
+  and send no request.
+- Watchlist add/remove uses `POST /api/watchlist/{symbol}` and `DELETE /api/watchlist/{symbol}` with duplicate-tap
+  guards. On failure, preserve the previous local state and show a toast.

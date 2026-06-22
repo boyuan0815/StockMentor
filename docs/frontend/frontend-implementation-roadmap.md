@@ -41,22 +41,26 @@ Acceptance:
 
 ## Phase 3: Beginner Stock Learning
 
-- Home dashboard.
-- Stock list.
-- Stock detail.
-- Simple educational line chart.
-- Timeframe tabs.
-- Watchlist add/remove.
-- AI explanation.
+- Status: Phase 3B stock-learning UI standard is implemented in the working tree and should be preserved by later
+  phases.
+- Watchlist tab with `Watchlists` table.
+- Stocks tab with compact `Paper Trade` table.
+- Search tab plus hidden contextual `/stocks/search-context` route.
+- Stock detail with measured dynamic header, quote panel, history summary/list, and practice-trade placeholder CTA.
+- Timeframe tabs and backend-returned history points.
+- Watchlist add/remove with toast and duplicate-tap guards.
+- AI explanation drawer opened on demand only.
 
 Acceptance:
 
 - Uses stored backend data only.
-- Chart shows timeframe and data/fallback notes.
-- AI explanation has educational disclaimer.
+- History summary/list uses backend points exactly; no chart dependency is assumed.
+- AI explanation has educational disclaimer and hides backend cache/generated status messages.
 - Stock data is labeled as 15-minute delayed educational market data.
-- UI prefers backend delayed display fields such as `displayedPrice`, `displayedPercentChange`, `priceSource`,
-  `displayedMarketTime`, `targetDisplayMarketTime`, and `priceFreshnessStatus`.
+- UI prefers backend delayed display fields such as `displayedPrice`, `displayedPercentChange`, `displayedMarketTime`,
+  `targetDisplayMarketTime`, and `priceFreshnessStatus`, while compact rows hide raw source/status/time values.
+- Search empty state shows Search History and max three Latest Viewed Stocks, not the full supported stock list.
+- Explicit return params keep Stocks/Watchlist/Search/Detail/Practice back navigation deterministic.
 
 ## Phase 4: AI Suggestions
 

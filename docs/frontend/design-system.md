@@ -10,6 +10,7 @@ Design signature: a "learning ledger" feel. Use clear rows, soft dividers, gentl
 
 Use a restrained light-first palette:
 
+- Brand navy: `#052344`
 - Primary trust blue: `#2563EB`
 - Learning teal: `#0F766E`
 - Calm background: `#F8FAFC`
@@ -22,6 +23,10 @@ Use a restrained light-first palette:
 - Destructive: `#B91C1C`
 
 Green and red should indicate data movement or destructive actions only. Do not make the whole app feel like a trading terminal.
+
+Phase 3B stock UI uses brand navy for primary practice-trade CTAs and centered toast feedback. Stock movement follows
+the US convention: green for increases, red for decreases, and neutral gray for flat or unavailable values. Keep these
+colors centralized so a future preference can invert movement colors without hunting hardcoded values.
 
 ## Typography
 
@@ -59,13 +64,76 @@ Build custom lightweight StockMentor components first:
 - `RiskPill`
 - `TrendPill`
 - `AIDisclaimer`
-- `StockCard`
+- `StockTableRow`
 - `SuggestionCard`
 - `TradeTicket`
 - `PortfolioSummary`
 - `AdminDataTable`
 
 Do not install a large UI kit during planning. Add UI or chart libraries later only if implementation proves a clear need.
+
+Stock browsing screens should favor compact professional table rows over oversized cards when users need to compare
+symbols. Phase 3B stock, watchlist, and search fallback tables are full-width table surfaces with thin dividers,
+independent columns, compact row height, and no rounded card box per stock row.
+
+Search empty states show `Search History` and at most three `Latest Viewed Stocks`. They must not show the full
+supported stock list when the input is empty. Typed search may search all supported backend stocks and render quote rows
+with symbol/name plus a heart toggle.
+
+Toast/snackbar feedback should be centralized, centered, non-blocking, auto-dismissed, English-only, and styled as a
+dark navy layer with white text and a visible shadow. Watchlist success/remove and refresh-cooldown messages use neutral
+toast styling; errors may add a soft danger accent.
+
+## Phase 3B Stock UI Standard
+
+Bottom tabs:
+
+- `Watchlist`
+- `Stocks`
+- `Search`
+- `Suggestions`
+- `Practice`
+- `Profile`
+
+Watchlist page:
+
+- Title is `Watchlists`, with the StockMentor logo when the approved asset exists.
+- Search and refresh actions are icon-only.
+- Market tabs are `All`, `US`, `HK`, and `MY`; `HK` and `MY` are planned states, not implemented market data.
+- Rows do not show heart icons. Columns are `No.`, `Symbol`, `Price`, and `Chg %`.
+- `Symbol`, `Price`, and `Chg %` headers are sortable.
+
+Stocks page:
+
+- Title is `Paper Trade`, compact and not oversized.
+- Market tabs are `US`, `MY`, and `HK`; only `US` shows the supported stock table.
+- Row tap opens stock detail. The practice-trade action opens the placeholder route only and does not execute a trade.
+- Table columns are `No.`, `Symbol`, `Price`, `Chg %`, and `Action`.
+
+Stock detail page:
+
+- Fixed header has three states: blank at top, symbol/company only after the main identity block is covered, then symbol
+  plus compact quote after the main price block is covered.
+- Header thresholds must be based on measured block bottoms, not block starts.
+- Compact quote uses close price, a tight `▲` or `▼` marker, absolute change, and percent change. Values use movement
+  color.
+- Main quote panel shows symbol/company, market status, displayed price, direction marker, absolute change, percent
+  change, High, Low, and full Volume. Volume must not be truncated with ellipsis.
+- Footer wrapper is transparent. The CTA button is brand navy `#052344` and labeled `Practice Trade`.
+
+AI explanation drawer:
+
+- Closed title is `View AI Stock Explanation`; open title is `Close AI Stock Explanation`.
+- Hide backend cache/generated status messages such as `Returned cached AI explanation`.
+- Keep the educational disclaimer and data window compact.
+- Loading uses a simple spinner plus short copy; error state provides retry for the same on-demand request.
+
+Sorting icons:
+
+- Default unsorted state shows both small arrows.
+- Ascending shows only the up arrow.
+- Descending shows only the down arrow.
+- Use `IconSymbol` mappings or a local icon component; do not show raw text `^`, `v`, `<`, or `>`.
 
 ## Status Labels
 
@@ -100,6 +168,11 @@ Market data labels:
 - Updated display minute
 - Data not ready yet
 
+Market notice banners are compact shallow-red marquee strips on Watchlist, Stocks, and Stock Detail. Preserve the full
+backend-derived copy, do not slice strings, and do not show ellipsis. Long text should scroll as a marquee. Map backend
+freshness metadata to user-facing states such as delayed data available, delayed prices not ready yet, latest stored
+market data, and stale or unavailable data. Do not duplicate full exchange holiday logic in the frontend.
+
 ## AI Disclaimer Component
 
 Every AI explanation/suggestion screen should show a compact disclaimer:
@@ -128,7 +201,7 @@ Keep it visible but not frightening.
 
 ## Chart Presentation
 
-- MVP chart can be a simple educational line chart.
+- Phase 3B does not ship a real chart dependency. Use a compact history summary/list until a chart package is approved.
 - Show timeframe.
 - Show source/fallback notes when backend provides them.
 - No advanced trading indicators.

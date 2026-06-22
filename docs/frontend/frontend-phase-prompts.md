@@ -243,19 +243,30 @@ Implementation style:
   never log credentials, `Authorization`, `X-Admin-Token`, passwords, API keys, or secrets.
 
 Scope:
-- Implement stock list, stock detail, backend-returned history, simple educational line chart, watchlist add/remove,
-  and user-facing AI explanation.
+- Preserve the current Phase 3B table-first stock UI standard.
+- Implement or extend Watchlist, Stocks/Paper Trade, Search, stock detail, backend-returned history summary/list,
+  watchlist add/remove, and user-facing AI explanation drawer.
+- Use compact full-width tables instead of card-style stock rows.
+- Keep visible beginner tabs as `Watchlist`, `Stocks`, `Search`, `Suggestions`, `Practice`, and `Profile`.
+- Use hidden contextual search route `/stocks/search-context` and explicit return params for stock/detail/search/practice
+  navigation.
 - Prefer delayed fields: `displayedPrice`, `displayedPercentChange`, `displayedMarketTime`,
-  `targetDisplayMarketTime`, `priceFreshnessStatus`, `priceSource`, `isPriceAvailable`, and `dataNote`.
+  `targetDisplayMarketTime`, `priceFreshnessStatus`, `isPriceAvailable`, and `dataNote`.
+- Use `previousClose`, `displayedAbsoluteChange`, and `displayedVolume` only when the backend exposes them.
 - Treat legacy stock fields as compatibility/fallback only.
 - Use backend history points exactly as returned; do not fill or invent missing 1-minute candles.
 - Show "15-minute delayed educational market data" wording and educational AI disclaimers.
+- Do not show raw backend source/status/time values in compact stock rows.
+- Market notice should be a compact marquee strip that preserves full copy with no string slicing or ellipsis.
+- AI explanation must fetch only when the drawer is opened, use `View AI Stock Explanation` / `Close AI Stock
+  Explanation`, and hide backend cache/generated status messages.
+- Use `safe-storage.ts` for search history/latest viewed stocks; AsyncStorage failure must not red-screen.
 
 Backend endpoints:
 - `GET /api/stocks`
 - `GET /api/stocks/{symbol}`
 - `GET /api/stocks/{symbol}/history?timeframe=1D|7D|1M|3M|YTD|1Y`
-- `GET /api/stocks/{symbol}/ai-explanation?timeframe=7D`
+- `GET /api/stocks/{symbol}/ai-explanation?timeframe=1D|7D|1M|3M`
 - `GET /api/watchlist`
 - `POST /api/watchlist/{symbol}`
 - `DELETE /api/watchlist/{symbol}`
@@ -270,8 +281,8 @@ Dependency policy:
 - Default: do not install dependencies.
 - Do not install chart dependencies by default.
 - For MVP, first use existing dependencies and backend-returned points.
-- If existing dependencies cannot support a simple educational chart, implement a safe non-chart fallback or minimal
-  placeholder and report a specific chart-library recommendation for a separate user-approved dependency task.
+- If existing dependencies cannot support a simple educational chart, implement a safe history summary/list and report a
+  specific chart-library recommendation for a separate user-approved dependency task.
 - Do not install a chart library in Phase 3 unless I explicitly approve it in this chat.
 
 Verification:

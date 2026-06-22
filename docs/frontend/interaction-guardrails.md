@@ -47,8 +47,34 @@ Every confirmation modal must:
 - Use backend delayed display metadata as the preferred display source.
 - Handle unavailable delayed data states through backend fields such as `priceFreshnessStatus`, `isPriceAvailable`, and
   `dataNote`.
-- Show displayed market time and last backend update time separately.
+- Show displayed market time and last backend update time only where they help the user. Do not repeat raw
+  `priceSource`, raw freshness values, displayed market time, or backend table names in every stock row.
 - Practice trade confirmation must say: "Practice trade uses StockMentor's delayed stored price, not a live market quote."
+- Compact stock and watchlist tables should use price and movement data only unless the backend exposes a reliable
+  displayed/latest volume field for that row. Stock detail may show `displayedVolume` when the backend provides it.
+- Market notice copy belongs in one compact marquee strip near the table/detail header. Preserve the full notice string,
+  do not slice it, and do not use ellipsis.
+- If a displayed/stored price is already available, do not tell users delayed prices are not ready. Use backend metadata
+  to distinguish open delayed data, closed/latest stored data, pre-market stored data, truly unavailable data, and stale
+  data.
+
+## Toast Feedback
+
+- Toast/snackbar feedback should be centralized, centered, lightweight, non-blocking, auto-dismissed, and English-only.
+- Current stock UI toasts use dark navy `#052344`, white text, and visible shadow/elevation so they read as a separate
+  layer without blocking the screen.
+- Use toast feedback for watchlist success, watchlist failure, refresh cooldown, and unavailable placeholder actions.
+- Retry after a failed AI explanation load may repeat the same on-demand request, but it must not be labeled as refresh
+  or regenerate unless a backend refresh endpoint exists.
+
+## Local Persistence Guardrails
+
+- Use `frontend/utils/safe-storage.ts` for non-sensitive same-device persistence such as search history and latest
+  viewed stocks.
+- Safe storage must catch AsyncStorage/native-module failures and fall back to in-memory session values so Expo Go or
+  native-module availability issues never red-screen the app.
+- Never store passwords, Basic Auth values, admin tokens, `Authorization`, `X-Admin-Token`, API keys, request bodies
+  containing secrets, or private diagnostics in AsyncStorage or safe storage.
 
 ## Cooldown Rules
 
@@ -72,6 +98,10 @@ Pull-to-refresh is allowed for read-only screens:
 - admin monitoring lists
 
 Do not pull-to-refresh write actions.
+
+- Refresh icons on stock data screens should use the refresh cooldown helper where applicable.
+- Pull-to-refresh and timer refresh must not spam backend read endpoints or imply real-time market data.
+- History-only loading should not trigger whole-page refresh states or scroll jumps.
 
 ## Form Validation UX
 
@@ -110,3 +140,22 @@ Do not pull-to-refresh write actions.
 - Admin API calls require Basic Auth plus `X-Admin-Token`.
 - Frontend must not send `userId` for current-user normal user actions.
 - Route params are allowed only where backend expects them, such as stock symbol, transaction id, user id for admin, batch id, and job id.
+- For tab/context flows, pass explicit return params instead of relying on `router.canGoBack()` alone.
+- Stock detail routes should receive `returnTo=stocks`, `returnTo=watchlist`, `returnTo=search-context`, or
+  `returnTo=search-tab` depending on origin.
+- Contextual search uses hidden route `/stocks/search-context`; the bottom `Search` tab remains a stable tab route.
+- Hidden tab routes should use `href: null`.
+- Expected navigation:
+  - Stocks -> Detail -> Back returns Stocks.
+  - Watchlist -> Detail -> Back returns Watchlist.
+  - Search tab -> Detail -> Back returns Search tab.
+  - Stocks/Watchlist/Detail -> Search Context -> Back returns the correct origin.
+  - Detail -> Practice Trade -> Back returns the same detail context.
+
+## Placeholder Trade Guardrails
+
+- Phase 3B practice-trade actions may navigate to the placeholder route only.
+- Placeholder practice-trade UI must not call buy/sell APIs, must not submit quantities, and must not pretend real or
+  paper execution is implemented.
+- Real US010 frontend buy/sell tickets require a separately scoped implementation phase with confirmation and backend
+  payload checks.
