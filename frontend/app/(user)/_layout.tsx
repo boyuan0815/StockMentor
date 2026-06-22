@@ -18,12 +18,15 @@ export default function UserLayout() {
             backgroundColor: Colors.light.surface,
             borderTopColor: Colors.light.border,
           },
+          sceneStyle: {
+            backgroundColor: Colors.light.background,
+          },
         }}>
         <Tabs.Screen
           name="dashboard"
           options={{
-            title: 'Home',
-            tabBarIcon: ({ color }) => <IconSymbol name="house.fill" color={color} />,
+            title: 'Watchlist',
+            tabBarIcon: ({ color }) => <IconSymbol name="heart.fill" color={color} />,
           }}
         />
         <Tabs.Screen
@@ -33,6 +36,13 @@ export default function UserLayout() {
             tabBarIcon: ({ color }) => (
               <IconSymbol name="chart.line.uptrend.xyaxis" color={color} />
             ),
+          }}
+        />
+        <Tabs.Screen
+          name="stocks/search"
+          options={{
+            title: 'Search',
+            tabBarIcon: ({ color }) => <IconSymbol name="magnifyingglass" color={color} />,
           }}
         />
         <Tabs.Screen
@@ -60,6 +70,7 @@ export default function UserLayout() {
         />
         <Tabs.Screen name="stocks/[symbol]" options={{ href: null }} />
         <Tabs.Screen name="stocks/[symbol]/explanation" options={{ href: null }} />
+        <Tabs.Screen name="stocks/search-context" options={{ href: null }} />
         <Tabs.Screen name="paper-trading/buy" options={{ href: null }} />
         <Tabs.Screen name="paper-trading/sell" options={{ href: null }} />
         <Tabs.Screen name="paper-trading/transactions" options={{ href: null }} />

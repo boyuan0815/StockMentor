@@ -94,6 +94,21 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
     );
 
     @Query("""
+        select coalesce(sum(h.volume), 0)
+        from StockPriceHistory h
+        where h.symbol = :symbol
+        and h.tradingDate = :tradingDate
+        and h.timeInterval = :timeInterval
+        and h.timestamp <= :timestamp
+    """)
+    Long sumVolumeAtOrBefore(
+            @Param("symbol") String symbol,
+            @Param("tradingDate") LocalDate tradingDate,
+            @Param("timeInterval") String timeInterval,
+            @Param("timestamp") LocalDateTime timestamp
+    );
+
+    @Query("""
         select max(h.tradingDate)
         from StockPriceHistory h
         where h.symbol = :symbol

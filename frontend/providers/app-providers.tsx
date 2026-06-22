@@ -3,12 +3,15 @@ import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-c
 
 import { AuthSessionProvider } from '@/providers/auth-session-provider';
 import { StockMentorThemeProvider } from '@/providers/stockmentor-theme-provider';
+import { ToastProvider } from '@/providers/toast-provider';
 
 export function AppProviders({ children }: PropsWithChildren) {
   return (
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <AuthSessionProvider>
-        <StockMentorThemeProvider>{children}</StockMentorThemeProvider>
+        <StockMentorThemeProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </StockMentorThemeProvider>
       </AuthSessionProvider>
     </SafeAreaProvider>
   );

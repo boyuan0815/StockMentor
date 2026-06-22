@@ -1,22 +1,19 @@
-import { useFocusEffect } from '@react-navigation/native';
-import { Image } from 'expo-image';
 import { type Href, useRouter } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { watchlistApi } from '@/api/watchlist';
-import { EmptyState } from '@/components/foundation/empty-state';
+import { stocksApi } from '@/api/stocks';
 import { ErrorBanner } from '@/components/foundation/error-banner';
 import { SkeletonRows } from '@/components/foundation/skeleton-block';
 import { SortIndicator } from '@/components/stocks/sort-indicator';
 import { StockMarketNotice } from '@/components/stocks/stock-market-notice';
-import { WatchlistTableRow } from '@/components/stocks/stock-table-row';
+import { StockListTableRow, type StockTableItem } from '@/components/stocks/stock-table-row';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Spacing } from '@/constants/theme';
 import { useRefreshCooldown } from '@/hooks/use-refresh-cooldown';
 import { useAuthSession } from '@/providers/auth-session-provider';
-import type { WatchlistStockResponse } from '@/types/stocks';
+import type { StockListItemResponse } from '@/types/stocks';
 import {
   getPreferredPercentChange,
   getPreferredPrice,
@@ -24,55 +21,46 @@ import {
   toNumber,
 } from '@/utils/stock-display';
 
-type WatchlistTab = 'All' | 'US' | 'HK' | 'MY';
 type SortKey = 'default' | 'symbol' | 'price' | 'change';
 type SortDirection = 'asc' | 'desc';
+type MarketTab = 'US' | 'MY' | 'HK';
 
-export function DashboardScreen() {
+export function StockListScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { credentials } = useAuthSession();
   const guardedRefresh = useRefreshCooldown();
-  const requestInFlightRef = useRef(false);
-  const hasLoadedRef = useRef(false);
-  const [watchlistStocks, setWatchlistStocks] = useState<WatchlistStockResponse[]>([]);
-  const [activeTab, setActiveTab] = useState<WatchlistTab>('All');
+  const [stocks, setStocks] = useState<StockListItemResponse[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>('default');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [activeMarket, setActiveMarket] = useState<MarketTab>('US');
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const loadWatchlist = useCallback(
-    async (mode: 'focus' | 'refresh' = 'focus') => {
-      if (requestInFlightRef.current) {
-        return;
-      }
-
+  const loadRows = useCallback(
+    async (mode: 'initial' | 'refresh' = 'initial') => {
       if (!credentials) {
-        setErrorMessage('Sign in again to load your watchlist.');
+        setErrorMessage('Sign in again to load stocks.');
         setIsLoading(false);
         setIsRefreshing(false);
-        hasLoadedRef.current = true;
         return;
       }
 
-      requestInFlightRef.current = true;
       if (mode === 'refresh') {
         setIsRefreshing(true);
-      } else if (!hasLoadedRef.current) {
+      } else {
         setIsLoading(true);
       }
+
       setErrorMessage(null);
 
       try {
-        const response = await watchlistApi.getWatchlist(credentials);
-        setWatchlistStocks(response.watchlistedStocks ?? []);
+        const stockResponse = await stocksApi.getStocks(credentials);
+        setStocks(stockResponse.stocks ?? []);
       } catch (error) {
-        setErrorMessage(getStockApiErrorMessage(error, 'Watchlist could not be loaded.'));
+        setErrorMessage(getStockApiErrorMessage(error, 'Stock list could not be loaded.'));
       } finally {
-        hasLoadedRef.current = true;
-        requestInFlightRef.current = false;
         setIsLoading(false);
         setIsRefreshing(false);
       }
@@ -80,23 +68,16 @@ export function DashboardScreen() {
     [credentials],
   );
 
-  useFocusEffect(
-    useCallback(() => {
-      void loadWatchlist('focus');
-      return undefined;
-    }, [loadWatchlist]),
-  );
+  useEffect(() => {
+    void loadRows();
+  }, [loadRows]);
 
-  const handleRefresh = () => {
-    guardedRefresh(() => void loadWatchlist('refresh'));
-  };
-
-  const visibleWatchlistRows = useMemo(() => {
+  const visibleRows = useMemo(() => {
     if (sortKey === 'default') {
-      return watchlistStocks;
+      return stocks;
     }
 
-    return [...watchlistStocks].sort((first, second) => {
+    return [...stocks].sort((first, second) => {
       const direction = sortDirection === 'asc' ? 1 : -1;
       if (sortKey === 'symbol') {
         return first.symbol.localeCompare(second.symbol) * direction;
@@ -122,9 +103,13 @@ export function DashboardScreen() {
       }
       return (firstValue - secondValue) * direction;
     });
-  }, [sortDirection, sortKey, watchlistStocks]);
+  }, [sortDirection, sortKey, stocks]);
 
-  const handleSort = (nextKey: Exclude<SortKey, 'default'>) => {
+  const handleRefresh = () => {
+    guardedRefresh(() => void loadRows('refresh'));
+  };
+
+  const handleSort = (nextKey: SortKey) => {
     if (nextKey === sortKey) {
       if (sortDirection === 'asc') {
         setSortDirection('desc');
@@ -139,39 +124,25 @@ export function DashboardScreen() {
     setSortDirection('asc');
   };
 
-  const openSearch = () => {
+  const handlePaperTrade = (stock: StockTableItem) => {
     router.push({
-      pathname: '/stocks/search-context',
-      params: { from: 'watchlist' },
+      pathname: '/paper-trading/buy',
+      params: { from: 'stocks', symbol: stock.symbol },
     } as Href);
   };
 
-  const showUnsupported = activeTab === 'HK' || activeTab === 'MY';
+  const openSearch = () => {
+    router.push({
+      pathname: '/stocks/search-context',
+      params: { from: 'stocks' },
+    } as Href);
+  };
 
-  return (
-    <ScrollView
-      alwaysBounceVertical
-      bounces
-      contentContainerStyle={[
-        styles.content,
-        {
-          paddingBottom: Math.max(Spacing.xxl, insets.bottom + Spacing.xl),
-          paddingTop: insets.top + 2,
-        },
-      ]}
-      contentInsetAdjustmentBehavior="never"
-      overScrollMode="never"
-      refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={isRefreshing} />}
-      style={styles.container}>
+  const header = (
+    <View style={styles.headerStack}>
       <View style={styles.topActions}>
-        <Image
-          accessibilityLabel="StockMentor"
-          contentFit="contain"
-          source={require('../assets/images/stockmentor-icon-transparent-1024.png')}
-          style={styles.logo}
-        />
         <Text selectable style={styles.pageTitle}>
-          Watchlists
+          Paper Trade
         </Text>
         <Pressable
           accessibilityHint="Searches supported stocks."
@@ -182,8 +153,8 @@ export function DashboardScreen() {
           <IconSymbol color={Colors.light.text} name="magnifyingglass" size={22} />
         </Pressable>
         <Pressable
-          accessibilityHint="Refreshes your watchlist."
-          accessibilityLabel="Refresh watchlist"
+          accessibilityHint="Refreshes the stock table."
+          accessibilityLabel="Refresh stocks"
           accessibilityRole="button"
           onPress={handleRefresh}
           style={({ pressed }) => [styles.iconButton, pressed ? styles.pressed : undefined]}>
@@ -192,31 +163,31 @@ export function DashboardScreen() {
       </View>
 
       <View style={styles.marketTabs}>
-        {(['All', 'US', 'HK', 'MY'] as WatchlistTab[]).map((tab) => (
+        {(['US', 'MY', 'HK'] as MarketTab[]).map((tab) => (
           <Pressable
             accessibilityHint={
-              tab === 'All' || tab === 'US'
-                ? 'Shows saved US stocks.'
+              tab === 'US'
+                ? 'Shows supported US stocks.'
                 : `${tab} market support is planned for a later release.`
             }
-            accessibilityLabel={`${tab} watchlist tab`}
+            accessibilityLabel={`${tab} market tab`}
             accessibilityRole="button"
-            accessibilityState={{ selected: activeTab === tab }}
+            accessibilityState={{ selected: activeMarket === tab }}
             key={tab}
-            onPress={() => setActiveTab(tab)}
+            onPress={() => setActiveMarket(tab)}
             style={styles.marketTab}>
-            <Text style={[styles.marketTabText, activeTab === tab ? styles.marketTabTextActive : undefined]}>
+            <Text style={[styles.marketTabText, activeMarket === tab ? styles.marketTabTextActive : undefined]}>
               {tab}
             </Text>
           </Pressable>
         ))}
       </View>
 
-      <StockMarketNotice stocks={watchlistStocks} />
+      <StockMarketNotice stocks={stocks} />
 
-      {errorMessage ? <ErrorBanner title="Watchlist needs attention" message={errorMessage} /> : null}
+      {errorMessage ? <ErrorBanner title="Stocks need attention" message={errorMessage} /> : null}
 
-      {!showUnsupported ? (
+      {activeMarket === 'US' ? (
         <View style={styles.tableHeader}>
           <Text style={[styles.tableHeaderText, styles.tableHeaderNo]}>No.</Text>
           <HeaderCell
@@ -242,47 +213,56 @@ export function DashboardScreen() {
             sortDirection={sortDirection}
             style={styles.tableHeaderChange}
           />
+          <Text style={[styles.tableHeaderText, styles.tableHeaderAction]}>Action</Text>
         </View>
       ) : null}
 
-      {isLoading ? (
-        <SkeletonRows count={4} />
-      ) : showUnsupported ? (
-        <UnsupportedWatchlistState market={activeTab} />
-      ) : visibleWatchlistRows.length === 0 ? (
-        <EmptyState
-          title="No watchlist stocks yet"
-          description="Search stocks and tap the heart to add one."
-        />
-      ) : (
-        <View style={styles.rows}>
-          {visibleWatchlistRows.map((stock, index) => (
-            <WatchlistTableRow
-              detailReturnContext={{ returnTo: 'watchlist' }}
-              key={stock.symbol}
-              rowNumber={index + 1}
-              stock={stock}
-            />
-          ))}
-        </View>
-      )}
-    </ScrollView>
-  );
-}
-
-function UnsupportedWatchlistState({ market }: { market: 'HK' | 'MY' }) {
-  return (
-    <View style={styles.unsupported}>
-      <View style={styles.unsupportedIcon}>
-        <IconSymbol color={Colors.light.caution} name="hammer.fill" size={28} />
-      </View>
-      <Text selectable style={styles.unsupportedTitle}>
-        {market} watchlists are in progress
-      </Text>
-      <Text selectable style={styles.unsupportedBody}>
-        This section will be completed in a later release.
-      </Text>
+      {isLoading ? <SkeletonRows count={5} /> : null}
     </View>
+  );
+
+  return (
+    <FlatList
+      ListEmptyComponent={
+        isLoading || activeMarket !== 'US' ? null : (
+          <View style={styles.emptyState}>
+            <Text selectable style={styles.emptyTitle}>
+              {errorMessage ? 'Stocks could not be loaded' : 'No stored stock rows'}
+            </Text>
+            <Text selectable style={styles.emptyDescription}>
+              {errorMessage
+                ? 'Check that the backend is running, then refresh.'
+                : 'The backend returned no supported stocks yet.'}
+            </Text>
+          </View>
+        )
+      }
+      ListHeaderComponent={header}
+      contentContainerStyle={[
+        styles.listContent,
+        {
+          paddingBottom: Math.max(Spacing.xxl, insets.bottom + Spacing.xl),
+          paddingTop: insets.top + 2,
+        },
+      ]}
+      contentInsetAdjustmentBehavior="never"
+      data={isLoading || activeMarket !== 'US' ? [] : visibleRows}
+      keyExtractor={(item) => item.symbol}
+      overScrollMode="never"
+      refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={isRefreshing} />}
+      renderItem={({ index, item }) => (
+        <StockListTableRow
+          detailReturnContext={{ returnTo: 'stocks' }}
+          onPaperTradePress={handlePaperTrade}
+          rowNumber={index + 1}
+          stock={item}
+        />
+      )}
+      style={styles.container}
+      ListFooterComponent={
+        activeMarket !== 'US' && !isLoading ? <UnsupportedMarketState market={activeMarket} /> : null
+      }
+    />
   );
 }
 
@@ -323,27 +303,44 @@ function HeaderCell({
   );
 }
 
+function UnsupportedMarketState({ market }: { market: Exclude<MarketTab, 'US'> }) {
+  return (
+    <View style={styles.unsupported}>
+      <View style={styles.unsupportedIcon}>
+        <IconSymbol color={Colors.light.caution} name="hammer.fill" size={28} />
+      </View>
+      <Text selectable style={styles.unsupportedTitle}>
+        {market} market is in progress
+      </Text>
+      <Text selectable style={styles.unsupportedBody}>
+        This section will be completed in a later release.
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     backgroundColor: Colors.light.background,
     flex: 1,
   },
-  content: {
+  listContent: {
     gap: 0,
     paddingHorizontal: 0,
+    paddingTop: Spacing.sm,
     width: '100%',
+  },
+  headerStack: {
+    gap: 0,
+    marginBottom: 0,
   },
   topActions: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: Spacing.sm,
     justifyContent: 'flex-end',
-    minHeight: 42,
+    minHeight: 48,
     paddingHorizontal: Spacing.md,
-  },
-  logo: {
-    height: 30,
-    width: 30,
   },
   pageTitle: {
     color: Colors.light.text,
@@ -363,12 +360,14 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.surface,
     flexDirection: 'row',
     gap: Spacing.xl,
-    minHeight: 40,
+    minHeight: 48,
     paddingHorizontal: Spacing.md,
   },
   marketTab: {
-    justifyContent: 'center',
-    minHeight: 40,
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    minHeight: 44,
   },
   marketTabText: {
     color: Colors.light.mutedText,
@@ -380,28 +379,18 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textDecorationColor: '#F97316',
     textDecorationLine: 'underline',
+    textDecorationStyle: 'solid',
   },
   tableHeader: {
     alignItems: 'center',
     backgroundColor: Colors.light.surface,
-    borderBottomColor: Colors.light.border,
+    borderColor: Colors.light.border,
+    borderTopWidth: 1,
     borderBottomWidth: 1,
     flexDirection: 'row',
     gap: Spacing.sm,
     minHeight: 38,
     paddingHorizontal: Spacing.md,
-  },
-  tableHeaderText: {
-    color: Colors.light.mutedText,
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-  tableHeaderTextSelected: {
-    color: Colors.light.text,
-  },
-  tableHeaderTextRight: {
-    textAlign: 'right',
   },
   tableHeaderNo: {
     width: 28,
@@ -418,20 +407,50 @@ const styles = StyleSheet.create({
   headerCellContentRight: {
     justifyContent: 'flex-end',
   },
+  tableHeaderText: {
+    color: Colors.light.mutedText,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  tableHeaderTextSelected: {
+    color: Colors.light.text,
+  },
+  tableHeaderTextRight: {
+    textAlign: 'right',
+  },
   tableHeaderIdentity: {
     flex: 1,
   },
   tableHeaderPrice: {
-    width: 92,
+    width: 80,
   },
   tableHeaderChange: {
-    width: 72,
+    width: 64,
   },
-  rows: {
-    gap: 0,
+  tableHeaderAction: {
+    width: 94,
+    textAlign: 'center',
   },
   pressed: {
     opacity: 0.82,
+  },
+  emptyState: {
+    backgroundColor: Colors.light.surface,
+    borderBottomColor: Colors.light.border,
+    borderBottomWidth: 1,
+    gap: Spacing.xs,
+    padding: Spacing.lg,
+  },
+  emptyTitle: {
+    color: Colors.light.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  emptyDescription: {
+    color: Colors.light.mutedText,
+    fontSize: 13,
+    lineHeight: 18,
   },
   unsupported: {
     alignItems: 'center',

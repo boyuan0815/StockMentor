@@ -12,7 +12,7 @@ export const Colors = {
   light: {
     text: '#0F172A',
     mutedText: '#64748B',
-    background: '#F8FAFC',
+    background: '#FFFFFF',
     surface: '#FFFFFF',
     tint: tintColorLight,
     secondaryTint: '#0F766E',

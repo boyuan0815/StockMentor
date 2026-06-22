@@ -1,6 +1,7 @@
 package net.boyuan.stockmentor.watchlist.dto;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 public record WatchlistStockResponse(
         Long stockId,
@@ -11,6 +12,18 @@ public record WatchlistStockResponse(
         String trend,
         String volatilityLabel,
         String riskCategory,
-        Boolean isWatchlisted
+        Boolean isWatchlisted,
+        BigDecimal displayedPrice,
+        BigDecimal displayedPercentChange,
+        LocalDateTime displayedMarketTime,
+        LocalDateTime targetDisplayMarketTime,
+        Integer dataDelayMinutes,
+        String priceFreshnessStatus,
+        Boolean isPriceAvailable,
+        Boolean isTradeExecutable,
+        String dataNote,
+        String priceSource,
+        String marketTimeZone,
+        LocalDateTime lastBackendUpdatedAt
 ) {
 }

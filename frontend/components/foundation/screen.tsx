@@ -2,6 +2,7 @@ import { useState, type PropsWithChildren } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   View,
@@ -16,9 +17,18 @@ type ScreenProps = PropsWithChildren<{
   scroll?: boolean | 'auto';
   contentStyle?: StyleProp<ViewStyle>;
   keyboardAware?: boolean;
+  onRefresh?: () => void;
+  refreshing?: boolean;
 }>;
 
-export function Screen({ children, contentStyle, keyboardAware = false, scroll = true }: ScreenProps) {
+export function Screen({
+  children,
+  contentStyle,
+  keyboardAware = false,
+  onRefresh,
+  refreshing = false,
+  scroll = true,
+}: ScreenProps) {
   const insets = useSafeAreaInsets();
   const [containerHeight, setContainerHeight] = useState(0);
   const [contentHeight, setContentHeight] = useState(0);
@@ -39,14 +49,17 @@ export function Screen({ children, contentStyle, keyboardAware = false, scroll =
 
   const content = scroll === true || shouldAutoScroll ? (
     <ScrollView
-      alwaysBounceVertical={false}
-      bounces={false}
+      alwaysBounceVertical={Boolean(onRefresh)}
+      bounces={Boolean(onRefresh)}
       contentContainerStyle={[styles.content, safeAreaContentStyle, contentStyle]}
       contentInsetAdjustmentBehavior="automatic"
       keyboardShouldPersistTaps="handled"
       onContentSizeChange={(_, height) => setContentHeight(height)}
       onLayout={(event) => setContainerHeight(event.nativeEvent.layout.height)}
       overScrollMode="never"
+      refreshControl={
+        onRefresh ? <RefreshControl onRefresh={onRefresh} refreshing={refreshing} /> : undefined
+      }
       showsVerticalScrollIndicator={scroll !== 'auto'}
       style={styles.container}>
       {children}

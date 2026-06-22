@@ -252,6 +252,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
             DelayedMarketPrice delayedPrice
     ) {
         DayRange dayRange = displayedDayRange(symbol, delayedPrice);
+        DisplayedQuoteContext quoteContext = displayedQuoteContext(symbol, delayedPrice);
 
         return new StockDetailResponse(
                 stock == null ? null : stock.getStockId(),
@@ -281,6 +282,9 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 aiExplanationAvailable,
                 "/api/stocks/" + symbol + "/ai-explanation?timeframe=" + ANALYSIS_TIMEFRAME,
                 true,
+                quoteContext.previousClose(),
+                quoteContext.displayedAbsoluteChange(),
+                quoteContext.displayedVolume(),
                 delayedPrice == null ? null : delayedPrice.displayedPrice(),
                 delayedPrice == null ? null : delayedPrice.displayedPercentChange(),
                 delayedPrice == null ? null : delayedPrice.displayedMarketTime(),
@@ -327,6 +331,53 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
             return new DayRange(range.getHighPrice(), range.getLowPrice());
         }
         return DayRange.empty();
+    }
+
+    private DisplayedQuoteContext displayedQuoteContext(String symbol, DelayedMarketPrice delayedPrice) {
+        if (delayedPrice == null || delayedPrice.tradingDate() == null) {
+            return DisplayedQuoteContext.empty();
+        }
+
+        BigDecimal previousClose = dailyRepository
+                .findTopBySymbolAndTradingDateBeforeOrderByTradingDateDesc(symbol, delayedPrice.tradingDate())
+                .map(StockPriceDaily::getClosePrice)
+                .orElse(null);
+        BigDecimal displayedAbsoluteChange = delayedPrice.displayedPrice() == null || previousClose == null
+                ? null
+                : delayedPrice.displayedPrice().subtract(previousClose);
+
+        return new DisplayedQuoteContext(
+                previousClose,
+                displayedAbsoluteChange,
+                displayedVolume(symbol, delayedPrice)
+        );
+    }
+
+    private Long displayedVolume(String symbol, DelayedMarketPrice delayedPrice) {
+        if (DelayedMarketPriceService.INTRADAY_PRICE_SOURCE.equals(delayedPrice.priceSource())) {
+            LocalDateTime cutoff = delayedPrice.displayedMarketTime() == null
+                    ? delayedPrice.targetDisplayMarketTime()
+                    : delayedPrice.displayedMarketTime();
+            if (cutoff != null) {
+                Long intradayVolume = historyRepository.sumVolumeAtOrBefore(
+                        symbol,
+                        delayedPrice.tradingDate(),
+                        "1min",
+                        cutoff
+                );
+                if (intradayVolume != null && intradayVolume > 0) {
+                    return intradayVolume;
+                }
+            }
+        }
+
+        if (DelayedMarketPriceService.DAILY_PRICE_SOURCE.equals(delayedPrice.priceSource())) {
+            return dailyRepository.findBySymbolAndTradingDate(symbol, delayedPrice.tradingDate())
+                    .map(StockPriceDaily::getVolume)
+                    .orElse(null);
+        }
+
+        return null;
     }
 
     private StockHistoryResponse stockHistoryResponse(
@@ -462,6 +513,16 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
     private record DayRange(BigDecimal highPrice, BigDecimal lowPrice) {
         static DayRange empty() {
             return new DayRange(null, null);
+        }
+    }
+
+    private record DisplayedQuoteContext(
+            BigDecimal previousClose,
+            BigDecimal displayedAbsoluteChange,
+            Long displayedVolume
+    ) {
+        static DisplayedQuoteContext empty() {
+            return new DisplayedQuoteContext(null, null, null);
         }
     }
 }

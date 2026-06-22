@@ -285,20 +285,35 @@ class StockMarketDataServiceImplTests {
     void detailHighLowUseDisplayedIntradayDayRangeAndSnapshotFieldsUseAnalysisRange() {
         Stock msft = stock("MSFT", "Microsoft", "422.12");
         StockAnalysisSnapshot snapshot = snapshot("MSFT", 20L, "moderate", "strong uptrend");
+        StockPriceDaily previousDaily = daily("MSFT", LocalDate.of(2026, 1, 2));
+        previousDaily.setClosePrice(new BigDecimal("99.00"));
         when(stockRepository.findBySymbol("MSFT")).thenReturn(Optional.of(msft));
         when(snapshotRepository.findTopBySymbolAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc("MSFT", "7D"))
                 .thenReturn(Optional.of(snapshot));
+        when(dailyRepository.findTopBySymbolAndTradingDateBeforeOrderByTradingDateDesc(
+                "MSFT",
+                LocalDate.of(2026, 1, 5)
+        )).thenReturn(Optional.of(previousDaily));
         when(historyRepository.findDayRangeAtOrBefore(
                 "MSFT",
                 LocalDate.of(2026, 1, 5),
                 "1min",
                 LocalDateTime.of(2026, 1, 5, 9, 45)
         )).thenReturn(intradayRange("104.00", "97.00"));
+        when(historyRepository.sumVolumeAtOrBefore(
+                "MSFT",
+                LocalDate.of(2026, 1, 5),
+                "1min",
+                LocalDateTime.of(2026, 1, 5, 9, 45)
+        )).thenReturn(3200L);
 
         StockDetailResponse response = service.getStockDetailForCurrentUser("MSFT");
 
         assertEquals(new BigDecimal("104.00"), response.highPrice());
         assertEquals(new BigDecimal("97.00"), response.lowPrice());
+        assertEquals(new BigDecimal("99.00"), response.previousClose());
+        assertEquals(new BigDecimal("1.50"), response.displayedAbsoluteChange());
+        assertEquals(3200L, response.displayedVolume());
         assertEquals(DelayedMarketPriceService.INTRADAY_PRICE_SOURCE, response.priceSource());
         assertEquals("stock_price_daily", response.analysisDataSource());
         assertEquals(new BigDecimal("130.00"), response.snapshotHighPrice());
@@ -311,16 +326,25 @@ class StockMarketDataServiceImplTests {
         LocalDate tradingDate = LocalDate.of(2026, 1, 5);
         StockAnalysisSnapshot snapshot = snapshot("MSFT", 20L, "moderate", "strong uptrend");
         StockPriceDaily daily = daily("MSFT", tradingDate);
+        StockPriceDaily previousDaily = daily("MSFT", LocalDate.of(2026, 1, 2));
+        previousDaily.setClosePrice(new BigDecimal("100.00"));
         when(stockRepository.findBySymbol("MSFT")).thenReturn(Optional.of(stock("MSFT", "Microsoft", "422.12")));
         when(snapshotRepository.findTopBySymbolAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc("MSFT", "7D"))
                 .thenReturn(Optional.of(snapshot));
         when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(dailyDelayedPrice("MSFT", tradingDate));
+        when(dailyRepository.findTopBySymbolAndTradingDateBeforeOrderByTradingDateDesc(
+                "MSFT",
+                tradingDate
+        )).thenReturn(Optional.of(previousDaily));
         when(dailyRepository.findBySymbolAndTradingDate("MSFT", tradingDate)).thenReturn(Optional.of(daily));
 
         StockDetailResponse response = service.getStockDetailForCurrentUser("MSFT");
 
         assertEquals(new BigDecimal("105.00"), response.highPrice());
         assertEquals(new BigDecimal("98.00"), response.lowPrice());
+        assertEquals(new BigDecimal("100.00"), response.previousClose());
+        assertEquals(new BigDecimal("2.00"), response.displayedAbsoluteChange());
+        assertEquals(5000L, response.displayedVolume());
         verify(historyRepository, never()).findDayRangeAtOrBefore(
                 anyString(),
                 any(LocalDate.class),

@@ -7,7 +7,9 @@ import net.boyuan.stockmentor.auth.entity.AppUser;
 import net.boyuan.stockmentor.auth.service.CurrentUserService;
 import net.boyuan.stockmentor.common.util.StockMetadata;
 import net.boyuan.stockmentor.market.stock.entity.Stock;
+import net.boyuan.stockmentor.market.stock.model.DelayedMarketPrice;
 import net.boyuan.stockmentor.market.stock.repository.StockRepository;
+import net.boyuan.stockmentor.market.stock.service.DelayedMarketPriceService;
 import net.boyuan.stockmentor.watchlist.dto.WatchlistActionResponse;
 import net.boyuan.stockmentor.watchlist.dto.WatchlistResponse;
 import net.boyuan.stockmentor.watchlist.dto.WatchlistStockResponse;
@@ -36,6 +38,7 @@ public class WatchlistServiceImpl implements WatchlistService {
     private final UserWatchlistRepository watchlistRepository;
     private final StockRepository stockRepository;
     private final StockAnalysisSnapshotRepository snapshotRepository;
+    private final DelayedMarketPriceService delayedMarketPriceService;
 
     @Override
     @Transactional(readOnly = true)
@@ -132,6 +135,7 @@ public class WatchlistServiceImpl implements WatchlistService {
         StockAnalysisSnapshot snapshot = snapshotRepository
                 .findTopBySymbolAndTimeframeOrderByCreatedAtDesc(symbol, ANALYSIS_TIMEFRAME)
                 .orElse(null);
+        DelayedMarketPrice delayedPrice = delayedMarketPriceService.resolveForDisplay(symbol);
         return new WatchlistStockResponse(
                 stock == null ? null : stock.getStockId(),
                 symbol,
@@ -141,7 +145,19 @@ public class WatchlistServiceImpl implements WatchlistService {
                 snapshot == null ? null : snapshot.getTrend(),
                 snapshot == null ? null : snapshot.getVolatilityLabel(),
                 snapshot == null ? StockMetadata.RISK_CATEGORY_MAP.getOrDefault(symbol, "moderate") : snapshot.getRiskCategory(),
-                isWatchlisted
+                isWatchlisted,
+                delayedPrice == null ? null : delayedPrice.displayedPrice(),
+                delayedPrice == null ? null : delayedPrice.displayedPercentChange(),
+                delayedPrice == null ? null : delayedPrice.displayedMarketTime(),
+                delayedPrice == null ? null : delayedPrice.targetDisplayMarketTime(),
+                delayedPrice == null ? null : delayedPrice.dataDelayMinutes(),
+                delayedPrice == null ? null : delayedPrice.priceFreshnessStatusName(),
+                delayedPrice == null ? null : delayedPrice.priceAvailable(),
+                delayedPrice == null ? null : delayedPrice.tradeExecutable(),
+                delayedPrice == null ? null : delayedPrice.dataNote(),
+                delayedPrice == null ? null : delayedPrice.priceSource(),
+                delayedPrice == null ? null : delayedPrice.marketTimeZone(),
+                delayedPrice == null ? null : delayedPrice.lastBackendUpdatedAt()
         );
     }
 }

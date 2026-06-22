@@ -125,3 +125,7 @@ review-full.patchreview-summary.txt
 review-numstat.txt
 
 cloudflared.exe
+
+docs/frontend/ui-reference/phase_3b/*.jpg
+
+/frontend/.gitignore

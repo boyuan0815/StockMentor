@@ -30,6 +30,11 @@ public interface StockPriceDailyRepository extends JpaRepository<StockPriceDaily
 
     Optional<StockPriceDaily> findTopBySymbolOrderByTradingDateDesc(String symbol);
 
+    Optional<StockPriceDaily> findTopBySymbolAndTradingDateBeforeOrderByTradingDateDesc(
+            String symbol,
+            LocalDate tradingDate
+    );
+
     Optional<StockPriceDaily> findBySymbolAndTradingDate(String symbol, LocalDate tradingDate);
 
     @Query("""
