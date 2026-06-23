@@ -228,7 +228,7 @@ Phase 3B stock UI conventions:
 - Market notice copy is a shallow-red marquee strip that preserves the full backend-derived sentence with no string
   slicing or ellipsis.
 - Toasts are centered dark-navy layers with white text and auto-dismiss behavior.
-- Practice-trade CTAs navigate to the placeholder route only until a real US010 frontend ticket phase.
+- Practice-trade CTAs open guarded US010 tickets and do not execute directly.
 
 Mobile HCI rules for account and quiz flows:
 

@@ -152,10 +152,9 @@ Do not pull-to-refresh write actions.
   - Stocks/Watchlist/Detail -> Search Context -> Back returns the correct origin.
   - Detail -> Practice Trade -> Back returns the same detail context.
 
-## Placeholder Trade Guardrails
+## Practice Trade Guardrails
 
-- Phase 3B practice-trade actions may navigate to the placeholder route only.
-- Placeholder practice-trade UI must not call buy/sell APIs, must not submit quantities, and must not pretend real or
-  paper execution is implemented.
-- Real US010 frontend buy/sell tickets require a separately scoped implementation phase with confirmation and backend
-  payload checks.
+- Practice-trade actions open guarded US010 tickets and must not execute directly.
+- BUY/SELL calls require whole-share quantity input, explicit confirmation, and duplicate-submit protection.
+- Frontend BUY/SELL payloads must contain only `symbol` and numeric `quantity`; the backend decides delayed execution
+  price.

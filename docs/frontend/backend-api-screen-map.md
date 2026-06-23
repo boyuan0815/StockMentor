@@ -60,7 +60,7 @@ Visible beginner tabs:
 - `Profile`
 
 Hidden tab routes should use `href: null`, including stock detail, contextual search, stock explanation compatibility
-route, practice-trade placeholder, and transaction/detail routes.
+route, practice trade tickets, and transaction/detail routes.
 
 Current stock UI routing:
 
@@ -69,7 +69,8 @@ Current stock UI routing:
 - Search tab is the standalone search route.
 - Contextual search uses hidden `/stocks/search-context`.
 - Detail rows pass explicit return params: `stocks`, `watchlist`, `search-context`, or `search-tab`.
-- Practice-trade placeholder navigation preserves return params and must not execute buy/sell APIs.
+- Practice-trade navigation preserves return params. Buy/sell APIs are called only from guarded tickets after
+  whole-share quantity input and explicit confirmation.
 
 Current stock UI surfaces:
 

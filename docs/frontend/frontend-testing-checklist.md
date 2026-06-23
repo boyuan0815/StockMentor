@@ -58,12 +58,19 @@ Use this checklist after frontend implementation begins. This documentation task
 - Add stock to watchlist.
 - Remove stock from watchlist.
 - View paper-trading account and portfolio.
-- Confirm buy.
-- Confirm sell.
-- Confirm reset.
+- Confirm Practice overview shows account/portfolio summary, positions, recent transactions, and clear Buy/Sell/View
+  Transactions/Reset actions.
+- Confirm buy opens a guarded ticket, validates whole-share quantity, shows confirmation, and sends only `symbol` plus
+  numeric `quantity`.
+- Confirm sell loads held positions first, allows held symbols only, rejects quantity above holding, and sends only
+  `symbol` plus numeric `quantity`.
+- Confirm reset copy says simulated cash returns to starting balance, open positions are cleared, a new session starts,
+  and the action cannot be undone.
 - Confirm buy/sell copy says practice trades use StockMentor's delayed stored price and that frontend does not send price.
-- Confirm Phase 3B `Practice Trade` placeholder CTAs do not call buy/sell APIs.
+- Confirm Stock List and Stock Detail `Practice Trade` CTAs open the guarded buy ticket and do not execute directly.
 - View transactions and transaction detail.
+- Confirm transactions default to current session, support side/symbol filters, and display RESET/null-symbol rows as
+  session reset rows without stock links or price assumptions.
 - Logout clears session.
 
 ## Admin Web Flow
@@ -143,8 +150,9 @@ Each case should send at most one write request while pending.
 - Watchlist -> Search Context -> Back returns Watchlist.
 - Detail -> Search Context -> Back returns the same Detail.
 - Search Context -> Detail -> Back returns Search Context with original params.
-- Stock list -> Practice Trade placeholder -> Back returns Stock list.
-- Detail -> Practice Trade placeholder -> Back returns same Detail.
+- Stock list -> Practice Trade buy ticket -> Back returns Stock list.
+- Detail -> Practice Trade buy ticket -> Back returns same Detail.
+- Practice -> Transactions -> Transaction Detail -> Back returns Transactions.
 
 ## Phase 3B Protected-File Checks
 

@@ -87,7 +87,7 @@ export function StockListTableRow({
       </View>
       <View style={styles.actionCell}>
         <Pressable
-          accessibilityHint={`Opens the placeholder paper trade page for ${stock.symbol}.`}
+          accessibilityHint={`Opens a guarded practice buy ticket for ${stock.symbol}.`}
           accessibilityLabel={`Paper trade ${stock.symbol}`}
           accessibilityRole="button"
           onPress={handleActionPress}

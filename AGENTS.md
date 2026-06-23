@@ -23,13 +23,14 @@
   centered dark-navy toast feedback, market notice marquee strips, brand navy `#052344`, and movement colors where
   green means increase and red means decrease.
 - The beginner tabs are `Watchlist`, `Stocks`, `Search`, `Suggestions`, `Practice`, and `Profile`. Hidden routes such
-  as stock detail, contextual search, and practice-trade placeholders should use `href: null`.
+  as stock detail, contextual search, practice trade tickets, and transaction detail should use `href: null`.
 - For tab/context routes, do not rely on `router.canGoBack()` alone. Pass explicit return params such as
   `returnTo=stocks|watchlist|search-context|search-tab` so back actions return to the real origin.
 - Use `frontend/utils/safe-storage.ts` for best-effort local persistence. AsyncStorage/native-module failures must
   never red-screen the app; safe storage must fall back to in-memory session values.
-- Placeholder practice-trade UI may navigate to the existing placeholder route, but it must not execute real or paper
-  trades unless a future phase explicitly implements the US010 frontend ticket.
+- Practice-trade CTAs may open guarded US010 buy/sell tickets, but they must not execute directly. BUY/SELL happens
+  only after whole-share quantity input and explicit confirmation, and the frontend sends only `symbol` and numeric
+  `quantity`.
 - If Expo tooling regenerates `frontend/.gitignore`, remove that explicit file before final status unless the user
   separately approves keeping it.
 

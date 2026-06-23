@@ -46,7 +46,7 @@ Acceptance:
 - Watchlist tab with `Watchlists` table.
 - Stocks tab with compact `Paper Trade` table.
 - Search tab plus hidden contextual `/stocks/search-context` route.
-- Stock detail with measured dynamic header, quote panel, history summary/list, and practice-trade placeholder CTA.
+- Stock detail with measured dynamic header, quote panel, history summary/list, and guarded practice-trade CTA.
 - Timeframe tabs and backend-returned history points.
 - Watchlist add/remove with toast and duplicate-tap guards.
 - AI explanation drawer opened on demand only.

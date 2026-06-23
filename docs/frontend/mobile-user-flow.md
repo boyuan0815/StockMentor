@@ -105,8 +105,8 @@ depending on tab history.
   `targetDisplayMarketTime`, `priceFreshnessStatus`, and `priceSource`.
 - Legacy `currentPrice`, `percentChange`, and `lastUpdated` are compatibility fields, not preferred display fields.
 - Guardrail: list is read-only and must not call Twelve Data or invent delayed prices. Do not show row-level raw
-  `priceSource`, freshness enum values, or market time. The `Practice Trade`/paper action opens the placeholder route
-  only and must not execute trades.
+  `priceSource`, freshness enum values, or market time. The `Practice Trade`/paper action opens a guarded practice
+  buy ticket and must not execute trades directly or trigger row navigation.
 
 ### Search
 
@@ -137,7 +137,8 @@ depending on tab history.
 - Detail `highPrice`/`lowPrice` describe the displayed/latest day range. `analysisDataSource`, `snapshotHighPrice`,
   `snapshotLowPrice`, and `snapshotTimeframe` describe the latest analysis snapshot.
 - `1D` history can return stored intraday chart rows even when quote metadata uses daily fallback during pre-open.
-- Footer: transparent wrapper, brand navy `#052344` button labeled `Practice Trade`, placeholder route only.
+- Footer: transparent wrapper, brand navy `#052344` button labeled `Practice Trade`; it opens the guarded practice buy
+  ticket and does not execute directly.
 - Guardrail: clear old detail/history/AI state on symbol change so previous-stock content never flashes.
 
 ### AI Explanation
@@ -162,14 +163,23 @@ depending on tab history.
 
 - Backend: account, portfolio, buy, sell, reset, transactions endpoints under `/api/paper-trading`.
 - Use case: US010 Simulate Paper Trades.
-- Sections: simulated cash, total portfolio value, realized/unrealized P/L, fees, positions, recent transactions.
-- Empty: no positions yet, show browse stocks CTA.
-- Guardrail: every buy, sell, and reset requires confirmation.
-- Price concept: practice trades must use the backend-decided price. The frontend must not send or invent price.
-- Backend buy/sell uses the same delayed stored market-data selector concept used by stock display.
-- Required copy: "Practice trade uses StockMentor's delayed stored price, not a live market quote."
-- Phase 3B placeholder: practice-trade CTAs may navigate to the placeholder route only. They must not call buy/sell APIs
-  or imply execution is available.
+- Sections: account/portfolio summary, valuation warnings, positions, recent transactions, guarded buy/sell tickets,
+  reset confirmation, transaction list, and transaction detail.
+- Empty: no positions yet, show `Browse Stocks` and buy-practice actions.
+- Guardrail: every buy, sell, and reset requires confirmation. BUY/SELL request bodies must contain only `symbol` and
+  numeric `quantity`; the frontend must not send or invent price.
+- Quantity: trim, require `/^[1-9]\d*$/`, reject decimals/scientific notation/zero/negative values, convert with
+  `Number(trimmedQuantity)` only after validation, and do not use `parseInt` coercion.
+- Buy ticket: prefill route symbol when opened from Stocks/Detail; otherwise use a simple supported-stock selector
+  backed by `GET /api/stocks`, not the full Search tab.
+- Sell ticket: load held positions first, allow held symbols only, and reject quantities above the known holding before
+  submitting.
+- Reset: confirmation says simulated cash returns to starting balance, open positions are cleared, a new session starts,
+  and the action cannot be undone.
+- Transactions: default to `currentSessionOnly=true`, load a simple list of about 50 rows, and handle `RESET` /
+  `symbol=null` rows as portfolio/session reset records without stock links or price assumptions.
+- Price concept: practice trades must use the backend-decided delayed stored price. The frontend must not send or invent
+  execution price.
 
 ### Profile / Settings / Logout
 

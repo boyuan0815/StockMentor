@@ -1,11 +1,5 @@
-import { PlaceholderScreen } from '@/components/foundation/placeholder-screen';
+import { PaperTradingTransactionsScreen } from '@/screens/paper-trading/paper-trading-transactions-screen';
 
 export default function TransactionsRoute() {
-  return (
-    <PlaceholderScreen
-      eyebrow="Practice placeholder"
-      title="Transactions"
-      description="Phase 5 will add current-user transaction history and detail routing."
-    />
-  );
+  return <PaperTradingTransactionsScreen />;
 }

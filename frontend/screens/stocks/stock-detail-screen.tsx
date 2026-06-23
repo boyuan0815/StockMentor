@@ -240,7 +240,7 @@ export function StockDetailScreen({
     }
   };
 
-  const openPaperTradePlaceholder = () => {
+  const openPracticeTrade = () => {
     router.push({
       pathname: '/paper-trading/buy',
       params: buildPaperTradeParams(normalizedSymbol, returnTo, searchFrom, searchSymbol),
@@ -515,9 +515,9 @@ export function StockDetailScreen({
 
       <View style={[styles.footer, { paddingBottom: Math.max(6, Math.min(insets.bottom, 14)) }]}>
         <ActionButton
-          accessibilityHint={`Opens the placeholder paper trade page for ${normalizedSymbol}. It does not execute a trade.`}
+          accessibilityHint={`Opens a guarded practice buy ticket for ${normalizedSymbol}. It does not execute a trade directly.`}
           label="Practice Trade"
-          onPress={openPaperTradePlaceholder}
+          onPress={openPracticeTrade}
           style={styles.footerButton}
         />
       </View>

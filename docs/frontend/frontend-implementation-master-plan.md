@@ -53,7 +53,7 @@ Every phase must preserve these rules:
 
 - Phase 1 and Phase 2 are sequential and should be merged before most feature phases start.
 - Phase 3 should preferably merge before Phase 4 and Phase 5 because it establishes compact stock tables,
-  delayed-data display, watchlist/search patterns, safe storage, and placeholder practice-trade navigation.
+  delayed-data display, watchlist/search patterns, safe storage, and guarded practice-trade navigation.
 - Phase 4, Phase 5, and Phase 6 can run in parallel after Phase 2 if each branch avoids shared foundation rewrites.
 - Phase 7 must run last after all selected feature phases are merged.
 - Avoid overlapping edits to shared files such as root layouts, theme tokens, API client core, auth/session providers,
@@ -186,7 +186,7 @@ normal implementation phases must not edit, stage, or commit `.agents/` or `skil
 - Out of scope: AI suggestion refresh, paper-trading execution, admin maintenance actions.
 - Acceptance: UI prefers delayed fields, hides raw backend source/status/time from compact rows, shows market notice
   marquee with full copy, never invents missing candles, labels stock data as delayed educational data, never calls
-  Twelve Data/OpenAI directly, and practice-trade CTAs navigate only to the placeholder route until Phase 5.
+  Twelve Data/OpenAI directly, and practice-trade CTAs open guarded tickets without direct execution.
 - Verification: Watchlist/Stocks/Search/detail manual checks, deterministic back navigation, empty history state, 1D
   pre-open/closed wording, AI explanation on-demand/no-prefetch behavior, watchlist duplicate-tap prevention, safe
   storage fallback, lint/type checks.
@@ -230,9 +230,10 @@ normal implementation phases must not edit, stage, or commit `.agents/` or `skil
 - Scope: account/portfolio, positions, buy/sell with whole-share quantity validation, reset confirmation, transaction
   history/detail, delayed execution metadata display, insufficient cash/holding errors.
 - Out of scope: advanced orders, brokerage integration, frontend behavior profile calculation, frontend price selection.
-- Acceptance: buy/sell requests send only `symbol` and `quantity`; frontend never sends price; copy says practice trades
-  use StockMentor's delayed stored price, not a live market quote; reset/buy/sell require confirmation and block
-  duplicate submits.
+- Acceptance: buy/sell requests send only `symbol` and numeric `quantity`; frontend never sends price; copy says
+  practice trades use StockMentor's delayed stored price, not a live market quote; reset/buy/sell require confirmation
+  and block duplicate submits. Transactions must handle `RESET` / `symbol=null` rows without stock links or price
+  assumptions.
 - Verification: buy/sell/reset manual tests, fractional quantity validation, insufficient cash, sell exceeds holding,
   transaction filters, no-price payload inspection, lint/type checks.
 - Handoff: report payload shape, delayed metadata display behavior, invalidation after trades, and any account bootstrap

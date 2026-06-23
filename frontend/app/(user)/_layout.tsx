@@ -74,6 +74,7 @@ export default function UserLayout() {
         <Tabs.Screen name="paper-trading/buy" options={{ href: null }} />
         <Tabs.Screen name="paper-trading/sell" options={{ href: null }} />
         <Tabs.Screen name="paper-trading/transactions" options={{ href: null }} />
+        <Tabs.Screen name="paper-trading/transactions/[transactionId]" options={{ href: null }} />
       </Tabs>
     </ProtectedRoute>
   );

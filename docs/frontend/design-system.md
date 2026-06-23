@@ -107,7 +107,8 @@ Stocks page:
 
 - Title is `Paper Trade`, compact and not oversized.
 - Market tabs are `US`, `MY`, and `HK`; only `US` shows the supported stock table.
-- Row tap opens stock detail. The practice-trade action opens the placeholder route only and does not execute a trade.
+- Row tap opens stock detail. The practice-trade action opens a guarded buy ticket and does not execute a trade
+  directly.
 - Table columns are `No.`, `Symbol`, `Price`, `Chg %`, and `Action`.
 
 Stock detail page:

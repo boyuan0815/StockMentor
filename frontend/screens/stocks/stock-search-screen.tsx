@@ -278,7 +278,7 @@ export function StockSearchScreen() {
         hasRecentRows ? (
           <View style={styles.fallbackHeader}>
             <Text selectable style={styles.latestViewedTitle}>
-              Latest Viewed Stocks
+              Latest Viewed Stocks :
             </Text>
           </View>
         ) : null

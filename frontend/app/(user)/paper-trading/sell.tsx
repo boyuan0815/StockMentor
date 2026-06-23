@@ -1,11 +1,13 @@
-import { PlaceholderScreen } from '@/components/foundation/placeholder-screen';
+import { useLocalSearchParams } from 'expo-router';
+
+import { PaperTradingSellScreen } from '@/screens/paper-trading/paper-trading-sell-screen';
 
 export default function SellRoute() {
-  return (
-    <PlaceholderScreen
-      eyebrow="Practice placeholder"
-      title="Sell ticket"
-      description="Phase 5 will add the guarded practice sell flow. The backend will remain responsible for execution price."
-    />
-  );
+  const { from, symbol } = useLocalSearchParams<{ from?: string; symbol?: string }>();
+
+  return <PaperTradingSellScreen from={singleParam(from)} symbol={singleParam(symbol)} />;
+}
+
+function singleParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
 }
