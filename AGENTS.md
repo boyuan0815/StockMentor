@@ -22,15 +22,17 @@
 - Preserve the Phase 3B stock UI standard in future frontend work: compact full-width tables, minimal page titles,
   centered dark-navy toast feedback, market notice marquee strips, brand navy `#052344`, and movement colors where
   green means increase and red means decrease.
-- The beginner tabs are `Watchlist`, `Stocks`, `Search`, `Suggestions`, `Practice`, and `Profile`. Hidden routes such
+- The beginner tabs are `Watchlist`, `Stocks`, `Suggestions`, `Portfolio`, `Profile`, and `Search`. The Portfolio tab
+  keeps the internal `/paper-trading` route, and Search remains a real tab visually separated at the right. Hidden routes such
   as stock detail, contextual search, practice trade tickets, and transaction detail should use `href: null`.
+- Top-level beginner tabs except Search use fixed StockMentor-logo headers; Search keeps its search-row header.
 - For tab/context routes, do not rely on `router.canGoBack()` alone. Pass explicit return params such as
   `returnTo=stocks|watchlist|search-context|search-tab` so back actions return to the real origin.
 - Use `frontend/utils/safe-storage.ts` for best-effort local persistence. AsyncStorage/native-module failures must
   never red-screen the app; safe storage must fall back to in-memory session values.
-- Practice-trade CTAs may open guarded US010 buy/sell tickets, but they must not execute directly. BUY/SELL happens
+- Practice-trade CTAs may open a guarded stock-scoped US010 ticket, but they must not execute directly. BUY/SELL happens
   only after whole-share quantity input and explicit confirmation, and the frontend sends only `symbol` and numeric
-  `quantity`.
+  `quantity`; UI price, fee, amount, and max-quantity values are display-only estimates.
 - If Expo tooling regenerates `frontend/.gitignore`, remove that explicit file before final status unless the user
   separately approves keeping it.
 
@@ -403,3 +405,6 @@
   selling, and brokerage integration are out of scope unless explicitly requested.
 - JWT may be added later, but backend business logic should continue to rely on `CurrentUserService` for current-user
   resolution.
+- B1 stock market-data follow-up remains open: investigate confusing `priceFreshnessStatus` copy, scheduler/admin
+  freshness consistency, and after-hours stock-table price baseline selection. Do not document these as fixed until the
+  backend pass lands.

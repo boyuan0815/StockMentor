@@ -1,5 +1,5 @@
-import { PaperTradingTransactionsScreen } from '@/screens/paper-trading/paper-trading-transactions-screen';
+import { PaperTradingOverviewScreen } from '@/screens/paper-trading/paper-trading-overview-screen';
 
 export default function TransactionsRoute() {
-  return <PaperTradingTransactionsScreen />;
+  return <PaperTradingOverviewScreen historyFocusBehavior="always" initialTab="history" />;
 }

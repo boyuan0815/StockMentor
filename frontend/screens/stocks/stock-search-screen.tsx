@@ -1,6 +1,6 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { type Href, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -18,6 +18,7 @@ import { SkeletonRows } from '@/components/foundation/skeleton-block';
 import { SearchFallbackTableRow, SearchQuoteRow } from '@/components/stocks/stock-table-row';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Spacing } from '@/constants/theme';
+import { useMinuteBoundaryRefresh } from '@/hooks/use-minute-boundary-refresh';
 import { useAuthSession } from '@/providers/auth-session-provider';
 import { useToast } from '@/providers/toast-provider';
 import type { StockListItemResponse } from '@/types/stocks';
@@ -34,6 +35,9 @@ export function StockSearchScreen() {
   const { from, symbol } = useLocalSearchParams<{ from?: string; symbol?: string }>();
   const { credentials } = useAuthSession();
   const { showToast } = useToast();
+  const listRef = useRef<FlatList<StockListItemResponse> | null>(null);
+  const requestInFlightRef = useRef(false);
+  const hasLoadedRef = useRef(false);
   const [stocks, setStocks] = useState<StockListItemResponse[]>([]);
   const [history, setHistory] = useState<string[]>([]);
   const [recentSymbols, setRecentSymbols] = useState<string[]>([]);
@@ -43,13 +47,21 @@ export function StockSearchScreen() {
   const [pendingWatchlistSymbols, setPendingWatchlistSymbols] = useState<Set<string>>(new Set());
 
   const loadStocks = useCallback(async () => {
-    if (!credentials) {
-      setErrorMessage('Sign in again to search stocks.');
-      setIsLoading(false);
+    if (requestInFlightRef.current) {
       return;
     }
 
-    setIsLoading(true);
+    if (!credentials) {
+      setErrorMessage('Sign in again to search stocks.');
+      setIsLoading(false);
+      hasLoadedRef.current = true;
+      return;
+    }
+
+    requestInFlightRef.current = true;
+    if (!hasLoadedRef.current) {
+      setIsLoading(true);
+    }
     setErrorMessage(null);
 
     try {
@@ -58,6 +70,8 @@ export function StockSearchScreen() {
     } catch (error) {
       setErrorMessage(getStockApiErrorMessage(error, 'Stock search could not be loaded.'));
     } finally {
+      requestInFlightRef.current = false;
+      hasLoadedRef.current = true;
       setIsLoading(false);
     }
   }, [credentials]);
@@ -83,6 +97,7 @@ export function StockSearchScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      listRef.current?.scrollToOffset({ animated: false, offset: 0 });
       setQuery('');
       void loadHistory();
       void loadRecentSymbols();
@@ -90,6 +105,10 @@ export function StockSearchScreen() {
       return undefined;
     }, [loadHistory, loadRecentSymbols, loadStocks]),
   );
+
+  useMinuteBoundaryRefresh({
+    onRefresh: loadStocks,
+  });
 
   const recentRows = useMemo(() => {
     if (recentSymbols.length === 0) {
@@ -200,48 +219,8 @@ export function StockSearchScreen() {
   const queryIsActive = query.trim().length > 0;
   const hasRecentRows = recentRows.length > 0;
 
-  const header = (
-    <View style={styles.headerStack}>
-      <View style={styles.searchRow}>
-        <Pressable
-          accessibilityHint="Returns to the previous page."
-          accessibilityLabel="Back"
-          accessibilityRole="button"
-          onPress={handleBack}
-          style={({ pressed }) => [styles.backButton, pressed ? styles.pressed : undefined]}>
-          <IconSymbol color={Colors.light.text} name="chevron.left" size={24} />
-        </Pressable>
-        <View style={styles.inputWrap}>
-          <TextInput
-            accessibilityHint="Searches supported stock symbols and company names."
-            accessibilityLabel="Search supported stocks"
-            autoCapitalize="characters"
-            onChangeText={setQuery}
-            placeholder="Search symbol or company"
-            placeholderTextColor={Colors.light.mutedText}
-            style={styles.searchInput}
-            value={query}
-          />
-          {query ? (
-            <Pressable
-              accessibilityLabel="Clear search input"
-              accessibilityRole="button"
-              onPress={() => setQuery('')}
-              style={styles.clearInput}>
-              <IconSymbol color={Colors.light.mutedText} name="xmark.circle.fill" size={18} />
-            </Pressable>
-          ) : null}
-        </View>
-        <Pressable
-          accessibilityHint="Saves this search term to search history."
-          accessibilityLabel="Search"
-          accessibilityRole="button"
-          onPress={() => void commitSearch()}
-          style={styles.searchAction}>
-          <Text style={styles.searchActionText}>Search</Text>
-        </Pressable>
-      </View>
-
+  const listHeader = (
+    <View>
       {errorMessage ? <ErrorBanner title="Search needs attention" message={errorMessage} /> : null}
 
       {!queryIsActive && history.length > 0 ? (
@@ -278,7 +257,7 @@ export function StockSearchScreen() {
         hasRecentRows ? (
           <View style={styles.fallbackHeader}>
             <Text selectable style={styles.latestViewedTitle}>
-              Latest Viewed Stocks :
+              Latest Viewed Stocks
             </Text>
           </View>
         ) : null
@@ -293,63 +272,107 @@ export function StockSearchScreen() {
           <Text style={[styles.tableHeaderText, styles.tableHeaderChange]}>Chg %</Text>
         </View>
       ) : null}
-      {!isLoading && queryIsActive ? (
-        <View style={styles.quoteHeader}>
-          <Text selectable style={styles.sectionTitle}>
-            Quotes
-          </Text>
-        </View>
-      ) : null}
     </View>
   );
 
   return (
-    <FlatList
-      ListEmptyComponent={
-        isLoading ? null : (
-          <View style={styles.emptyState}>
-            <Text selectable style={styles.emptyTitle}>
-              {queryIsActive ? `No results for "${query.trim()}"` : 'No recently viewed stocks yet'}
-            </Text>
-            <Text selectable style={styles.emptyDescription}>
-              {queryIsActive
-                ? 'Try another supported symbol or company.'
-                : 'Open a stock detail page and it will appear here.'}
+    <View style={styles.container}>
+      <View style={[styles.fixedArea, { paddingTop: insets.top + 2 }]}>
+        <View style={styles.searchRow}>
+          <Pressable
+            accessibilityHint="Returns to the previous page."
+            accessibilityLabel="Back"
+            accessibilityRole="button"
+            onPress={handleBack}
+            style={({ pressed }) => [styles.backButton, pressed ? styles.pressed : undefined]}>
+            <IconSymbol color={Colors.light.text} name="chevron.left" size={24} />
+          </Pressable>
+          <View style={styles.inputWrap}>
+            <TextInput
+              accessibilityHint="Searches supported stock symbols and company names."
+              accessibilityLabel="Search supported stocks"
+              autoCapitalize="characters"
+              onChangeText={setQuery}
+              placeholder="Search symbol or company"
+              placeholderTextColor={Colors.light.mutedText}
+              style={styles.searchInput}
+              value={query}
+            />
+            {query ? (
+              <Pressable
+                accessibilityLabel="Clear search input"
+                accessibilityRole="button"
+                onPress={() => setQuery('')}
+                style={styles.clearInput}>
+                <IconSymbol color={Colors.light.mutedText} name="xmark.circle.fill" size={18} />
+              </Pressable>
+            ) : null}
+          </View>
+          <Pressable
+            accessibilityHint="Saves this search term to search history."
+            accessibilityLabel="Search"
+            accessibilityRole="button"
+            onPress={() => void commitSearch()}
+            style={styles.searchAction}>
+            <Text style={styles.searchActionText}>Search</Text>
+          </Pressable>
+        </View>
+        {!isLoading && queryIsActive ? (
+          <View style={styles.quoteHeader}>
+            <Text selectable style={styles.sectionTitle}>
+              Quotes
             </Text>
           </View>
-        )
-      }
-      ListHeaderComponent={header}
-      contentContainerStyle={[
-        styles.listContent,
-        {
-          paddingBottom: Math.max(Spacing.xxl, insets.bottom + Spacing.xl),
-          paddingTop: insets.top + 2,
-        },
-      ]}
-      contentInsetAdjustmentBehavior="never"
-      data={isLoading ? [] : rows}
-      keyExtractor={(item) => item.symbol}
-      keyboardShouldPersistTaps="handled"
-      overScrollMode="never"
-      renderItem={({ index, item }) =>
-        queryIsActive ? (
-          <SearchQuoteRow
-            detailReturnContext={detailReturnContext}
-            onToggleWatchlist={handleToggleWatchlist}
-            pending={pendingWatchlistSymbols.has(item.symbol)}
-            stock={item}
-          />
-        ) : (
-          <SearchFallbackTableRow
-            detailReturnContext={detailReturnContext}
-            rowNumber={index + 1}
-            stock={item}
-          />
-        )
-      }
-      style={styles.container}
-    />
+        ) : null}
+      </View>
+
+      <FlatList
+        ref={listRef}
+        ListEmptyComponent={
+          isLoading ? null : (
+            <View style={styles.emptyState}>
+              <Text selectable style={styles.emptyTitle}>
+                {queryIsActive ? `No results for "${query.trim()}"` : 'No recently viewed stocks yet'}
+              </Text>
+              <Text selectable style={styles.emptyDescription}>
+                {queryIsActive
+                  ? 'Try another supported symbol or company.'
+                  : 'Open a stock detail page and it will appear here.'}
+              </Text>
+            </View>
+          )
+        }
+        ListHeaderComponent={listHeader}
+        contentContainerStyle={[
+          styles.listContent,
+          {
+            paddingBottom: Math.max(Spacing.xxl, insets.bottom + Spacing.xl),
+          },
+        ]}
+        contentInsetAdjustmentBehavior="never"
+        data={isLoading ? [] : rows}
+        keyExtractor={(item) => item.symbol}
+        keyboardShouldPersistTaps="handled"
+        overScrollMode="never"
+        renderItem={({ index, item }) =>
+          queryIsActive ? (
+            <SearchQuoteRow
+              detailReturnContext={detailReturnContext}
+              onToggleWatchlist={handleToggleWatchlist}
+              pending={pendingWatchlistSymbols.has(item.symbol)}
+              stock={item}
+            />
+          ) : (
+            <SearchFallbackTableRow
+              detailReturnContext={detailReturnContext}
+              rowNumber={index + 1}
+              stock={item}
+            />
+          )
+        }
+        style={styles.scroller}
+      />
+    </View>
   );
 }
 
@@ -361,12 +384,16 @@ const styles = StyleSheet.create({
   listContent: {
     gap: 0,
     paddingHorizontal: 0,
-    paddingTop: Spacing.sm,
     width: '100%',
   },
-  headerStack: {
-    gap: 0,
-    marginBottom: 0,
+  fixedArea: {
+    backgroundColor: Colors.light.background,
+    borderBottomColor: Colors.light.border,
+    borderBottomWidth: 1,
+  },
+  scroller: {
+    backgroundColor: Colors.light.background,
+    flex: 1,
   },
   searchRow: {
     alignItems: 'center',

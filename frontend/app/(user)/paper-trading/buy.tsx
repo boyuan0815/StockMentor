@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 
-import { PaperTradingBuyScreen } from '@/screens/paper-trading/paper-trading-buy-screen';
+import { PaperTradingTradeTicketScreen } from '@/screens/paper-trading/paper-trading-trade-ticket-screen';
 
 export default function BuyRoute() {
   const { from, returnTo, searchFrom, searchSymbol, symbol } = useLocalSearchParams<{
@@ -12,8 +12,9 @@ export default function BuyRoute() {
   }>();
 
   return (
-    <PaperTradingBuyScreen
+    <PaperTradingTradeTicketScreen
       from={singleParam(from)}
+      initialDirection="BUY"
       returnTo={singleParam(returnTo)}
       searchFrom={singleParam(searchFrom)}
       searchSymbol={singleParam(searchSymbol)}

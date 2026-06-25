@@ -1,4 +1,5 @@
 import { Tabs } from 'expo-router';
+import { Text } from 'react-native';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -17,6 +18,9 @@ export default function UserLayout() {
           tabBarStyle: {
             backgroundColor: Colors.light.surface,
             borderTopColor: Colors.light.border,
+          },
+          tabBarLabelStyle: {
+            fontSize: 9.5,
           },
           sceneStyle: {
             backgroundColor: Colors.light.background,
@@ -39,23 +43,24 @@ export default function UserLayout() {
           }}
         />
         <Tabs.Screen
-          name="stocks/search"
-          options={{
-            title: 'Search',
-            tabBarIcon: ({ color }) => <IconSymbol name="magnifyingglass" color={color} />,
-          }}
-        />
-        <Tabs.Screen
           name="suggestions/index"
           options={{
             title: 'Suggestions',
-            tabBarIcon: ({ color }) => <IconSymbol name="lightbulb.fill" color={color} />,
+            tabBarLabel: ({ color }) => (
+              <Text
+                allowFontScaling={false}
+                numberOfLines={1}
+                style={{ color, fontSize: 8.5, fontWeight: '600', includeFontPadding: false }}>
+                Suggestions
+              </Text>
+            ),
+            tabBarIcon: ({ color }) => <IconSymbol name="lightbulb.fill" color={color} />
           }}
         />
         <Tabs.Screen
           name="paper-trading/index"
           options={{
-            title: 'Practice',
+            title: 'Portfolio',
             tabBarIcon: ({ color }) => <IconSymbol name="briefcase.fill" color={color} />,
           }}
         />
@@ -66,6 +71,17 @@ export default function UserLayout() {
             tabBarIcon: ({ color }) => (
               <IconSymbol name="person.crop.circle.fill" color={color} />
             ),
+          }}
+        />
+        <Tabs.Screen
+          name="stocks/search"
+          options={{
+            title: 'Search',
+            tabBarIcon: ({ color }) => <IconSymbol name="magnifyingglass" color={color} />,
+            tabBarItemStyle: {
+              borderLeftColor: Colors.light.border,
+              borderLeftWidth: 1,
+            },
           }}
         />
         <Tabs.Screen name="stocks/[symbol]" options={{ href: null }} />

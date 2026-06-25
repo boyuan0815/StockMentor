@@ -222,6 +222,8 @@ Frontend responsibilities:
 - Use `priceFreshnessStatus`, `isPriceAvailable`, and `dataNote` to handle unavailable or null delayed data states.
 - Show last backend update time separately if available.
 - Never calculate trusted displayed price, displayed market time, or paper-trading execution price in the frontend.
+- Paper-trading buy/sell requests send only `symbol` and numeric `quantity`; UI price, fee, amount, and max quantity are
+  display-only estimates and are never submitted.
 - Never call Twelve Data directly.
 - Use backend history points as returned.
 - Do not silently invent or fill missing 1-minute candles.
@@ -246,6 +248,13 @@ Current backend contract:
 - `1D` history can return stored intraday chart rows even when quote metadata uses daily fallback during pre-open.
 - Paper-trading buy/sell accepts only `symbol` and `quantity`; backend decides execution price using the delayed stored
   market price selector.
+
+Known B1 market-data follow-up, not fixed by the frontend:
+
+- `priceFreshnessStatus` can still lead to confusing user-facing `Latest Stored Prices` wording.
+- Scheduler/admin refresh paths need investigation so freshness metadata stays consistent.
+- After market close, stock-table current price selection may still use the latest 1-minute close instead of the latest
+  daily close.
 
 Known backend formula issue for a future backend pass:
 

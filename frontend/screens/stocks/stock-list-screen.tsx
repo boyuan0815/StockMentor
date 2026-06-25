@@ -1,5 +1,7 @@
+import { useFocusEffect } from '@react-navigation/native';
+import { Image } from 'expo-image';
 import { type Href, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -11,6 +13,7 @@ import { StockMarketNotice } from '@/components/stocks/stock-market-notice';
 import { StockListTableRow, type StockTableItem } from '@/components/stocks/stock-table-row';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Spacing } from '@/constants/theme';
+import { useMinuteBoundaryRefresh } from '@/hooks/use-minute-boundary-refresh';
 import { useRefreshCooldown } from '@/hooks/use-refresh-cooldown';
 import { useAuthSession } from '@/providers/auth-session-provider';
 import type { StockListItemResponse } from '@/types/stocks';
@@ -30,6 +33,9 @@ export function StockListScreen() {
   const insets = useSafeAreaInsets();
   const { credentials } = useAuthSession();
   const guardedRefresh = useRefreshCooldown();
+  const requestInFlightRef = useRef(false);
+  const hasLoadedRef = useRef(false);
+  const listRef = useRef<FlatList<StockListItemResponse> | null>(null);
   const [stocks, setStocks] = useState<StockListItemResponse[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>('default');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
@@ -40,16 +46,22 @@ export function StockListScreen() {
 
   const loadRows = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
+      if (requestInFlightRef.current) {
+        return;
+      }
+
       if (!credentials) {
         setErrorMessage('Sign in again to load stocks.');
         setIsLoading(false);
         setIsRefreshing(false);
+        hasLoadedRef.current = true;
         return;
       }
 
+      requestInFlightRef.current = true;
       if (mode === 'refresh') {
         setIsRefreshing(true);
-      } else {
+      } else if (!hasLoadedRef.current) {
         setIsLoading(true);
       }
 
@@ -61,6 +73,8 @@ export function StockListScreen() {
       } catch (error) {
         setErrorMessage(getStockApiErrorMessage(error, 'Stock list could not be loaded.'));
       } finally {
+        requestInFlightRef.current = false;
+        hasLoadedRef.current = true;
         setIsLoading(false);
         setIsRefreshing(false);
       }
@@ -68,9 +82,16 @@ export function StockListScreen() {
     [credentials],
   );
 
-  useEffect(() => {
-    void loadRows();
-  }, [loadRows]);
+  useMinuteBoundaryRefresh({
+    onRefresh: () => loadRows('initial'),
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      listRef.current?.scrollToOffset({ animated: false, offset: 0 });
+      return undefined;
+    }, []),
+  );
 
   const visibleRows = useMemo(() => {
     if (sortKey === 'default') {
@@ -138,131 +159,140 @@ export function StockListScreen() {
     } as Href);
   };
 
-  const header = (
-    <View style={styles.headerStack}>
-      <View style={styles.topActions}>
-        <Text selectable style={styles.pageTitle}>
-          Paper Trade
-        </Text>
-        <Pressable
-          accessibilityHint="Searches supported stocks."
-          accessibilityLabel="Search stocks"
-          accessibilityRole="button"
-          onPress={openSearch}
-          style={({ pressed }) => [styles.iconButton, pressed ? styles.pressed : undefined]}>
-          <IconSymbol color={Colors.light.text} name="magnifyingglass" size={22} />
-        </Pressable>
-        <Pressable
-          accessibilityHint="Refreshes the stock table."
-          accessibilityLabel="Refresh stocks"
-          accessibilityRole="button"
-          onPress={handleRefresh}
-          style={({ pressed }) => [styles.iconButton, pressed ? styles.pressed : undefined]}>
-          <IconSymbol color={Colors.light.text} name="arrow.clockwise" size={22} />
-        </Pressable>
-      </View>
-
-      <View style={styles.marketTabs}>
-        {(['US', 'MY', 'HK'] as MarketTab[]).map((tab) => (
-          <Pressable
-            accessibilityHint={
-              tab === 'US'
-                ? 'Shows supported US stocks.'
-                : `${tab} market support is planned for a later release.`
-            }
-            accessibilityLabel={`${tab} market tab`}
-            accessibilityRole="button"
-            accessibilityState={{ selected: activeMarket === tab }}
-            key={tab}
-            onPress={() => setActiveMarket(tab)}
-            style={styles.marketTab}>
-            <Text style={[styles.marketTabText, activeMarket === tab ? styles.marketTabTextActive : undefined]}>
-              {tab}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <StockMarketNotice stocks={stocks} />
-
-      {errorMessage ? <ErrorBanner title="Stocks need attention" message={errorMessage} /> : null}
-
-      {activeMarket === 'US' ? (
-        <View style={styles.tableHeader}>
-          <Text style={[styles.tableHeaderText, styles.tableHeaderNo]}>No.</Text>
-          <HeaderCell
-            label="Symbol"
-            onPress={() => handleSort('symbol')}
-            selected={sortKey === 'symbol'}
-            sortDirection={sortDirection}
-            style={styles.tableHeaderIdentity}
-          />
-          <HeaderCell
-            align="right"
-            label="Price"
-            onPress={() => handleSort('price')}
-            selected={sortKey === 'price'}
-            sortDirection={sortDirection}
-            style={styles.tableHeaderPrice}
-          />
-          <HeaderCell
-            align="right"
-            label="Chg %"
-            onPress={() => handleSort('change')}
-            selected={sortKey === 'change'}
-            sortDirection={sortDirection}
-            style={styles.tableHeaderChange}
-          />
-          <Text style={[styles.tableHeaderText, styles.tableHeaderAction]}>Action</Text>
-        </View>
-      ) : null}
-
-      {isLoading ? <SkeletonRows count={5} /> : null}
-    </View>
-  );
+  const showUnsupported = activeMarket !== 'US';
 
   return (
-    <FlatList
-      ListEmptyComponent={
-        isLoading || activeMarket !== 'US' ? null : (
-          <View style={styles.emptyState}>
-            <Text selectable style={styles.emptyTitle}>
-              {errorMessage ? 'Stocks could not be loaded' : 'No stored stock rows'}
-            </Text>
-            <Text selectable style={styles.emptyDescription}>
-              {errorMessage
-                ? 'Check that the backend is running, then refresh.'
-                : 'The backend returned no supported stocks yet.'}
-            </Text>
+    <View style={styles.container}>
+      <View style={[styles.fixedArea, { paddingTop: insets.top + 2 }]}>
+        <View style={styles.topActions}>
+          <Image
+            accessibilityLabel="StockMentor"
+            contentFit="contain"
+            source={require('../../assets/images/stockmentor-icon-transparent-1024.png')}
+            style={styles.logo}
+          />
+          <Text selectable style={styles.pageTitle}>
+            Stocks
+          </Text>
+          <Pressable
+            accessibilityHint="Searches supported stocks."
+            accessibilityLabel="Search stocks"
+            accessibilityRole="button"
+            onPress={openSearch}
+            style={({ pressed }) => [styles.iconButton, pressed ? styles.pressed : undefined]}>
+            <IconSymbol color={Colors.light.text} name="magnifyingglass" size={22} />
+          </Pressable>
+          <Pressable
+            accessibilityHint="Refreshes the stock table."
+            accessibilityLabel="Refresh stocks"
+            accessibilityRole="button"
+            onPress={handleRefresh}
+            style={({ pressed }) => [styles.iconButton, pressed ? styles.pressed : undefined]}>
+            <IconSymbol color={Colors.light.text} name="arrow.clockwise" size={22} />
+          </Pressable>
+        </View>
+
+        <View style={styles.marketTabs}>
+          {(['US', 'MY', 'HK'] as MarketTab[]).map((tab) => (
+            <Pressable
+              accessibilityHint={
+                tab === 'US'
+                  ? 'Shows supported US stocks.'
+                  : `${tab} market support is planned for a later release.`
+              }
+              accessibilityLabel={`${tab} market tab`}
+              accessibilityRole="button"
+              accessibilityState={{ selected: activeMarket === tab }}
+              key={tab}
+              onPress={() => setActiveMarket(tab)}
+              style={styles.marketTab}>
+              <Text style={[styles.marketTabText, activeMarket === tab ? styles.marketTabTextActive : undefined]}>
+                {tab}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <StockMarketNotice stocks={stocks} />
+
+        {activeMarket === 'US' ? (
+          <View style={styles.tableHeader}>
+            <Text style={[styles.tableHeaderText, styles.tableHeaderNo]}>No.</Text>
+            <HeaderCell
+              label="Symbol"
+              onPress={() => handleSort('symbol')}
+              selected={sortKey === 'symbol'}
+              sortDirection={sortDirection}
+              style={styles.tableHeaderIdentity}
+            />
+            <HeaderCell
+              align="right"
+              label="Price"
+              onPress={() => handleSort('price')}
+              selected={sortKey === 'price'}
+              sortDirection={sortDirection}
+              style={styles.tableHeaderPrice}
+            />
+            <HeaderCell
+              align="right"
+              label="Chg %"
+              onPress={() => handleSort('change')}
+              selected={sortKey === 'change'}
+              sortDirection={sortDirection}
+              style={styles.tableHeaderChange}
+            />
+            <Text style={[styles.tableHeaderText, styles.tableHeaderAction]}>Action</Text>
           </View>
-        )
-      }
-      ListHeaderComponent={header}
-      contentContainerStyle={[
-        styles.listContent,
-        {
-          paddingBottom: Math.max(Spacing.xxl, insets.bottom + Spacing.xl),
-          paddingTop: insets.top + 2,
-        },
-      ]}
-      contentInsetAdjustmentBehavior="never"
-      data={isLoading || activeMarket !== 'US' ? [] : visibleRows}
-      keyExtractor={(item) => item.symbol}
-      overScrollMode="never"
-      refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={isRefreshing} />}
-      renderItem={({ index, item }) => (
-        <StockListTableRow
-          detailReturnContext={{ returnTo: 'stocks' }}
-          onPaperTradePress={handlePaperTrade}
-          rowNumber={index + 1}
-          stock={item}
-        />
-      )}
-      style={styles.container}
-      ListFooterComponent={
-        activeMarket !== 'US' && !isLoading ? <UnsupportedMarketState market={activeMarket} /> : null
-      }
-    />
+        ) : null}
+      </View>
+
+      <FlatList
+        ref={listRef}
+        ListHeaderComponent={
+          errorMessage && !isLoading && !showUnsupported && visibleRows.length > 0 ? (
+            <ErrorBanner title="Stocks need attention" message={errorMessage} />
+          ) : null
+        }
+        ListEmptyComponent={
+          isLoading ? (
+            <SkeletonRows count={5} />
+          ) : errorMessage ? (
+            <ErrorBanner title="Stocks need attention" message={errorMessage} />
+          ) : showUnsupported ? (
+            <UnsupportedMarketState market={activeMarket} />
+          ) : (
+            <View style={styles.emptyState}>
+              <Text selectable style={styles.emptyTitle}>
+                No stored stock rows
+              </Text>
+              <Text selectable style={styles.emptyDescription}>
+                The backend returned no supported stocks yet.
+              </Text>
+            </View>
+          )
+        }
+        contentContainerStyle={[
+          styles.listContent,
+          {
+            paddingBottom: Math.max(Spacing.xxl, insets.bottom + Spacing.xl),
+          },
+        ]}
+        contentInsetAdjustmentBehavior="never"
+        data={isLoading || showUnsupported ? [] : visibleRows}
+        keyExtractor={(item) => item.symbol}
+        overScrollMode="never"
+        refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={isRefreshing} />}
+        renderItem={({ index, item }) => (
+          <StockListTableRow
+            detailReturnContext={{ returnTo: 'stocks' }}
+            onPaperTradePress={handlePaperTrade}
+            rowNumber={index + 1}
+            stock={item}
+          />
+        )}
+        style={styles.scroller}
+      />
+    </View>
   );
 }
 
@@ -327,12 +357,16 @@ const styles = StyleSheet.create({
   listContent: {
     gap: 0,
     paddingHorizontal: 0,
-    paddingTop: Spacing.sm,
     width: '100%',
   },
-  headerStack: {
-    gap: 0,
-    marginBottom: 0,
+  fixedArea: {
+    backgroundColor: Colors.light.background,
+    borderBottomColor: Colors.light.border,
+    borderBottomWidth: 1,
+  },
+  scroller: {
+    backgroundColor: Colors.light.background,
+    flex: 1,
   },
   topActions: {
     alignItems: 'center',
@@ -341,6 +375,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     minHeight: 48,
     paddingHorizontal: Spacing.md,
+  },
+  logo: {
+    height: 30,
+    width: 30,
   },
   pageTitle: {
     color: Colors.light.text,

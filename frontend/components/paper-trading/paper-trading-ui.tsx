@@ -1,45 +1,58 @@
 import { type Href, useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  type GestureResponderEvent,
+} from 'react-native';
 
+import { AnimatedValueText } from '@/components/foundation/animated-value-text';
+import { ActionButton } from '@/components/foundation/action-button';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Spacing } from '@/constants/theme';
 import type { PaperPositionResponse, PaperTradeTransactionResponse } from '@/types/paper-trading';
 import type { ApiNumber } from '@/types/stocks';
 import {
-  formatPaperDateTime,
   formatPaperMoney,
+  formatPaperPercent,
   formatQuantity,
+  formatSignedPaperMoney,
   getTransactionDisplayTitle,
   getTransactionSideLabel,
   isResetTransaction,
 } from '@/utils/paper-trading-display';
 import { getMovementColor } from '@/utils/stock-display';
 
+const BRAND_NAVY = '#052344';
+
 type PaperHeaderProps = {
+  brandIcon?: boolean;
+  iconName?: Parameters<typeof IconSymbol>[0]['name'];
   onBack?: () => void;
   onRefresh?: () => void;
-  subtitle?: string;
   title: string;
 };
 
 type MetricProps = {
   label: string;
+  prominent?: boolean;
   toneValue?: ApiNumber;
   value: string;
 };
 
-type PositionRowProps = {
-  onOpenSell: (position: PaperPositionResponse) => void;
-  position: PaperPositionResponse;
-};
-
 type TransactionRowProps = {
+  companyName?: string | null;
+  hideCurrentSessionMeta?: boolean;
   onPress?: (transaction: PaperTradeTransactionResponse) => void;
   transaction: PaperTradeTransactionResponse;
 };
 
-export function PaperHeader({ onBack, onRefresh, subtitle, title }: PaperHeaderProps) {
+export function PaperHeader({ brandIcon = false, iconName, onBack, onRefresh, title }: PaperHeaderProps) {
   return (
     <View style={styles.header}>
       {onBack ? (
@@ -51,19 +64,22 @@ export function PaperHeader({ onBack, onRefresh, subtitle, title }: PaperHeaderP
           <IconSymbol color={Colors.light.text} name="chevron.left" size={24} />
         </Pressable>
       ) : null}
-      <View style={styles.headerCopy}>
-        <Text selectable style={styles.headerTitle}>
-          {title}
-        </Text>
-        {subtitle ? (
-          <Text selectable numberOfLines={1} style={styles.headerSubtitle}>
-            {subtitle}
-          </Text>
-        ) : null}
-      </View>
+      {brandIcon ? (
+        <Image
+          accessibilityLabel="StockMentor"
+          contentFit="contain"
+          source={require('../../assets/images/stockmentor-icon-transparent-1024.png')}
+          style={styles.brandLogo}
+        />
+      ) : iconName ? (
+        <IconSymbol color={Colors.light.text} name={iconName} size={24} />
+      ) : null}
+      <Text selectable numberOfLines={1} style={styles.headerTitle}>
+        {title}
+      </Text>
       {onRefresh ? (
         <Pressable
-          accessibilityLabel="Refresh practice data"
+          accessibilityLabel="Refresh portfolio data"
           accessibilityRole="button"
           onPress={onRefresh}
           style={({ pressed }) => [styles.headerIcon, pressed ? styles.pressed : undefined]}>
@@ -81,32 +97,43 @@ export function PaperSection({
 }: {
   action?: ReactNode;
   children: ReactNode;
-  title: string;
+  title?: string;
 }) {
   return (
     <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text selectable style={styles.sectionTitle}>
-          {title}
-        </Text>
-        {action}
-      </View>
+      {title || action ? (
+        <View style={styles.sectionHeader}>
+          {title ? (
+            <Text selectable style={styles.sectionTitle}>
+              {title}
+            </Text>
+          ) : (
+            <View />
+          )}
+          {action}
+        </View>
+      ) : null}
       {children}
     </View>
   );
 }
 
-export function PaperMetric({ label, toneValue, value }: MetricProps) {
+export function PaperMetric({ label, prominent = false, toneValue, value }: MetricProps) {
   const color = toneValue === undefined ? Colors.light.text : getMovementColor(toneValue);
 
   return (
     <View style={styles.metric}>
-      <Text selectable style={styles.metricLabel}>
+      <Text selectable style={[styles.metricLabel, prominent ? styles.metricLabelProminent : undefined]}>
         {label}
       </Text>
-      <Text selectable adjustsFontSizeToFit minimumFontScale={0.82} numberOfLines={1} style={[styles.metricValue, { color }]}>
-        {value}
-      </Text>
+      <AnimatedValueText
+        adjustsFontSizeToFit
+        minimumFontScale={0.82}
+        numberOfLines={1}
+        selectable
+        style={[styles.metricValue, prominent ? styles.metricValueProminent : undefined, { color }]}
+        value={value}
+      />
     </View>
   );
 }
@@ -121,58 +148,216 @@ export function InlineNotice({ message, tone = 'info' }: { message: string; tone
   );
 }
 
-export function PositionRow({ onOpenSell, position }: PositionRowProps) {
-  const handleSell = (event: GestureResponderEvent) => {
-    event.stopPropagation();
-    onOpenSell(position);
-  };
-
+export function PortfolioTabs({
+  activeTab,
+  onSelect,
+}: {
+  activeTab: 'assets' | 'history';
+  onSelect: (tab: 'assets' | 'history') => void;
+}) {
   return (
-    <View style={styles.positionRow}>
-      <View style={styles.positionIdentity}>
-        <Text selectable numberOfLines={1} style={styles.symbol}>
-          {position.symbol}
-        </Text>
-        <Text selectable numberOfLines={1} style={styles.company}>
-          {position.companyName ?? 'Company unavailable'}
-        </Text>
-      </View>
-      <View style={styles.positionNumbers}>
-        <Text selectable numberOfLines={1} style={styles.positionPrimary}>
-          {formatPaperMoney(position.valuationMarketValue ?? position.marketValue)}
-        </Text>
-        <Text selectable numberOfLines={1} style={styles.positionSecondary}>
-          {formatQuantity(position.quantity)} shares
-        </Text>
-      </View>
-      <View style={styles.positionNumbers}>
-        <Text selectable numberOfLines={1} style={styles.positionPrimary}>
-          {formatPaperMoney(position.valuationPrice ?? position.currentPrice)}
-        </Text>
-        <Text selectable numberOfLines={1} style={styles.positionSecondary}>
-          Cost {formatPaperMoney(position.averageCost)}
-        </Text>
-      </View>
-      <Pressable
-        accessibilityLabel={`Sell ${position.symbol}`}
-        accessibilityRole="button"
-        onPress={handleSell}
-        style={({ pressed }) => [styles.sellButton, pressed ? styles.sellButtonPressed : undefined]}>
-        {({ pressed }) => (
-          <Text style={[styles.sellButtonText, pressed ? styles.sellButtonTextPressed : undefined]}>
-            Sell
-          </Text>
-        )}
-      </Pressable>
+    <View style={styles.tabs}>
+      {(['assets', 'history'] as const).map((tab) => {
+        const active = activeTab === tab;
+        return (
+          <Pressable
+            accessibilityLabel={`${tab === 'assets' ? 'Assets' : 'History'} tab`}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            key={tab}
+            onPress={() => onSelect(tab)}
+            style={[styles.tab, active ? styles.tabActive : undefined]}>
+            <Text style={[styles.tabText, active ? styles.tabTextActive : undefined]}>
+              {tab === 'assets' ? 'Assets' : 'History'}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
 
-export function TransactionRow({ onPress, transaction }: TransactionRowProps) {
+export function PositionsTable({
+  onOpenSell,
+  positions,
+}: {
+  onOpenSell: (position: PaperPositionResponse) => void;
+  positions: PaperPositionResponse[];
+}) {
+  return (
+    <View style={styles.positionsTable}>
+      <View style={styles.positionsTableRow}>
+        <View style={styles.fixedColumn}>
+          <View style={[styles.fixedSymbolCell, styles.positionsHeaderCell]}>
+            <Text style={styles.tableHeaderText}>Stock</Text>
+          </View>
+          {positions.map((position) => (
+            <View key={`fixed-${position.positionId ?? position.symbol}`} style={styles.fixedSymbolRow}>
+              <Text selectable numberOfLines={1} style={styles.symbol}>
+                {position.symbol}
+              </Text>
+              <Text selectable numberOfLines={1} style={styles.company}>
+                {position.companyName ?? 'Company unavailable'}
+              </Text>
+            </View>
+          ))}
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View>
+            <View style={styles.metricHeaderRow}>
+              <MetricHeader title="Latest Value/QTY" width={116} />
+              <MetricHeader title="Current Price/Avg Cost" width={122} />
+              <MetricHeader title="P/L" width={88} />
+              <MetricHeader title="% Position" width={112} />
+              <MetricHeader align="center" title="Action" width={92} />
+            </View>
+            {positions.map((position) => (
+              <View key={position.positionId ?? position.symbol} style={styles.metricDataRow}>
+                <MetricPair
+                  primary={formatPaperMoney(position.valuationMarketValue ?? position.marketValue)}
+                  secondary={formatQuantity(position.quantity)}
+                  width={116}
+                />
+                <MetricPair
+                  primary={formatPaperMoney(position.valuationPrice ?? position.currentPrice)}
+                  secondary={formatPaperMoney(position.averageCost)}
+                  width={122}
+                />
+                <MetricPair
+                  primary={formatSignedPaperMoney(position.unrealizedProfitLoss)}
+                  primaryTone={position.unrealizedProfitLoss}
+                  secondary={formatPaperPercent(position.unrealizedProfitLossPercent)}
+                  secondaryTone={position.unrealizedProfitLossPercent}
+                  width={88}
+                />
+                <MetricPair
+                  primary={formatPaperPercent(position.portfolioWeightPercent)}
+                  width={112}
+                />
+                <View style={[styles.metricCell, styles.actionColumn]}>
+                  <Pressable
+                    accessibilityLabel={`Sell ${position.symbol}`}
+                    accessibilityRole="button"
+                    onPress={(event: GestureResponderEvent) => {
+                      event.stopPropagation();
+                      onOpenSell(position);
+                    }}
+                    style={({ pressed }) => [styles.sellButton, pressed ? styles.sellButtonPressed : undefined]}>
+                    {({ pressed }) => (
+                      <Text style={[styles.sellButtonText, pressed ? styles.sellButtonTextPressed : undefined]}>
+                        Sell
+                      </Text>
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      </View>
+    </View>
+  );
+}
+
+function MetricHeader({
+  align = 'right',
+  title,
+  width,
+}: {
+  align?: 'center' | 'right';
+  title: string;
+  width: number;
+}) {
+  const alignItems = align === 'center' ? 'center' : 'flex-end';
+  const textAlign = align === 'center' ? 'center' : 'right';
+
+  return (
+    <View
+      style={[
+        styles.metricCell,
+        styles.positionsHeaderCell,
+        {
+          width,
+          alignItems,
+        },
+      ]}>
+      <Text
+        numberOfLines={2}
+        style={[
+          styles.tableHeaderText,
+          {
+            width: '100%',
+            textAlign,
+          },
+        ]}>
+        {title}
+      </Text>
+    </View>
+  );
+}
+
+function MetricPair({
+  primary,
+  primaryTone,
+  secondary,
+  secondaryTone,
+  width,
+}: {
+  primary: string;
+  primaryTone?: ApiNumber;
+  secondary?: string;
+  secondaryTone?: ApiNumber;
+  width: number;
+}) {
+  return (
+    <View style={[styles.metricCell, { width }]}>
+      <AnimatedValueText
+        numberOfLines={1}
+        selectable
+        style={[
+          styles.positionPrimary,
+          primaryTone === undefined ? undefined : { color: getMovementColor(primaryTone) },
+        ]}
+        value={primary}
+      />
+      {secondary ? (
+        <AnimatedValueText
+          numberOfLines={1}
+          selectable
+          style={[
+            styles.positionSecondary,
+            secondaryTone === undefined ? undefined : { color: getMovementColor(secondaryTone) },
+          ]}
+          value={secondary}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+export function TransactionTableHeader() {
+  return (
+    <View style={styles.transactionHeaderRow}>
+      <Text style={[styles.transactionHeaderText, styles.transactionHeaderStatus]}>Action</Text>
+      <Text style={[styles.transactionHeaderText, styles.transactionHeaderSymbol]}>Stock</Text>
+      <Text style={[styles.transactionHeaderText, styles.transactionHeaderQuantity]}>Price/Qty</Text>
+      <Text style={[styles.transactionHeaderText, styles.transactionHeaderProfitLoss]}>P/L</Text>
+    </View>
+  );
+}
+
+export function TransactionRow({
+  companyName,
+  hideCurrentSessionMeta = false,
+  onPress,
+  transaction,
+}: TransactionRowProps) {
   const router = useRouter();
   const canOpen = Boolean(transaction.transactionId);
   const side = getTransactionSideLabel(transaction.side);
   const reset = isResetTransaction(transaction);
+  const profitLoss =
+    transaction.side === 'SELL' ? formatSignedPaperMoney(transaction.realizedProfitLoss) : '-';
 
   const openTransaction = () => {
     if (onPress) {
@@ -194,34 +379,46 @@ export function TransactionRow({ onPress, transaction }: TransactionRowProps) {
       accessibilityRole={canOpen ? 'button' : 'text'}
       disabled={!canOpen}
       onPress={openTransaction}
-      style={({ pressed }) => [styles.transactionRow, pressed && canOpen ? styles.pressedRow : undefined]}>
-      <View style={styles.transactionSide}>
+      style={({ pressed }) => [
+        styles.transactionRow,
+        reset ? styles.resetTransactionRow : undefined,
+        pressed && canOpen ? styles.pressedRow : undefined,
+      ]}>
+      <View style={styles.transactionStatusCell}>
         <Text selectable style={[styles.transactionSideText, reset ? styles.resetText : transaction.side === 'SELL' ? styles.sellText : styles.buyText]}>
-          {side}
+          {reset ? 'Reset' : side}
         </Text>
-        <Text selectable style={styles.transactionMeta}>
-          {transaction.isCurrentSession === false ? 'Old session' : 'Current'}
-        </Text>
+        {!hideCurrentSessionMeta && transaction.isCurrentSession === false ? (
+          <Text selectable style={styles.transactionMeta}>Old session</Text>
+        ) : null}
       </View>
-      <View style={styles.transactionIdentity}>
+      <View style={styles.transactionSymbolCell}>
         <Text selectable numberOfLines={1} style={styles.symbol}>
-          {reset ? 'Session reset' : transaction.symbol ?? 'Unavailable'}
+          {reset ? 'Portfolio Reset' : transaction.symbol ?? 'Unavailable'}
         </Text>
         <Text selectable numberOfLines={1} style={styles.company}>
-          {reset
-            ? `Session ${transaction.sessionNumber ?? 'Unavailable'}`
-            : `${formatQuantity(transaction.quantity)} shares`}
+          {reset ? `Session ${transaction.sessionNumber ?? 'Unavailable'} starts` : companyName ?? 'Company unavailable'}
         </Text>
       </View>
-      <View style={styles.transactionAmount}>
+      <View style={styles.transactionQuantityCell}>
         <Text selectable numberOfLines={1} style={styles.transactionPrimary}>
-          {reset ? 'Reset' : formatPaperMoney(transaction.netAmount ?? transaction.totalAmount)}
+          {reset ? '-' : formatPaperMoney(transaction.executionPrice ?? transaction.price)}
         </Text>
         <Text selectable numberOfLines={1} style={styles.transactionMeta}>
-          {formatPaperDateTime(transaction.executedAt ?? transaction.transactionTime)}
+          {reset ? '' : formatQuantity(transaction.quantity)}
         </Text>
       </View>
-      {canOpen ? <IconSymbol color={Colors.light.mutedText} name="chevron.right" size={18} /> : null}
+      <View style={styles.transactionProfitLossCell}>
+        <Text
+          selectable
+          numberOfLines={1}
+          style={[
+            styles.transactionPrimary,
+            transaction.side === 'SELL' ? { color: getMovementColor(transaction.realizedProfitLoss) } : undefined,
+          ]}>
+          {profitLoss}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -235,7 +432,7 @@ export function ResultPanel({
 }) {
   return (
     <View style={styles.resultPanel}>
-      <IconSymbol color="#052344" name="checkmark.circle.fill" size={24} />
+      <IconSymbol color={BRAND_NAVY} name="checkmark.circle.fill" size={24} />
       <View style={styles.resultCopy}>
         <Text selectable style={styles.resultTitle}>
           {title}
@@ -246,16 +443,96 @@ export function ResultPanel({
   );
 }
 
-export function FieldRow({ label, value }: { label: string; value: string }) {
+export function FieldRow({
+  label,
+  tone,
+  toneValue,
+  value,
+}: {
+  label: string;
+  tone?: 'positive' | 'negative' | 'neutral';
+  toneValue?: ApiNumber;
+  value: string;
+}) {
+  const toneColor =
+    tone === 'positive'
+      ? Colors.light.success
+      : tone === 'negative'
+        ? Colors.light.destructive
+        : tone === 'neutral'
+          ? Colors.light.mutedText
+          : undefined;
+
   return (
     <View style={styles.fieldRow}>
       <Text selectable style={styles.fieldLabel}>
         {label}
       </Text>
-      <Text selectable style={styles.fieldValue}>
+      <Text
+        selectable
+        style={[
+          styles.fieldValue,
+          toneColor ? { color: toneColor } : toneValue === undefined ? undefined : { color: getMovementColor(toneValue) },
+        ]}>
         {value}
       </Text>
     </View>
+  );
+}
+
+export function ConfirmOverlay({
+  cancelLabel = 'Cancel',
+  children,
+  confirmLabel,
+  danger = false,
+  message,
+  onCancel,
+  onConfirm,
+  pending,
+  pendingLabel,
+  title,
+  visible,
+}: {
+  cancelLabel?: string;
+  children?: ReactNode;
+  confirmLabel: string;
+  danger?: boolean;
+  message?: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  pending: boolean;
+  pendingLabel: string;
+  title: string;
+  visible: boolean;
+}) {
+  return (
+    <Modal animationType="fade" transparent visible={visible}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.confirmCard}>
+          <View style={styles.confirmHeaderLayer}>
+            <Text selectable style={styles.confirmTitle}>{title}</Text>
+            {message ? <Text selectable style={styles.confirmMessage}>{message}</Text> : null}
+          </View>
+          {children}
+          <View style={styles.confirmActions}>
+            <ActionButton
+              disabled={pending}
+              label={cancelLabel}
+              onPress={onCancel}
+              style={styles.confirmButton}
+              variant="ghost"
+            />
+            <ActionButton
+              disabled={pending}
+              label={pending ? pendingLabel : confirmLabel}
+              onPress={onConfirm}
+              style={[styles.confirmButton, danger ? undefined : styles.confirmPrimaryButton]}
+              variant={danger ? 'danger' : 'primary'}
+            />
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -273,28 +550,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 38,
   },
-  headerCopy: {
-    flex: 1,
-    minWidth: 0,
+  brandLogo: {
+    height: 30,
+    width: 30,
   },
   headerTitle: {
     color: Colors.light.text,
+    flex: 1,
     fontSize: 22,
     fontWeight: '700',
     lineHeight: 28,
   },
-  headerSubtitle: {
-    color: Colors.light.mutedText,
-    fontSize: 12,
-    lineHeight: 16,
-  },
   section: {
     backgroundColor: Colors.light.surface,
-    borderBottomColor: Colors.light.border,
-    borderBottomWidth: 1,
-    borderTopColor: Colors.light.border,
-    borderTopWidth: 1,
-    gap: Spacing.md,
+    gap: Spacing.sm,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
   },
@@ -306,23 +575,33 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: Colors.light.text,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   metric: {
     flex: 1,
     gap: Spacing.xs,
-    minWidth: 120,
+    minWidth: 112,
   },
   metricLabel: {
     color: Colors.light.mutedText,
     fontSize: 12,
     fontWeight: '500',
   },
+  metricLabelProminent: {
+    color: Colors.light.mutedText,
+    fontSize: 14,
+    fontWeight: '500',
+  },
   metricValue: {
     color: Colors.light.text,
-    fontSize: 20,
+    fontSize: 19,
     fontVariant: ['tabular-nums'],
+    fontWeight: '600',
+  },
+  metricValueProminent: {
+    fontSize: 28,
     fontWeight: '700',
+    lineHeight: 34,
   },
   notice: {
     backgroundColor: '#EFF6FF',
@@ -345,19 +624,98 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  positionRow: {
-    alignItems: 'center',
-    borderTopColor: Colors.light.border,
-    borderTopWidth: 1,
+  tabs: {
+    backgroundColor: Colors.light.background,
     flexDirection: 'row',
-    gap: Spacing.sm,
-    minHeight: 62,
-    paddingVertical: Spacing.sm,
+    gap: Spacing.md,
+    paddingBottom: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.sm,
   },
-  positionIdentity: {
+  tab: {
+    backgroundColor: '#E5E7EB',
+    borderBottomColor: 'transparent',
+    borderBottomWidth: 2,
+    borderRadius: 10,
     flex: 1,
+    minHeight: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+  },
+  tabActive: {
+    backgroundColor: '#FFF7ED',
+    borderBottomColor: '#F97316',
+  },
+  tabText: {
+    color: Colors.light.text,
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  tabTextActive: {
+    color: '#C2410C',
+    fontWeight: '700',
+  },
+  positionsTable: {
+    backgroundColor: Colors.light.surface,
+    position: 'relative',
+  },
+  positionsTableRow: {
+    flexDirection: 'row',
+  },
+  fixedColumn: {
+    backgroundColor: Colors.light.surface,
+    width: 94,
+  },
+  positionsHeaderCell: {
+    borderBottomColor: Colors.light.border,
+    borderBottomWidth: 1,
+    minHeight: 36,
+  },
+  fixedSymbolCell: {
+    backgroundColor: Colors.light.surface,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.sm,
+    width: 94,
+  },
+  fixedSymbolRow: {
+    borderBottomColor: Colors.light.border,
+    borderBottomWidth: 1,
     gap: 2,
-    minWidth: 0,
+    justifyContent: 'center',
+    minHeight: 58,
+    paddingHorizontal: Spacing.sm,
+    width: 94,
+  },
+  metricHeaderRow: {
+    flexDirection: 'row',
+  },
+  metricDataRow: {
+    borderBottomColor: Colors.light.border,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    minHeight: 58,
+  },
+  metricCell: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  actionColumn: {
+    alignItems: 'center',
+    width: 90,
+  },
+  tableHeaderText: {
+    color: Colors.light.mutedText,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  tableHeaderRight: {
+    textAlign: 'right',
+  },
+  tableHeaderCenter: {
+    textAlign: 'center',
   },
   symbol: {
     color: Colors.light.text,
@@ -370,42 +728,70 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
   },
-  positionNumbers: {
-    alignItems: 'flex-end',
-    gap: 2,
-    width: 92,
-  },
   positionPrimary: {
     color: Colors.light.text,
-    fontSize: 13,
+    fontSize: 14,
     fontVariant: ['tabular-nums'],
-    fontWeight: '600',
+    fontWeight: '500',
+    lineHeight: 18,
+    textAlign: 'right',
   },
   positionSecondary: {
     color: Colors.light.mutedText,
-    fontSize: 11,
+    fontSize: 12,
     fontVariant: ['tabular-nums'],
+    lineHeight: 16,
+    textAlign: 'right',
   },
   sellButton: {
     alignItems: 'center',
-    borderColor: '#94A3B8',
+    borderColor: Colors.light.destructive,
     borderRadius: 999,
     borderWidth: 1,
     minHeight: 30,
     justifyContent: 'center',
-    width: 52,
+    width: 66,
   },
   sellButtonPressed: {
-    backgroundColor: '#052344',
-    borderColor: '#052344',
+    backgroundColor: Colors.light.destructive,
   },
   sellButtonText: {
-    color: Colors.light.text,
+    color: Colors.light.destructive,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   sellButtonTextPressed: {
     color: '#FFFFFF',
+  },
+  transactionHeaderRow: {
+    alignItems: 'center',
+    backgroundColor: Colors.light.surface,
+    borderBottomColor: Colors.light.border,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    minHeight: 36,
+    paddingHorizontal: Spacing.md,
+  },
+  transactionHeaderText: {
+    color: Colors.light.mutedText,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  transactionHeaderStatus: {
+    width: 68,
+  },
+  transactionHeaderSymbol: {
+    flex: 1,
+  },
+  transactionHeaderQuantity: {
+    textAlign: 'right',
+    width: 86,
+  },
+  transactionHeaderProfitLoss: {
+    textAlign: 'right',
+    width: 90,
   },
   transactionRow: {
     alignItems: 'center',
@@ -414,13 +800,30 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: 'row',
     gap: Spacing.sm,
-    minHeight: 62,
+    minHeight: 64,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
   },
-  transactionSide: {
+  transactionStatusCell: {
     gap: 2,
-    width: 72,
+    width: 68,
+  },
+  transactionSymbolCell: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  transactionQuantityCell: {
+    alignItems: 'flex-end',
+    gap: 2,
+    width: 86,
+  },
+  transactionProfitLossCell: {
+    alignItems: 'flex-end',
+    width: 90,
+  },
+  resetTransactionRow: {
+    backgroundColor: '#F8FAFC',
   },
   transactionSideText: {
     fontSize: 14,
@@ -433,34 +836,19 @@ const styles = StyleSheet.create({
     color: Colors.light.destructive,
   },
   resetText: {
-    color: '#052344',
+    color: BRAND_NAVY,
   },
   transactionMeta: {
     color: Colors.light.mutedText,
     fontSize: 11,
     lineHeight: 15,
   },
-  transactionIdentity: {
-    flex: 1,
-    gap: 2,
-    minWidth: 0,
-  },
-  transactionAmount: {
-    alignItems: 'flex-end',
-    gap: 2,
-    width: 96,
-  },
   transactionPrimary: {
     color: Colors.light.text,
     fontSize: 13,
     fontVariant: ['tabular-nums'],
-    fontWeight: '600',
-  },
-  pressed: {
-    opacity: 0.82,
-  },
-  pressedRow: {
-    backgroundColor: '#F8FAFC',
+    fontWeight: '500',
+    lineHeight: 17,
   },
   resultPanel: {
     alignItems: 'flex-start',
@@ -483,11 +871,9 @@ const styles = StyleSheet.create({
   },
   fieldRow: {
     alignItems: 'center',
-    borderTopColor: Colors.light.border,
-    borderTopWidth: 1,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     gap: Spacing.md,
+    justifyContent: 'space-between',
     paddingVertical: Spacing.sm,
   },
   fieldLabel: {
@@ -501,5 +887,62 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     fontWeight: '600',
     textAlign: 'right',
+  },
+  modalBackdrop: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.42)',
+    flex: 1,
+    justifyContent: 'center',
+    padding: Spacing.lg,
+  },
+  confirmCard: {
+    backgroundColor: Colors.light.surface,
+    borderRadius: 14,
+    gap: Spacing.md,
+    maxWidth: 420,
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOffset: { height: 10, width: 0 },
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    width: '100%',
+    elevation: 8,
+  },
+  confirmHeaderLayer: {
+    backgroundColor: '#F1F5F9',
+    borderBottomColor: Colors.light.border,
+    borderBottomWidth: 1,
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.lg,
+  },
+  confirmTitle: {
+    color: Colors.light.text,
+    fontSize: 20,
+    fontWeight: '600',
+  },
+  confirmMessage: {
+    color: Colors.light.text,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    paddingBottom: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+  },
+  confirmButton: {
+    flex: 1,
+  },
+  confirmPrimaryButton: {
+    backgroundColor: BRAND_NAVY,
+    borderColor: BRAND_NAVY,
+  },
+  pressed: {
+    opacity: 0.82,
+  },
+  pressedRow: {
+    backgroundColor: '#F8FAFC',
   },
 });

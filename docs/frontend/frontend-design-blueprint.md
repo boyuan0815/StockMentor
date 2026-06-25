@@ -207,10 +207,10 @@ After login and onboarding, beginner users should see a simple tab-based shell:
 
 - Watchlist
 - Stocks
-- Search
 - Suggestions
-- Practice
+- Portfolio
 - Profile
+- Search
 
 Stacks inside tabs should open detail screens for stock detail, AI explanation, buy/sell tickets, transaction detail,
 onboarding retake, and settings.
@@ -219,8 +219,10 @@ Phase 3B stock UI conventions:
 
 - Watchlist page title is `Watchlists`; it uses the StockMentor logo, icon-only search/refresh, market tabs
   `All`, `US`, `HK`, `MY`, and a full-width table with `No.`, `Symbol`, `Price`, `Chg %`.
-- Stocks page title is compact `Paper Trade`; it uses market tabs `US`, `MY`, `HK` and a table with
+- Stocks page title is compact `Stocks`; it uses market tabs `US`, `MY`, `HK` and a table with
   `No.`, `Symbol`, `Price`, `Chg %`, `Action`.
+- Watchlist, Stocks, Suggestions, Portfolio, and Profile use fixed StockMentor-logo headers; Search keeps the search-row
+  header and is visually separated as the rightmost tab.
 - Search is both a visible bottom tab and a hidden contextual route `/stocks/search-context`. Empty search shows Search
   History and max three Latest Viewed Stocks, never the full supported stock list.
 - Stock detail uses a dynamic fixed header: blank at top, identity only after the main identity block is covered, and
@@ -228,7 +230,8 @@ Phase 3B stock UI conventions:
 - Market notice copy is a shallow-red marquee strip that preserves the full backend-derived sentence with no string
   slicing or ellipsis.
 - Toasts are centered dark-navy layers with white text and auto-dismiss behavior.
-- Practice-trade CTAs open guarded US010 tickets and do not execute directly.
+- Practice-trade CTAs open guarded stock-scoped US010 tickets and do not execute directly. Tickets have no internal
+  stock picker or generic holdings selector, and buy/sell requests send only `symbol` and numeric `quantity`.
 
 Mobile HCI rules for account and quiz flows:
 

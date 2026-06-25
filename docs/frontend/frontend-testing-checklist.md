@@ -28,9 +28,11 @@ Use this checklist after frontend implementation begins. This documentation task
   small up/down icon states.
 - Confirm Watchlist refreshes on focus after add/remove from detail.
 - View Stocks tab.
-- Confirm Stocks page title is compact `Paper Trade`, tabs are `US`, `MY`, `HK`, and `MY`/`HK` show planned states only.
+- Confirm Stocks page title is compact `Stocks`, tabs are `US`, `MY`, `HK`, and `MY`/`HK` show planned states only.
 - Confirm Stocks table columns are `No.`, `Symbol`, `Price`, `Chg %`, `Action`, and the practice-trade button does not
   trigger row navigation.
+- Confirm Watchlist, Stocks, Suggestions, Portfolio, and Profile use fixed StockMentor-logo headers; Search keeps its
+  search-row header and appears as the rightmost tab with a separator.
 - View Search tab and contextual search from Watchlist, Stocks, and Detail.
 - Confirm empty Search shows Search History and max three Latest Viewed Stocks only, not all supported stocks.
 - Confirm typed Search results show symbol/name plus heart toggle only, no price/change.
@@ -57,20 +59,35 @@ Use this checklist after frontend implementation begins. This documentation task
 - Cooldown display disables refresh when not allowed.
 - Add stock to watchlist.
 - Remove stock from watchlist.
-- View paper-trading account and portfolio.
-- Confirm Practice overview shows account/portfolio summary, positions, recent transactions, and clear Buy/Sell/View
-  Transactions/Reset actions.
-- Confirm buy opens a guarded ticket, validates whole-share quantity, shows confirmation, and sends only `symbol` plus
-  numeric `quantity`.
-- Confirm sell loads held positions first, allows held symbols only, rejects quantity above holding, and sends only
-  `symbol` plus numeric `quantity`.
-- Confirm reset copy says simulated cash returns to starting balance, open positions are cleared, a new session starts,
-  and the action cannot be undone.
-- Confirm buy/sell copy says practice trades use StockMentor's delayed stored price and that frontend does not send price.
+- View Portfolio tab.
+- Confirm Portfolio bottom-tab entry opens `Assets` at the top; `/paper-trading?tab=history` and
+  `/paper-trading/transactions` open `History`.
+- Confirm Portfolio has fixed `Assets` and `History` top tabs.
+- Confirm Assets shows `Net Assets · USD`, Holdings Value, Unrealized P/L, positions, valuation warnings, View Stocks,
+  and Reset Portfolio; expanded content may show Cash, Fees Paid, Session, and Last reset. It does not show Today P/L
+  without backend support.
+- Confirm initial portfolio loading keeps the portfolio body in skeleton state and does not briefly show empty
+  positions.
+- Confirm empty positions CTA says `View Stock Page`.
+- Confirm the positions table keeps `Stock` fixed, horizontally scrolls metric columns, includes P/L, `% Position`, and
+  a centered Action/Sell control.
+- Confirm Stock List, Stock Detail, and position-row Sell open stock-scoped guarded tickets without internal stock or
+  holdings selectors.
+- Confirm ticket account/quote layout shows `Net Assets · USD`, a small US flag, and the selected stock quote for both
+  Buy and Sell.
+- Confirm buy/sell validate whole-share quantity, show modal confirmation, and send only `symbol` plus numeric
+  `quantity`.
+- Confirm fee, amount, and max quantity are display-only estimates and are not sent in the buy/sell payload.
+- Confirm sell supports Partial and All; pasted quantity greater than or equal to holding switches to All. If holding
+  quantity is `1`, All is forced, Partial is disabled, quantity stays `1`, and plus/minus controls look disabled.
+- Confirm successful buy/sell redirects to `/paper-trading?tab=history`.
+- Confirm reset uses a dimmed slide-up/down reset-card sheet saying simulated cash returns to starting balance, open
+  positions are cleared, a new session starts, and the action cannot be undone.
 - Confirm Stock List and Stock Detail `Practice Trade` CTAs open the guarded buy ticket and do not execute directly.
-- View transactions and transaction detail.
-- Confirm transactions default to current session, support side/symbol filters, and display RESET/null-symbol rows as
-  session reset rows without stock links or price assumptions.
+- View History tab and transaction detail.
+- Confirm History defaults to current session, supports side filters and local symbol/company search over loaded rows,
+  displays `Action`, `Stock`, `Price/Qty`, and `P/L`, and displays RESET/null-symbol rows as session reset rows without
+  stock links or price assumptions.
 - Logout clears session.
 
 ## Admin Web Flow
@@ -152,7 +169,9 @@ Each case should send at most one write request while pending.
 - Search Context -> Detail -> Back returns Search Context with original params.
 - Stock list -> Practice Trade buy ticket -> Back returns Stock list.
 - Detail -> Practice Trade buy ticket -> Back returns same Detail.
-- Practice -> Transactions -> Transaction Detail -> Back returns Transactions.
+- Portfolio -> History -> Transaction Detail -> Back returns History.
+- Random-second focus refresh on Watchlist, Stocks, Search, Stock Detail, Portfolio, and History keeps current values
+  visible, then updates again at the next minute boundary without clearing inputs, filters, tabs, or scroll state.
 
 ## Phase 3B Protected-File Checks
 

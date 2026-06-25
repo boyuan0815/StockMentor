@@ -44,7 +44,7 @@ Acceptance:
 - Status: Phase 3B stock-learning UI standard is implemented in the working tree and should be preserved by later
   phases.
 - Watchlist tab with `Watchlists` table.
-- Stocks tab with compact `Paper Trade` table.
+- Stocks tab with compact `Stocks` table.
 - Search tab plus hidden contextual `/stocks/search-context` route.
 - Stock detail with measured dynamic header, quote panel, history summary/list, and guarded practice-trade CTA.
 - Timeframe tabs and backend-returned history points.
@@ -60,7 +60,9 @@ Acceptance:
 - UI prefers backend delayed display fields such as `displayedPrice`, `displayedPercentChange`, `displayedMarketTime`,
   `targetDisplayMarketTime`, and `priceFreshnessStatus`, while compact rows hide raw source/status/time values.
 - Search empty state shows Search History and max three Latest Viewed Stocks, not the full supported stock list.
-- Explicit return params keep Stocks/Watchlist/Search/Detail/Practice back navigation deterministic.
+- Explicit return params keep Stocks/Watchlist/Search/Detail/Portfolio back navigation deterministic.
+- Focused stock and portfolio screens use soft focus/minute-boundary refresh against stored backend data; hidden tabs do
+  not poll.
 
 ## Phase 4: AI Suggestions
 
@@ -79,21 +81,21 @@ Acceptance:
 ## Phase 5: Paper Trading
 
 - Paper account.
-- Portfolio.
-- Buy.
-- Sell.
-- Reset.
-- Transactions.
-- Transaction detail.
+- Portfolio with fixed `Assets` and `History` tabs.
+- Stock-scoped Paper Trade ticket shared by buy/sell routes.
+- Reset Portfolio bottom sheet.
+- History and transaction detail.
 
 Acceptance:
 
-- Buy, sell, and reset require confirmation.
+- Buy, sell, and reset require explicit confirmation.
 - Quantity accepts whole shares only.
 - No external brokerage, OpenAI, or Twelve Data calls.
-- Frontend never sends price.
-- Copy states that practice trades use StockMentor's delayed stored price, not a live market quote.
+- Frontend never sends price, amount, fee, or max quantity.
+- Ticket fee/amount/max quantity values are display-only estimates.
+- Buy/sell success redirects to Portfolio History.
 - Backend buy/sell uses the delayed stored market price selector.
+- Today P/L remains hidden until a backend field with that exact meaning exists.
 
 ## Phase 6: Admin Web/Tablet
 

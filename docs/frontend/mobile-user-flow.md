@@ -16,10 +16,10 @@ Authenticated beginner tabs:
 
 - `(user)/dashboard`: `Watchlist`
 - `(user)/stocks/index`: `Stocks`
-- `(user)/stocks/search`: `Search`
 - `(user)/suggestions/index`: `Suggestions`
-- `(user)/paper-trading/index`: `Practice`
+- `(user)/paper-trading/index`: `Portfolio`
 - `(user)/profile`: `Profile`
+- `(user)/stocks/search`: `Search`
 
 Detail and action routes:
 
@@ -96,9 +96,9 @@ depending on tab history.
 
 - Backend: `GET /api/stocks`.
 - Use case: US009 View Stock Market Data.
-- Tab label: `Stocks`; current page title: `Paper Trade`.
-- Sections: compact action row, icon-only search/refresh, market tabs `US`, `MY`, `HK`, market notice marquee, and a
-  full-width supported-stock table.
+- Tab label: `Stocks`; page title: `Stocks`.
+- Sections: fixed StockMentor-logo header row, icon-only search/refresh, market tabs `US`, `MY`, `HK`, market notice
+  marquee, and a full-width supported-stock table with fixed table header.
 - Rows: `No.`, `Symbol`, `Price`, `Chg %`, `Action`.
 - Empty: no stored stock data message for `US`; `MY` and `HK` show planned-state copy only.
 - Intended display: show backend-provided `displayedPrice`, `displayedPercentChange`, `displayedMarketTime`,
@@ -107,6 +107,8 @@ depending on tab history.
 - Guardrail: list is read-only and must not call Twelve Data or invent delayed prices. Do not show row-level raw
   `priceSource`, freshness enum values, or market time. The `Practice Trade`/paper action opens a guarded practice
   buy ticket and must not execute trades directly or trigger row navigation.
+- Refresh: soft refresh on focus and minute-boundary refresh while focused should keep current rows visible and update
+  only when the backend response returns.
 
 ### Search
 
@@ -114,9 +116,12 @@ depending on tab history.
 - Tab route: `(user)/stocks/search`.
 - Contextual route: `(user)/stocks/search-context`, opened from Watchlist, Stocks, or Detail with origin params.
 - Sections: back arrow, search input, `Search` action, search history chips, and max three `Latest Viewed Stocks`.
+- The Search tab remains the rightmost real tab with a visual separator; it keeps the search row as its header.
 - Empty input: do not show the full supported stock list. If no latest viewed stocks exist, show a small empty state.
 - Typed search: searches supported stocks by symbol/company and shows quote rows with symbol/name plus heart toggle only.
 - Guardrail: use safe storage for search history and latest viewed stocks; storage failure must not red-screen.
+- Refresh: typed quote results can soft refresh while the Search screen stays focused; local input/history state must not
+  reset.
 
 ### Stock Detail
 
@@ -140,6 +145,8 @@ depending on tab history.
 - Footer: transparent wrapper, brand navy `#052344` button labeled `Practice Trade`; it opens the guarded practice buy
   ticket and does not execute directly.
 - Guardrail: clear old detail/history/AI state on symbol change so previous-stock content never flashes.
+- Refresh: stock detail soft refresh updates quote/detail and visible history/recent returned points together. Do not
+  auto-refresh AI explanation drawer content.
 
 ### AI Explanation
 
@@ -159,27 +166,42 @@ depending on tab history.
 - Empty: no cached suggestions, show refresh if allowed.
 - Guardrail: disable refresh when `refreshAllowed=false`; show `nextRefreshAllowedAt`.
 
-### Paper Trading
+### Portfolio / Paper Trading
 
 - Backend: account, portfolio, buy, sell, reset, transactions endpoints under `/api/paper-trading`.
 - Use case: US010 Simulate Paper Trades.
-- Sections: account/portfolio summary, valuation warnings, positions, recent transactions, guarded buy/sell tickets,
-  reset confirmation, transaction list, and transaction detail.
-- Empty: no positions yet, show `Browse Stocks` and buy-practice actions.
+- Visible tab label: `Portfolio`; internal route remains `/paper-trading`.
+- Bottom-tab entry always opens `Assets` at the top. `/paper-trading?tab=history` and `/paper-trading/transactions`
+  intentionally open `History`.
+- Sections: fixed Portfolio header, fixed `Assets` and `History` top tabs, account/portfolio summary, valuation
+  warnings, positions table, stock-scoped guarded buy/sell ticket, reset bottom sheet, transaction list, and
+  transaction detail.
+- Assets: show `Net Assets · USD`, Holdings Value, Unrealized P/L, optional Cash/Fees/Session/Last reset, `View Stocks`,
+  and `Reset Portfolio`. Do not show Today P/L or Today P/L% until backend fields with that exact meaning exist.
+- Empty: no positions yet, show `View Stock Page`; buy entry comes from Stock rows/detail, not a generic portfolio buy
+  selector.
 - Guardrail: every buy, sell, and reset requires confirmation. BUY/SELL request bodies must contain only `symbol` and
-  numeric `quantity`; the frontend must not send or invent price.
+  numeric `quantity`; the frontend must not send or invent price, amount, fee, or max quantity.
 - Quantity: trim, require `/^[1-9]\d*$/`, reject decimals/scientific notation/zero/negative values, convert with
   `Number(trimmedQuantity)` only after validation, and do not use `parseInt` coercion.
-- Buy ticket: prefill route symbol when opened from Stocks/Detail; otherwise use a simple supported-stock selector
-  backed by `GET /api/stocks`, not the full Search tab.
-- Sell ticket: load held positions first, allow held symbols only, and reject quantities above the known holding before
-  submitting.
-- Reset: confirmation says simulated cash returns to starting balance, open positions are cleared, a new session starts,
-  and the action cannot be undone.
-- Transactions: default to `currentSessionOnly=true`, load a simple list of about 50 rows, and handle `RESET` /
-  `symbol=null` rows as portfolio/session reset records without stock links or price assumptions.
+- Trade ticket: always stock-scoped. Buy and Sell share one selected-stock ticket layout with `Net Assets · USD`, value,
+  and small US flag. If no route symbol is provided, show an invalid-entry state instead of an all-stock picker or
+  generic holdings selector.
+- Sell ticket: enabled only when the selected stock is held. It supports Partial and All modes and clamps pasted values
+  greater than or equal to the holding into All mode. If holding quantity is `1`, All is forced, Partial is disabled,
+  quantity is locked at `1`, and plus/minus controls render disabled.
+- Estimates: fee, amount, and max quantity are display-only UI estimates. Confirmation may show fee-aware estimate rows,
+  but backend remains authoritative and the request body is still only `symbol` and `quantity`.
+- Submit success: successful buy/sell redirects to `/paper-trading?tab=history`.
+- Reset: use the reset-card bottom sheet with dim backdrop and slide-up/down behavior. The sheet says simulated cash
+  returns to starting balance, open positions are cleared, a new session starts, and the action cannot be undone.
+- History: `/paper-trading/transactions` opens/reuses the `History` tab. Load about 50 rows, filter loaded rows locally
+  by side and symbol/company, and show `Action`, `Stock`, `Price/Qty`, and `P/L`. Handle `RESET` / `symbol=null` rows
+  as portfolio/session reset records without stock links or price assumptions.
 - Price concept: practice trades must use the backend-decided delayed stored price. The frontend must not send or invent
   execution price.
+- Refresh: Portfolio and History soft refresh on focus and minute boundary without clearing visible data, scroll/input
+  state, selected tab, filters, or confirmation state.
 
 ### Profile / Settings / Logout
 
@@ -193,6 +215,8 @@ depending on tab history.
 - Touch targets should be around 44x44 or larger.
 - Buttons must describe the action, such as "Start practice buy" or "Reset simulated portfolio".
 - Pull-to-refresh only on safe read-only screens.
+- Auto-refresh may run only for the focused visible screen. It targets the latest stored delayed backend snapshot, not
+  live quotes, and must keep existing values visible unless there is no usable first-load data.
 - Pending mutations disable related buttons and inputs.
 - Stock/context navigation must pass explicit return params so back actions are deterministic:
   Stocks -> Detail -> Stocks, Watchlist -> Detail -> Watchlist, Search tab -> Detail -> Search tab, and contextual

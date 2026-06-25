@@ -1,11 +1,26 @@
 import { useLocalSearchParams } from 'expo-router';
 
-import { PaperTradingSellScreen } from '@/screens/paper-trading/paper-trading-sell-screen';
+import { PaperTradingTradeTicketScreen } from '@/screens/paper-trading/paper-trading-trade-ticket-screen';
 
 export default function SellRoute() {
-  const { from, symbol } = useLocalSearchParams<{ from?: string; symbol?: string }>();
+  const { from, returnTo, searchFrom, searchSymbol, symbol } = useLocalSearchParams<{
+    from?: string;
+    returnTo?: string;
+    searchFrom?: string;
+    searchSymbol?: string;
+    symbol?: string;
+  }>();
 
-  return <PaperTradingSellScreen from={singleParam(from)} symbol={singleParam(symbol)} />;
+  return (
+    <PaperTradingTradeTicketScreen
+      from={singleParam(from)}
+      initialDirection="SELL"
+      returnTo={singleParam(returnTo)}
+      searchFrom={singleParam(searchFrom)}
+      searchSymbol={singleParam(searchSymbol)}
+      symbol={singleParam(symbol)}
+    />
+  );
 }
 
 function singleParam(value: string | string[] | undefined) {

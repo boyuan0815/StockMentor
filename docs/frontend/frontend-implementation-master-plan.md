@@ -180,7 +180,7 @@ normal implementation phases must not edit, stage, or commit `.agents/` or `skil
 - Dependency policy: do not install chart dependencies by default. First use existing dependencies and backend-returned
   points. If existing dependencies cannot support a simple educational chart, implement a safe non-chart fallback or
   minimal placeholder and report a specific chart-library recommendation for a separate user-approved dependency task.
-- Scope: Watchlist table, Stocks/Paper Trade table, Search tab/contextual search, stock detail/history summary,
+- Scope: Watchlist table, Stocks table, Search tab/contextual search, stock detail/history summary,
   delayed metadata display, unavailable data states, watchlist add/remove, AI explanation drawer with disclaimer, safe
   storage for search history/latest viewed stocks, and safe pull-to-refresh for reads.
 - Out of scope: AI suggestion refresh, paper-trading execution, admin maintenance actions.
@@ -220,20 +220,20 @@ normal implementation phases must not edit, stage, or commit `.agents/` or `skil
 - Required skills: `building-native-ui`, `native-data-fetching`, `frontend-design`, `vercel-react-native-skills`.
 - Purpose: implement the simulated portfolio and trade flows while preserving backend-owned execution price.
 - Prerequisites: Phase 2 merged; Phase 3 preferred for stock symbol/detail reuse.
-- Likely changes: paper-trading routes, paper-trading API module/hooks, trade ticket, portfolio summary, positions list,
-  transaction list/detail, confirmation modals.
+- Likely changes: paper-trading routes, paper-trading API module/hooks, stock-scoped trade ticket, Portfolio
+  Assets/History tabs, fixed-symbol positions table, transaction list/detail, reset bottom sheet, confirmation modals.
 - Must not change: backend, stock delayed selector, package files, AI suggestion logic.
 - Endpoints involved: `GET /api/paper-trading/account`, `GET /api/paper-trading/portfolio`,
   `POST /api/paper-trading/portfolio/reset`, `POST /api/paper-trading/buy`, `POST /api/paper-trading/sell`,
   `GET /api/paper-trading/transactions`, `GET /api/paper-trading/transactions/{transactionId}`.
 - Dependency policy: do not install dependencies.
-- Scope: account/portfolio, positions, buy/sell with whole-share quantity validation, reset confirmation, transaction
-  history/detail, delayed execution metadata display, insufficient cash/holding errors.
-- Out of scope: advanced orders, brokerage integration, frontend behavior profile calculation, frontend price selection.
-- Acceptance: buy/sell requests send only `symbol` and numeric `quantity`; frontend never sends price; copy says
-  practice trades use StockMentor's delayed stored price, not a live market quote; reset/buy/sell require confirmation
-  and block duplicate submits. Transactions must handle `RESET` / `symbol=null` rows without stock links or price
-  assumptions.
+- Scope: account/portfolio, positions, stock-scoped buy/sell with whole-share quantity validation, reset bottom sheet,
+  History tab/detail, delayed execution metadata display, insufficient cash/holding errors.
+- Out of scope: advanced orders, brokerage integration, frontend behavior profile calculation, frontend price selection,
+  and frontend Today P/L calculation.
+- Acceptance: buy/sell requests send only `symbol` and numeric `quantity`; frontend never sends price, amount, fee, or
+  max quantity; fee/amount/max values are display-only estimates; reset/buy/sell require confirmation and block
+  duplicate submits. Transactions must handle `RESET` / `symbol=null` rows without stock links or price assumptions.
 - Verification: buy/sell/reset manual tests, fractional quantity validation, insufficient cash, sell exceeds holding,
   transaction filters, no-price payload inspection, lint/type checks.
 - Handoff: report payload shape, delayed metadata display behavior, invalidation after trades, and any account bootstrap

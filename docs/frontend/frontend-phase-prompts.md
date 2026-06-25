@@ -244,10 +244,10 @@ Implementation style:
 
 Scope:
 - Preserve the current Phase 3B table-first stock UI standard.
-- Implement or extend Watchlist, Stocks/Paper Trade, Search, stock detail, backend-returned history summary/list,
+- Implement or extend Watchlist, Stocks, Search, stock detail, backend-returned history summary/list,
   watchlist add/remove, and user-facing AI explanation drawer.
 - Use compact full-width tables instead of card-style stock rows.
-- Keep visible beginner tabs as `Watchlist`, `Stocks`, `Search`, `Suggestions`, `Practice`, and `Profile`.
+- Keep visible beginner tabs as `Watchlist`, `Stocks`, `Suggestions`, `Portfolio`, `Profile`, and `Search`.
 - Use hidden contextual search route `/stocks/search-context` and explicit return params for stock/detail/search/practice
   navigation.
 - Prefer delayed fields: `displayedPrice`, `displayedPercentChange`, `displayedMarketTime`,
@@ -417,13 +417,14 @@ Implementation style:
 - Temporary local `console.log` debugging is acceptable while diagnosing, but do not leave noisy logs in final code and
   never log credentials, `Authorization`, `X-Admin-Token`, passwords, API keys, or secrets.
 
-Scope:
-- Implement paper account, portfolio, positions, buy ticket, sell ticket, reset confirmation, transaction history, and
-  transaction detail.
+- Implement paper account, Portfolio Assets/History, positions, stock-scoped buy/sell ticket, reset bottom sheet,
+  transaction history, and transaction detail.
 - Validate whole-share positive quantities on the frontend, while keeping backend validation authoritative.
 - Show delayed execution metadata when backend returns it.
 - Confirm buy, sell, and reset.
-- Ensure buy/sell payloads send only `symbol` and `quantity`.
+- Ensure buy/sell payloads send only `symbol` and numeric `quantity`; do not send price, amount, fee, or max quantity.
+- Keep buy/sell ticket stock-scoped. Do not add an internal all-stock picker or generic holdings selector.
+- Portfolio bottom-tab entry opens Assets; `/paper-trading?tab=history` and `/paper-trading/transactions` open History.
 
 Backend endpoints:
 - `GET /api/paper-trading/account`
@@ -436,6 +437,7 @@ Backend endpoints:
 
 Non-scope:
 - Do not send price from the frontend.
+- Do not calculate trusted Today P/L in the frontend; hide it until backend fields with that exact meaning exist.
 - Do not implement advanced orders, brokerage integration, frontend behavior profile calculation, or backend changes.
 - Do not modify backend files, frontend package files, lock files, `.agents/`, or `skills-lock.json`.
 - Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore

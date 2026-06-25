@@ -25,6 +25,7 @@ import { StockMarketNotice } from '@/components/stocks/stock-market-notice';
 import { TimeframeSelector } from '@/components/stocks/timeframe-selector';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Spacing } from '@/constants/theme';
+import { useMinuteBoundaryRefresh } from '@/hooks/use-minute-boundary-refresh';
 import { useRefreshCooldown } from '@/hooks/use-refresh-cooldown';
 import { useAuthSession } from '@/providers/auth-session-provider';
 import { useToast } from '@/providers/toast-provider';
@@ -71,6 +72,7 @@ export function StockDetailScreen({
   const normalizedSymbol = normalizeStockSymbol(symbol);
   const detailRequestIdRef = useRef(0);
   const historyRequestIdRef = useRef(0);
+  const hasHistoryRef = useRef(false);
   const scrollViewRef = useRef<ScrollViewType | null>(null);
   const scrollY = useRef(new Animated.Value(0)).current;
   const [headerHeight, setHeaderHeight] = useState(insets.top + 48);
@@ -94,7 +96,7 @@ export function StockDetailScreen({
   const [historyError, setHistoryError] = useState<string | null>(null);
 
   const loadDetail = useCallback(
-    async (mode: 'initial' | 'refresh' = 'initial') => {
+    async (mode: 'initial' | 'refresh' | 'soft' = 'initial') => {
       const requestId = detailRequestIdRef.current + 1;
       detailRequestIdRef.current = requestId;
 
@@ -107,7 +109,7 @@ export function StockDetailScreen({
 
       if (mode === 'refresh') {
         setIsRefreshing(true);
-      } else {
+      } else if (mode === 'initial') {
         setIsDetailLoading(true);
       }
 
@@ -136,7 +138,7 @@ export function StockDetailScreen({
   );
 
   const loadHistory = useCallback(
-    async (timeframe: StockTimeframe) => {
+    async (timeframe: StockTimeframe, mode: 'normal' | 'soft' = 'normal') => {
       const requestId = historyRequestIdRef.current + 1;
       historyRequestIdRef.current = requestId;
 
@@ -146,7 +148,9 @@ export function StockDetailScreen({
         return;
       }
 
-      setIsHistoryLoading(true);
+      if (mode !== 'soft' || !hasHistoryRef.current) {
+        setIsHistoryLoading(true);
+      }
       setHistoryError(null);
 
       try {
@@ -155,6 +159,7 @@ export function StockDetailScreen({
           return;
         }
         setHistory(response);
+        hasHistoryRef.current = true;
       } catch (error) {
         if (historyRequestIdRef.current !== requestId) {
           return;
@@ -174,6 +179,7 @@ export function StockDetailScreen({
     historyRequestIdRef.current += 1;
     setDetail(null);
     setHistory(null);
+    hasHistoryRef.current = false;
     setDetailError(null);
     setHistoryError(null);
     setSelectedTimeframe('1D');
@@ -198,6 +204,16 @@ export function StockDetailScreen({
       void loadHistory(selectedTimeframe);
     });
   };
+
+  useMinuteBoundaryRefresh({
+    enabled: Boolean(detail) && !isDetailLoading,
+    onRefresh: async () => {
+      await Promise.allSettled([
+        loadDetail('soft'),
+        loadHistory(selectedTimeframe, 'soft'),
+      ]);
+    },
+  });
 
   const handleSelectTimeframe = (timeframe: StockTimeframe) => {
     if (isHistoryLoading || timeframe === selectedTimeframe) {
@@ -855,7 +871,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.sm,
+    gap: Spacing.lg,
   },
   rangeStack: {
     alignItems: 'flex-end',

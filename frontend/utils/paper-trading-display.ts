@@ -99,7 +99,7 @@ export function getTransactionDisplayTitle(transaction: PaperTradeTransactionRes
 
 export function getTradeResultSummary(transaction: PaperTradeTransactionResponse | null | undefined) {
   if (!transaction) {
-    return 'Practice trade completed.';
+    return 'Paper trade completed.';
   }
 
   if (isResetTransaction(transaction)) {
@@ -150,7 +150,7 @@ export function getPaperTradingApiErrorMessage(error: unknown, fallback: string)
     return 'Sell quantity exceeds your current holding.';
   }
   if (message.includes('price') && (message.includes('unavailable') || message.includes('not available'))) {
-    return 'Practice trade price is unavailable right now. Try again later.';
+    return 'Paper trade price is unavailable right now. Try again later.';
   }
 
   return apiError.message || fallback;

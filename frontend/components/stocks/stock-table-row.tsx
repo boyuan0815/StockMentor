@@ -1,6 +1,7 @@
 import { type Href, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
 
+import { AnimatedValueText } from '@/components/foundation/animated-value-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Spacing } from '@/constants/theme';
 import type { StockListItemResponse, WatchlistStockResponse } from '@/types/stocks';
@@ -76,14 +77,20 @@ export function StockListTableRow({
       <NumberCell rowNumber={rowNumber} />
       <IdentityCell stock={stock} />
       <View style={styles.stockListPriceCell}>
-        <Text selectable numberOfLines={1} style={[styles.priceText, { color: movementColor }]}>
-          {formatPrice(getPreferredPrice(stock))}
-        </Text>
+        <AnimatedValueText
+          selectable
+          numberOfLines={1}
+          style={[styles.priceText, { color: movementColor }]}
+          value={formatPrice(getPreferredPrice(stock))}
+        />
       </View>
       <View style={styles.stockListChangeCell}>
-        <Text selectable numberOfLines={1} style={[styles.changeText, { color: movementColor }]}>
-          {formatPercent(percentChange)}
-        </Text>
+        <AnimatedValueText
+          selectable
+          numberOfLines={1}
+          style={[styles.changeText, { color: movementColor }]}
+          value={formatPercent(percentChange)}
+        />
       </View>
       <View style={styles.actionCell}>
         <Pressable
@@ -179,14 +186,20 @@ function QuoteTableRow({ detailReturnContext, rowNumber, stock }: WatchlistTable
       <NumberCell rowNumber={rowNumber} />
       <IdentityCell stock={stock} />
       <View style={styles.watchlistPriceCell}>
-        <Text selectable numberOfLines={1} style={[styles.priceText, { color: movementColor }]}>
-          {formatPrice(getPreferredPrice(stock))}
-        </Text>
+        <AnimatedValueText
+          selectable
+          numberOfLines={1}
+          style={[styles.priceText, { color: movementColor }]}
+          value={formatPrice(getPreferredPrice(stock))}
+        />
       </View>
       <View style={styles.watchlistChangeCell}>
-        <Text selectable numberOfLines={1} style={[styles.changeText, { color: movementColor }]}>
-          {formatPercent(percentChange)}
-        </Text>
+        <AnimatedValueText
+          selectable
+          numberOfLines={1}
+          style={[styles.changeText, { color: movementColor }]}
+          value={formatPercent(percentChange)}
+        />
       </View>
     </Pressable>
   );
@@ -290,11 +303,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontVariant: ['tabular-nums'],
     fontWeight: '500',
+    lineHeight: 18,
   },
   changeText: {
-    fontSize: 13,
+    fontSize: 14,
     fontVariant: ['tabular-nums'],
-    fontWeight: '600',
+    fontWeight: '500',
+    lineHeight: 18,
   },
   actionCell: {
     alignItems: 'flex-end',

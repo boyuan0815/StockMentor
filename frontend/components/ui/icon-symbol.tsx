@@ -31,6 +31,7 @@ const MAPPING = {
   'arrowtriangle.up.fill': 'arrow-drop-up',
   'arrowtriangle.down.fill': 'arrow-drop-down',
   'minus': 'remove',
+  'plus': 'add',
   magnifyingglass: 'search',
   'arrow.clockwise': 'refresh',
   heart: 'favorite-border',

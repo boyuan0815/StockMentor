@@ -8,13 +8,14 @@ import { paperTradingApi } from '@/api/paper-trading';
 import { ActionButton } from '@/components/foundation/action-button';
 import { ErrorBanner } from '@/components/foundation/error-banner';
 import { SkeletonRows } from '@/components/foundation/skeleton-block';
-import { FieldRow, InlineNotice, PaperHeader, PaperSection } from '@/components/paper-trading/paper-trading-ui';
+import { FieldRow, PaperHeader, PaperSection } from '@/components/paper-trading/paper-trading-ui';
 import { Colors, Spacing } from '@/constants/theme';
 import { useAuthSession } from '@/providers/auth-session-provider';
 import type { PaperTradeTransactionResponse } from '@/types/paper-trading';
 import {
   formatPaperDateTime,
   formatPaperMoney,
+  formatSignedPaperMoney,
   formatQuantity,
   getPaperTradingApiErrorMessage,
   getTransactionDisplayTitle,
@@ -53,6 +54,7 @@ export function PaperTradingTransactionDetailScreen({
       if (mode === 'refresh') {
         setIsRefreshing(true);
       } else {
+        setTransaction(null);
         setIsLoading(true);
       }
       setErrorMessage(null);
@@ -103,10 +105,9 @@ export function PaperTradingTransactionDetailScreen({
       refreshControl={<RefreshControl onRefresh={() => void loadTransaction('refresh')} refreshing={isRefreshing} />}
       style={styles.container}>
       <PaperHeader
-        onBack={() => router.replace('/paper-trading/transactions' as Href)}
+        onBack={() => router.replace('/paper-trading?tab=history' as Href)}
         onRefresh={() => void loadTransaction('refresh')}
-        subtitle={`Transaction ${transactionId}`}
-        title="Transaction Detail"
+        title="Transaction"
       />
 
       {errorMessage ? <ErrorBanner title="Transaction needs attention" message={errorMessage} /> : null}
@@ -120,27 +121,39 @@ export function PaperTradingTransactionDetailScreen({
         </View>
       ) : transaction ? (
         <PaperSection title={getTransactionDisplayTitle(transaction)}>
-          {reset ? (
-            <InlineNotice
-              message="This row records a simulated portfolio reset. It is not linked to a stock and has no execution price."
-            />
+          <FieldRow
+            label="Side"
+            tone={transaction.side === 'BUY' ? 'positive' : transaction.side === 'SELL' ? 'negative' : undefined}
+            value={reset ? 'Reset' : getTransactionSideLabel(transaction.side)}
+          />
+          {!reset ? <FieldRow label="Symbol" value={transaction.symbol ?? 'Unavailable'} /> : null}
+          {!reset ? (
+            <>
+              <FieldRow label="Quantity" value={formatQuantity(transaction.quantity)} />
+              <FieldRow label="Execution price" value={formatPaperMoney(transaction.executionPrice ?? transaction.price)} />
+              <FieldRow label="Gross amount" value={formatPaperMoney(transaction.grossAmount)} />
+              <FieldRow label="Fee charged" value={formatPaperMoney(transaction.fee)} />
+              <FieldRow label="Net amount" value={formatPaperMoney(transaction.netAmount ?? transaction.totalAmount)} />
+              <FieldRow
+                label="Realized P/L"
+                toneValue={transaction.side === 'SELL' ? transaction.realizedProfitLoss : undefined}
+                value={transaction.side === 'SELL' ? formatSignedPaperMoney(transaction.realizedProfitLoss) : '-'}
+              />
+            </>
           ) : null}
-          <FieldRow label="Side" value={getTransactionSideLabel(transaction.side)} />
-          <FieldRow label="Symbol" value={reset ? 'Not applicable' : transaction.symbol ?? 'Unavailable'} />
-          <FieldRow label="Quantity" value={reset ? 'Not applicable' : formatQuantity(transaction.quantity)} />
-          <FieldRow label="Execution price" value={reset ? 'Not applicable' : formatPaperMoney(transaction.executionPrice ?? transaction.price)} />
-          <FieldRow label="Gross amount" value={reset ? 'Not applicable' : formatPaperMoney(transaction.grossAmount)} />
-          <FieldRow label="Fee" value={reset ? 'Not applicable' : formatPaperMoney(transaction.fee)} />
-          <FieldRow label="Net amount" value={reset ? 'Not applicable' : formatPaperMoney(transaction.netAmount ?? transaction.totalAmount)} />
-          <FieldRow label="Realized P/L" value={reset ? 'Not applicable' : formatPaperMoney(transaction.realizedProfitLoss)} />
           <FieldRow label="Cash after" value={formatPaperMoney(transaction.cashBalanceAfter)} />
           <FieldRow label="Session" value={transaction.sessionNumber == null ? 'Unavailable' : String(transaction.sessionNumber)} />
-          <FieldRow label="Current session" value={transaction.isCurrentSession == null ? 'Unavailable' : transaction.isCurrentSession ? 'Yes' : 'No'} />
+          {!reset ? (
+            <FieldRow
+              label="Current session"
+              value={transaction.isCurrentSession == null ? 'Unavailable' : transaction.isCurrentSession ? 'Yes' : 'No'}
+            />
+          ) : null}
           <FieldRow label="Executed at" value={formatPaperDateTime(transaction.executedAt ?? transaction.transactionTime)} />
         </PaperSection>
       ) : (
         <View style={styles.retryBlock}>
-          <ActionButton label="Back to Transactions" onPress={() => router.replace('/paper-trading/transactions' as Href)} variant="ghost" />
+          <ActionButton label="Back to History" onPress={() => router.replace('/paper-trading?tab=history' as Href)} variant="ghost" />
           <ActionButton label="Try again" onPress={() => void loadTransaction('refresh')} />
         </View>
       )}

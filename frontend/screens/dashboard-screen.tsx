@@ -14,6 +14,7 @@ import { StockMarketNotice } from '@/components/stocks/stock-market-notice';
 import { WatchlistTableRow } from '@/components/stocks/stock-table-row';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Spacing } from '@/constants/theme';
+import { useMinuteBoundaryRefresh } from '@/hooks/use-minute-boundary-refresh';
 import { useRefreshCooldown } from '@/hooks/use-refresh-cooldown';
 import { useAuthSession } from '@/providers/auth-session-provider';
 import type { WatchlistStockResponse } from '@/types/stocks';
@@ -35,6 +36,7 @@ export function DashboardScreen() {
   const guardedRefresh = useRefreshCooldown();
   const requestInFlightRef = useRef(false);
   const hasLoadedRef = useRef(false);
+  const scrollRef = useRef<ScrollView | null>(null);
   const [watchlistStocks, setWatchlistStocks] = useState<WatchlistStockResponse[]>([]);
   const [activeTab, setActiveTab] = useState<WatchlistTab>('All');
   const [sortKey, setSortKey] = useState<SortKey>('default');
@@ -80,11 +82,15 @@ export function DashboardScreen() {
     [credentials],
   );
 
+  useMinuteBoundaryRefresh({
+    onRefresh: () => loadWatchlist('focus'),
+  });
+
   useFocusEffect(
     useCallback(() => {
-      void loadWatchlist('focus');
+      scrollRef.current?.scrollTo({ animated: false, y: 0 });
       return undefined;
-    }, [loadWatchlist]),
+    }, []),
   );
 
   const handleRefresh = () => {
@@ -149,124 +155,127 @@ export function DashboardScreen() {
   const showUnsupported = activeTab === 'HK' || activeTab === 'MY';
 
   return (
-    <ScrollView
-      alwaysBounceVertical
-      bounces
-      contentContainerStyle={[
-        styles.content,
-        {
-          paddingBottom: Math.max(Spacing.xxl, insets.bottom + Spacing.xl),
-          paddingTop: insets.top + 2,
-        },
-      ]}
-      contentInsetAdjustmentBehavior="never"
-      overScrollMode="never"
-      refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={isRefreshing} />}
-      style={styles.container}>
-      <View style={styles.topActions}>
-        <Image
-          accessibilityLabel="StockMentor"
-          contentFit="contain"
-          source={require('../assets/images/stockmentor-icon-transparent-1024.png')}
-          style={styles.logo}
-        />
-        <Text selectable style={styles.pageTitle}>
-          Watchlists
-        </Text>
-        <Pressable
-          accessibilityHint="Searches supported stocks."
-          accessibilityLabel="Search stocks"
-          accessibilityRole="button"
-          onPress={openSearch}
-          style={({ pressed }) => [styles.iconButton, pressed ? styles.pressed : undefined]}>
-          <IconSymbol color={Colors.light.text} name="magnifyingglass" size={22} />
-        </Pressable>
-        <Pressable
-          accessibilityHint="Refreshes your watchlist."
-          accessibilityLabel="Refresh watchlist"
-          accessibilityRole="button"
-          onPress={handleRefresh}
-          style={({ pressed }) => [styles.iconButton, pressed ? styles.pressed : undefined]}>
-          <IconSymbol color={Colors.light.text} name="arrow.clockwise" size={22} />
-        </Pressable>
-      </View>
-
-      <View style={styles.marketTabs}>
-        {(['All', 'US', 'HK', 'MY'] as WatchlistTab[]).map((tab) => (
+    <View style={styles.container}>
+      <View style={[styles.fixedArea, { paddingTop: insets.top + 2 }]}>
+        <View style={styles.topActions}>
+          <Image
+            accessibilityLabel="StockMentor"
+            contentFit="contain"
+            source={require('../assets/images/stockmentor-icon-transparent-1024.png')}
+            style={styles.logo}
+          />
+          <Text selectable style={styles.pageTitle}>
+            Watchlists
+          </Text>
           <Pressable
-            accessibilityHint={
-              tab === 'All' || tab === 'US'
-                ? 'Shows saved US stocks.'
-                : `${tab} market support is planned for a later release.`
-            }
-            accessibilityLabel={`${tab} watchlist tab`}
+            accessibilityHint="Searches supported stocks."
+            accessibilityLabel="Search stocks"
             accessibilityRole="button"
-            accessibilityState={{ selected: activeTab === tab }}
-            key={tab}
-            onPress={() => setActiveTab(tab)}
-            style={styles.marketTab}>
-            <Text style={[styles.marketTabText, activeTab === tab ? styles.marketTabTextActive : undefined]}>
-              {tab}
-            </Text>
+            onPress={openSearch}
+            style={({ pressed }) => [styles.iconButton, pressed ? styles.pressed : undefined]}>
+            <IconSymbol color={Colors.light.text} name="magnifyingglass" size={22} />
           </Pressable>
-        ))}
-      </View>
-
-      <StockMarketNotice stocks={watchlistStocks} />
-
-      {errorMessage ? <ErrorBanner title="Watchlist needs attention" message={errorMessage} /> : null}
-
-      {!showUnsupported ? (
-        <View style={styles.tableHeader}>
-          <Text style={[styles.tableHeaderText, styles.tableHeaderNo]}>No.</Text>
-          <HeaderCell
-            label="Symbol"
-            onPress={() => handleSort('symbol')}
-            selected={sortKey === 'symbol'}
-            sortDirection={sortDirection}
-            style={styles.tableHeaderIdentity}
-          />
-          <HeaderCell
-            align="right"
-            label="Price"
-            onPress={() => handleSort('price')}
-            selected={sortKey === 'price'}
-            sortDirection={sortDirection}
-            style={styles.tableHeaderPrice}
-          />
-          <HeaderCell
-            align="right"
-            label="Chg %"
-            onPress={() => handleSort('change')}
-            selected={sortKey === 'change'}
-            sortDirection={sortDirection}
-            style={styles.tableHeaderChange}
-          />
+          <Pressable
+            accessibilityHint="Refreshes your watchlist."
+            accessibilityLabel="Refresh watchlist"
+            accessibilityRole="button"
+            onPress={handleRefresh}
+            style={({ pressed }) => [styles.iconButton, pressed ? styles.pressed : undefined]}>
+            <IconSymbol color={Colors.light.text} name="arrow.clockwise" size={22} />
+          </Pressable>
         </View>
-      ) : null}
 
-      {isLoading ? (
-        <SkeletonRows count={4} />
-      ) : showUnsupported ? (
-        <UnsupportedWatchlistState market={activeTab} />
-      ) : visibleWatchlistRows.length === 0 ? (
-        <EmptyState
-          title="No watchlist stocks yet"
-          description="Search stocks and tap the heart to add one."
-        />
-      ) : (
-        <View style={styles.rows}>
-          {visibleWatchlistRows.map((stock, index) => (
-            <WatchlistTableRow
-              detailReturnContext={{ returnTo: 'watchlist' }}
-              key={stock.symbol}
-              rowNumber={index + 1}
-              stock={stock}
-            />
+        <View style={styles.marketTabs}>
+          {(['All', 'US', 'HK', 'MY'] as WatchlistTab[]).map((tab) => (
+            <Pressable
+              accessibilityHint={
+                tab === 'All' || tab === 'US'
+                  ? 'Shows saved US stocks.'
+                  : `${tab} market support is planned for a later release.`
+              }
+              accessibilityLabel={`${tab} watchlist tab`}
+              accessibilityRole="button"
+              accessibilityState={{ selected: activeTab === tab }}
+              key={tab}
+              onPress={() => setActiveTab(tab)}
+              style={styles.marketTab}>
+              <Text style={[styles.marketTabText, activeTab === tab ? styles.marketTabTextActive : undefined]}>
+                {tab}
+              </Text>
+            </Pressable>
           ))}
         </View>
-      )}
-    </ScrollView>
+
+        <StockMarketNotice stocks={watchlistStocks} />
+
+        {!showUnsupported ? (
+          <View style={styles.tableHeader}>
+            <Text style={[styles.tableHeaderText, styles.tableHeaderNo]}>No.</Text>
+            <HeaderCell
+              label="Symbol"
+              onPress={() => handleSort('symbol')}
+              selected={sortKey === 'symbol'}
+              sortDirection={sortDirection}
+              style={styles.tableHeaderIdentity}
+            />
+            <HeaderCell
+              align="right"
+              label="Price"
+              onPress={() => handleSort('price')}
+              selected={sortKey === 'price'}
+              sortDirection={sortDirection}
+              style={styles.tableHeaderPrice}
+            />
+            <HeaderCell
+              align="right"
+              label="Chg %"
+              onPress={() => handleSort('change')}
+              selected={sortKey === 'change'}
+              sortDirection={sortDirection}
+              style={styles.tableHeaderChange}
+            />
+          </View>
+        ) : null}
+      </View>
+
+      <ScrollView
+        ref={scrollRef}
+        alwaysBounceVertical
+        bounces
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingBottom: Math.max(Spacing.xxl, insets.bottom + Spacing.xl),
+          },
+        ]}
+        contentInsetAdjustmentBehavior="never"
+        overScrollMode="never"
+        refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={isRefreshing} />}
+        style={styles.scroller}>
+        {errorMessage ? <ErrorBanner title="Watchlist needs attention" message={errorMessage} /> : null}
+        {isLoading ? (
+          <SkeletonRows count={4} />
+        ) : showUnsupported ? (
+          <UnsupportedWatchlistState market={activeTab} />
+        ) : visibleWatchlistRows.length === 0 ? (
+          <EmptyState
+            title="No watchlist stocks yet"
+            description="Search stocks and tap the heart to add one."
+          />
+        ) : (
+          <View style={styles.rows}>
+            {visibleWatchlistRows.map((stock, index) => (
+              <WatchlistTableRow
+                detailReturnContext={{ returnTo: 'watchlist' }}
+                key={stock.symbol}
+                rowNumber={index + 1}
+                stock={stock}
+              />
+            ))}
+          </View>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -333,12 +342,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     width: '100%',
   },
+  fixedArea: {
+    backgroundColor: Colors.light.background,
+    borderBottomColor: Colors.light.border,
+    borderBottomWidth: 1,
+  },
+  scroller: {
+    backgroundColor: Colors.light.background,
+    flex: 1,
+  },
   topActions: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: Spacing.sm,
     justifyContent: 'flex-end',
-    minHeight: 42,
+    minHeight: 48,
     paddingHorizontal: Spacing.md,
   },
   logo: {
@@ -363,12 +381,15 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.surface,
     flexDirection: 'row',
     gap: Spacing.xl,
-    minHeight: 40,
+    minHeight: 48,
     paddingHorizontal: Spacing.md,
   },
   marketTab: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: Spacing.xs,
     justifyContent: 'center',
-    minHeight: 40,
+    minHeight: 44,
   },
   marketTabText: {
     color: Colors.light.mutedText,
@@ -384,8 +405,9 @@ const styles = StyleSheet.create({
   tableHeader: {
     alignItems: 'center',
     backgroundColor: Colors.light.surface,
-    borderBottomColor: Colors.light.border,
+    borderColor: Colors.light.border,
     borderBottomWidth: 1,
+    borderTopWidth: 1,
     flexDirection: 'row',
     gap: Spacing.sm,
     minHeight: 38,

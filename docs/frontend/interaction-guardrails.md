@@ -151,6 +151,8 @@ Do not pull-to-refresh write actions.
   - Search tab -> Detail -> Back returns Search tab.
   - Stocks/Watchlist/Detail -> Search Context -> Back returns the correct origin.
   - Detail -> Practice Trade -> Back returns the same detail context.
+  - Portfolio bottom-tab entry returns to Assets/top; `/paper-trading?tab=history` and `/paper-trading/transactions`
+    intentionally open History.
 
 ## Practice Trade Guardrails
 
@@ -158,3 +160,8 @@ Do not pull-to-refresh write actions.
 - BUY/SELL calls require whole-share quantity input, explicit confirmation, and duplicate-submit protection.
 - Frontend BUY/SELL payloads must contain only `symbol` and numeric `quantity`; the backend decides delayed execution
   price.
+- Paper Trade tickets are stock-scoped. Do not add an internal all-stock picker or generic holdings selector.
+- UI fee, amount, and max-quantity values are display-only estimates and must never be sent in trade requests.
+- Sell supports Partial/All; when the selected holding is exactly one share, All is forced and Partial/plus/minus are
+  disabled.
+- Successful buy/sell routes to Portfolio History.

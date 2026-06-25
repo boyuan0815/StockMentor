@@ -90,10 +90,10 @@ Bottom tabs:
 
 - `Watchlist`
 - `Stocks`
-- `Search`
 - `Suggestions`
-- `Practice`
+- `Portfolio`
 - `Profile`
+- `Search`
 
 Watchlist page:
 
@@ -105,11 +105,33 @@ Watchlist page:
 
 Stocks page:
 
-- Title is `Paper Trade`, compact and not oversized.
+- Title is `Stocks`, compact and aligned with the Watchlist header style.
 - Market tabs are `US`, `MY`, and `HK`; only `US` shows the supported stock table.
 - Row tap opens stock detail. The practice-trade action opens a guarded buy ticket and does not execute a trade
   directly.
 - Table columns are `No.`, `Symbol`, `Price`, `Chg %`, and `Action`.
+- The fixed area includes the StockMentor-logo header row, market tabs, market notice, and table header.
+
+Portfolio page:
+
+- Visible bottom tab label is `Portfolio`; internal route remains `/paper-trading`.
+- Bottom-tab entry defaults to `Assets` at the top; `/paper-trading?tab=history` and `/paper-trading/transactions`
+  intentionally open `History`.
+- The fixed area contains the StockMentor-logo `Portfolio` header and `Assets` / `History` tabs.
+- Assets summary starts collapsed with `Net Assets · USD`, Holdings Value, and Unrealized P/L only. Expanded content may
+  show Cash, Fees Paid, Session, and Last reset. Do not show Today P/L unless backend exposes exact fields for that
+  meaning.
+- Empty positions use the `View Stock Page` CTA. Loading keeps the portfolio body in skeleton state instead of flashing
+  empty positions.
+- Positions use a fixed `Stock` column plus one horizontally scrollable metric table: `Latest Value/QTY`,
+  `Current Price/Avg Cost`, `P/L`, `% Position`, and centered `Action` / Sell.
+- History uses `Action`, `Stock`, `Price/Qty`, and `P/L`, with current-session toggle, local loaded-row search, and
+  transaction detail navigation. Reset/null-symbol rows render as portfolio reset records.
+- Trade tickets are stock-scoped and must not include internal all-stock pickers, generic holdings selectors, bid/ask,
+  editable price, order type, time-in-force, session selector, max buying power, margin/options, or frontend-sent price,
+  fee, amount, or max quantity.
+- Reset uses a dimmed slide-up/down reset-card bottom sheet; the sheet action calls the reset endpoint while pending
+  controls are disabled.
 
 Stock detail page:
 
