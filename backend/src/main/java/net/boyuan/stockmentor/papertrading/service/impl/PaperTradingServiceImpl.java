@@ -24,6 +24,7 @@ import net.boyuan.stockmentor.userbehavior.service.UserBehaviorProfileService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -37,6 +38,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.function.Function;
@@ -50,6 +52,8 @@ public class PaperTradingServiceImpl implements PaperTradingService {
     private static final int PERCENT_SCALE = 2;
     private static final int DEFAULT_TRANSACTION_SIZE = 50;
     private static final int MAX_TRANSACTION_SIZE = 100;
+    private static final ZoneId NEW_YORK_ZONE = ZoneId.of("America/New_York");
+    private static final String TODAY_PL_NOTE = "Percentage is based on current session starting cash.";
     private static final List<PaperTradeSide> FEE_SIDES = List.of(PaperTradeSide.BUY, PaperTradeSide.SELL);
     private static final List<String> SUPPORTED_SYMBOLS = Arrays.stream(StockMetadata.SYMBOLS.split(","))
             .map(String::trim)
@@ -111,22 +115,40 @@ public class PaperTradingServiceImpl implements PaperTradingService {
                     .toList();
         }
 
-        String normalizedSymbol = hasText(symbol) ? validateSymbol(symbol) : null;
-        PaperTradeSide parsedSide = hasText(side) ? parseSide(side) : null;
-        LocalDateTime fromAt = parseDateTimeFilter(from, true);
-        LocalDateTime toAt = parseDateTimeFilter(to, false);
-        if (fromAt != null && toAt != null && fromAt.isAfter(toAt)) {
-            throw new IllegalArgumentException("from must be before or equal to to");
-        }
-        int normalizedPage = normalizePage(page);
-        int normalizedSize = normalizeSize(size);
+        TransactionQuery query = transactionQuery(user, symbol, side, from, to, page, size, currentSessionOnly);
 
         return transactionRepository.findAll(
-                        transactionSpec(user.getUserId(), normalizedSymbol, parsedSide, fromAt, toAt, Boolean.TRUE.equals(currentSessionOnly)),
-                        PageRequest.of(normalizedPage, normalizedSize, Sort.by(Sort.Direction.DESC, "executedAt"))
+                        transactionSpec(query.userId(), query.symbol(), query.side(), query.from(), query.to(), query.currentSessionOnly()),
+                        transactionPageRequest(query.page(), query.size())
                 ).stream()
                 .map(this::toTransactionResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PaperTradeTransactionPageResponse getCurrentUserTransactionsPage(
+            String symbol,
+            String side,
+            String from,
+            String to,
+            Integer page,
+            Integer size,
+            Boolean currentSessionOnly
+    ) {
+        AppUser user = currentUserService.getCurrentUser();
+        TransactionQuery query = transactionQuery(user, symbol, side, from, to, page, size, currentSessionOnly);
+        Page<PaperTradeTransaction> result = transactionRepository.findAll(
+                transactionSpec(query.userId(), query.symbol(), query.side(), query.from(), query.to(), query.currentSessionOnly()),
+                transactionPageRequest(query.page(), query.size())
+        );
+        return new PaperTradeTransactionPageResponse(
+                result.getContent().stream().map(this::toTransactionResponse).toList(),
+                result.getNumber(),
+                result.getSize(),
+                result.getTotalElements(),
+                result.getTotalPages()
+        );
     }
 
     @Override
@@ -342,6 +364,9 @@ public class PaperTradingServiceImpl implements PaperTradingService {
     }
 
     private PaperTradeSide parseSide(String side) {
+        if ("ALL".equalsIgnoreCase(side.trim())) {
+            return null;
+        }
         try {
             return PaperTradeSide.valueOf(side.trim().toUpperCase(Locale.ROOT));
         } catch (RuntimeException exception) {
@@ -448,6 +473,42 @@ public class PaperTradingServiceImpl implements PaperTradingService {
         };
     }
 
+    private TransactionQuery transactionQuery(
+            AppUser user,
+            String symbol,
+            String side,
+            String from,
+            String to,
+            Integer page,
+            Integer size,
+            Boolean currentSessionOnly
+    ) {
+        String normalizedSymbol = hasText(symbol) ? validateSymbol(symbol) : null;
+        PaperTradeSide parsedSide = hasText(side) ? parseSide(side) : null;
+        LocalDateTime fromAt = parseDateTimeFilter(from, true);
+        LocalDateTime toAt = parseDateTimeFilter(to, false);
+        if (fromAt != null && toAt != null && fromAt.isAfter(toAt)) {
+            throw new IllegalArgumentException("from must be before or equal to to");
+        }
+        return new TransactionQuery(
+                user.getUserId(),
+                normalizedSymbol,
+                parsedSide,
+                fromAt,
+                toAt,
+                normalizePage(page),
+                normalizeSize(size),
+                Boolean.TRUE.equals(currentSessionOnly)
+        );
+    }
+
+    private PageRequest transactionPageRequest(int page, int size) {
+        return PageRequest.of(page, size, Sort.by(
+                Sort.Order.desc("executedAt"),
+                Sort.Order.desc("transactionId")
+        ));
+    }
+
     private PaperPortfolioResponse toPortfolioResponse(PaperTradingAccount account, List<PaperPosition> positions) {
         Map<String, Stock> stockBySymbol = positions.isEmpty()
                 ? Map.of()
@@ -484,16 +545,18 @@ public class PaperTradingServiceImpl implements PaperTradingService {
                 account.getUser().getUserId(),
                 PaperTradeSide.SELL
         ));
+        BigDecimal totalProfitLoss = money(realizedProfitLoss.add(unrealizedProfitLoss));
+        BigDecimal totalProfitLossPercent = account.getStartingCash().compareTo(BigDecimal.ZERO) == 0
+                ? percent(BigDecimal.ZERO)
+                : percent(totalProfitLoss
+                .multiply(BigDecimal.valueOf(100))
+                .divide(account.getStartingCash(), PERCENT_SCALE, RoundingMode.HALF_UP));
+        TodayProfitLoss todayProfitLoss = todayProfitLoss(account, positions, delayedPriceBySymbol);
         BigDecimal totalFeesPaid = money(transactionRepository.sumCurrentSessionFeeByUserIdAndSideIn(
                 account.getUser().getUserId(),
                 FEE_SIDES
         ));
-        BigDecimal returnPercentage = account.getStartingCash().compareTo(BigDecimal.ZERO) == 0
-                ? percent(BigDecimal.ZERO)
-                : percent(totalPortfolioValue
-                .subtract(account.getStartingCash())
-                .multiply(BigDecimal.valueOf(100))
-                .divide(account.getStartingCash(), PERCENT_SCALE, RoundingMode.HALF_UP));
+        BigDecimal returnPercentage = totalProfitLossPercent;
 
         List<PaperPositionResponse> positionResponses = positions.stream()
                 .map(position -> toPositionResponse(
@@ -521,6 +584,15 @@ public class PaperTradingServiceImpl implements PaperTradingService {
                 totalPortfolioValue,
                 unrealizedProfitLoss,
                 realizedProfitLoss,
+                realizedProfitLoss,
+                totalProfitLoss,
+                totalProfitLossPercent,
+                todayProfitLoss.todayOpenPositionProfitLoss(),
+                todayProfitLoss.todayRealizedProfitLossAfterFees(),
+                todayProfitLoss.todayProfitLoss(),
+                todayProfitLoss.todayProfitLossPercent(),
+                todayProfitLoss.complete(),
+                todayProfitLoss.note(),
                 returnPercentage,
                 totalFeesPaid,
                 currentSessionNumber(account),
@@ -531,6 +603,61 @@ public class PaperTradingServiceImpl implements PaperTradingService {
                 portfolioValuationComplete,
                 portfolioDataNote
         );
+    }
+
+    private TodayProfitLoss todayProfitLoss(
+            PaperTradingAccount account,
+            List<PaperPosition> positions,
+            Map<String, DelayedMarketPrice> delayedPriceBySymbol
+    ) {
+        BigDecimal todayOpenPositionProfitLoss = BigDecimal.ZERO;
+        boolean complete = true;
+        for (PaperPosition position : positions) {
+            DelayedMarketPrice delayedPrice = delayedPriceBySymbol.get(position.getSymbol());
+            if (!hasExecutableDelayedPrice(delayedPrice) || delayedPrice.displayedAbsoluteChange() == null) {
+                complete = false;
+                continue;
+            }
+            todayOpenPositionProfitLoss = todayOpenPositionProfitLoss.add(
+                    delayedPrice.displayedAbsoluteChange().multiply(BigDecimal.valueOf(position.getQuantity()))
+            );
+        }
+
+        LocalDate today = LocalDate.now(NEW_YORK_ZONE);
+        LocalDateTime todayStart = newYorkDateBoundaryInTransactionStorageZone(today.atStartOfDay());
+        LocalDateTime todayEnd = newYorkDateBoundaryInTransactionStorageZone(today.plusDays(1).atStartOfDay())
+                .minusNanos(1);
+        BigDecimal todayRealizedProfitLossAfterFees = money(
+                transactionRepository.sumCurrentSessionRealizedProfitLossByUserIdAndSideAndExecutedAtBetween(
+                        account.getUser().getUserId(),
+                        PaperTradeSide.SELL,
+                        todayStart,
+                        todayEnd
+                )
+        );
+        BigDecimal todayProfitLoss = money(todayOpenPositionProfitLoss.add(todayRealizedProfitLossAfterFees));
+        BigDecimal todayProfitLossPercent = account.getStartingCash().compareTo(BigDecimal.ZERO) == 0
+                ? percent(BigDecimal.ZERO)
+                : percent(todayProfitLoss
+                .multiply(BigDecimal.valueOf(100))
+                .divide(account.getStartingCash(), PERCENT_SCALE, RoundingMode.HALF_UP));
+        String note = complete
+                ? TODAY_PL_NOTE
+                : TODAY_PL_NOTE + " Some open positions were excluded because displayed price or previous close is unavailable.";
+        return new TodayProfitLoss(
+                money(todayOpenPositionProfitLoss),
+                todayRealizedProfitLossAfterFees,
+                todayProfitLoss,
+                todayProfitLossPercent,
+                complete,
+                note
+        );
+    }
+
+    private LocalDateTime newYorkDateBoundaryInTransactionStorageZone(LocalDateTime newYorkDateTime) {
+        return newYorkDateTime.atZone(NEW_YORK_ZONE)
+                .withZoneSameInstant(ZoneId.systemDefault())
+                .toLocalDateTime();
     }
 
     private PaperTradingAccountResponse toAccountResponse(PaperTradingAccount account) {
@@ -614,6 +741,7 @@ public class PaperTradingServiceImpl implements PaperTradingService {
                 netAmount,
                 netAmount,
                 money(transaction.getRealizedProfitLoss()),
+                money(transaction.getRealizedProfitLoss()),
                 money(transaction.getCashBalanceAfter()),
                 isCurrentSession(transaction),
                 sessionNumber(transaction),
@@ -696,10 +824,10 @@ public class PaperTradingServiceImpl implements PaperTradingService {
         if (size == null) {
             return DEFAULT_TRANSACTION_SIZE;
         }
-        if (size < 1 || size > MAX_TRANSACTION_SIZE) {
-            throw new IllegalArgumentException("size must be between 1 and " + MAX_TRANSACTION_SIZE);
+        if (size < 1) {
+            throw new IllegalArgumentException("size must be at least 1");
         }
-        return size;
+        return Math.min(size, MAX_TRANSACTION_SIZE);
     }
 
     private void recalculateBehaviorAfterCommit(Long userId) {
@@ -739,5 +867,27 @@ public class PaperTradingServiceImpl implements PaperTradingService {
             return BigDecimal.ZERO.setScale(PERCENT_SCALE, RoundingMode.HALF_UP);
         }
         return value.setScale(PERCENT_SCALE, RoundingMode.HALF_UP);
+    }
+
+    private record TransactionQuery(
+            Long userId,
+            String symbol,
+            PaperTradeSide side,
+            LocalDateTime from,
+            LocalDateTime to,
+            int page,
+            int size,
+            boolean currentSessionOnly
+    ) {
+    }
+
+    private record TodayProfitLoss(
+            BigDecimal todayOpenPositionProfitLoss,
+            BigDecimal todayRealizedProfitLossAfterFees,
+            BigDecimal todayProfitLoss,
+            BigDecimal todayProfitLossPercent,
+            boolean complete,
+            String note
+    ) {
     }
 }

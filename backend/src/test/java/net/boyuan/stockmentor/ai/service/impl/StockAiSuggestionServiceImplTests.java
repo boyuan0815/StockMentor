@@ -19,7 +19,10 @@ import net.boyuan.stockmentor.auth.entity.AppUser;
 import net.boyuan.stockmentor.auth.model.AppUserRole;
 import net.boyuan.stockmentor.auth.model.AppUserStatus;
 import net.boyuan.stockmentor.auth.service.CurrentUserService;
+import net.boyuan.stockmentor.market.stock.model.DelayedMarketPrice;
+import net.boyuan.stockmentor.market.stock.model.DelayedPriceFreshnessStatus;
 import net.boyuan.stockmentor.market.stock.repository.StockRepository;
+import net.boyuan.stockmentor.market.stock.service.DelayedMarketPriceService;
 import net.boyuan.stockmentor.userprofile.entity.UserInvestmentProfile;
 import net.boyuan.stockmentor.userprofile.model.*;
 import net.boyuan.stockmentor.userprofile.repository.UserInvestmentProfileRepository;
@@ -36,6 +39,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -71,6 +75,8 @@ class StockAiSuggestionServiceImplTests {
     private OpenAiClient openAiClient;
     @Mock
     private UserBehaviorProfileService behaviorProfileService;
+    @Mock
+    private DelayedMarketPriceService delayedMarketPriceService;
 
     private StockAiSuggestionServiceImpl service;
     private AppUser user;
@@ -88,6 +94,7 @@ class StockAiSuggestionServiceImplTests {
                 stockAnalysisService,
                 openAiClient,
                 behaviorProfileService,
+                delayedMarketPriceService,
                 new ObjectMapper().findAndRegisterModules()
         );
 
@@ -179,6 +186,32 @@ class StockAiSuggestionServiceImplTests {
                 eq(1L),
                 eq(StockAiSuggestionTriggerReason.NO_ACTIVE_SUGGESTION)
         );
+    }
+
+    @Test
+    void getSuggestionsDecoratesCachedItemsWithDelayedDisplayFieldsWithoutOpenAi() {
+        UserInvestmentProfile profile = profile();
+        StockAiSuggestionBatch storedBatch = batch(profile, StockAiSuggestionBatchStatus.SUCCESS);
+        StockAiSuggestionItem item = suggestionItem(storedBatch, StockAiSuggestionItemStatus.ACTIVE);
+
+        when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L), anyCollection(), any()))
+                .thenReturn(Optional.of(storedBatch));
+        when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(storedBatch), anyCollection()))
+                .thenReturn(List.of(item));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPrice("MSFT"));
+
+        StockAiSuggestionResponse response = service.getSuggestionsForCurrentUser();
+
+        assertEquals(1, response.suggestedStocks().size());
+        assertEquals(new BigDecimal("100.50"), response.suggestedStocks().get(0).displayedPrice());
+        assertEquals(new BigDecimal("1.50"), response.suggestedStocks().get(0).displayedAbsoluteChange());
+        assertEquals(new BigDecimal("0.5000"), response.suggestedStocks().get(0).displayedPercentChange());
+        assertEquals(new BigDecimal("99.00"), response.suggestedStocks().get(0).previousClose());
+        assertEquals("DELAYED_15_MINUTES", response.suggestedStocks().get(0).priceFreshnessStatus());
+        assertEquals("Delayed 15 min", response.suggestedStocks().get(0).priceFreshnessLabel());
+        assertEquals("stock_price_history_1min", response.suggestedStocks().get(0).displayDataSource());
+        assertNotNull(response.suggestedStocks().get(0).delayedPriceMetadata());
+        verify(openAiClient, never()).generateSuggestion(anyString(), anyString());
     }
 
     @Test
@@ -2487,6 +2520,28 @@ class StockAiSuggestionServiceImplTests {
         item.setCreatedAt(updatedAt);
         item.setUpdatedAt(updatedAt);
         return item;
+    }
+
+    private DelayedMarketPrice delayedPrice(String symbol) {
+        return new DelayedMarketPrice(
+                symbol,
+                new BigDecimal("100.50"),
+                new BigDecimal("0.5000"),
+                LocalDateTime.of(2026, 1, 5, 9, 45),
+                LocalDateTime.of(2026, 1, 5, 9, 45),
+                15,
+                DelayedPriceFreshnessStatus.DELAYED_15_MINUTES,
+                true,
+                true,
+                "Prices shown are delayed by about 15 minutes.",
+                DelayedMarketPriceService.INTRADAY_PRICE_SOURCE,
+                "America/New_York",
+                LocalDateTime.of(2026, 1, 5, 10, 0),
+                LocalDate.of(2026, 1, 5),
+                new BigDecimal("99.00"),
+                new BigDecimal("1.50"),
+                DelayedPriceFreshnessStatus.DELAYED_15_MINUTES.label()
+        );
     }
 
     private String validSuggestionJson() {

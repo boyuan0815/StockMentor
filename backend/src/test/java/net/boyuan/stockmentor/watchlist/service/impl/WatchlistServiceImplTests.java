@@ -99,7 +99,7 @@ class WatchlistServiceImplTests {
         assertEquals(LocalDateTime.of(2026, 6, 19, 10, 15), response.watchlistedStocks().get(0).displayedMarketTime());
         assertEquals(LocalDateTime.of(2026, 6, 19, 10, 20), response.watchlistedStocks().get(0).targetDisplayMarketTime());
         assertEquals(15, response.watchlistedStocks().get(0).dataDelayMinutes());
-        assertEquals("AVAILABLE", response.watchlistedStocks().get(0).priceFreshnessStatus());
+        assertEquals("DELAYED_15_MINUTES", response.watchlistedStocks().get(0).priceFreshnessStatus());
         assertTrue(response.watchlistedStocks().get(0).isPriceAvailable());
         assertTrue(response.watchlistedStocks().get(0).isTradeExecutable());
         assertEquals("15-minute delayed educational market data", response.watchlistedStocks().get(0).dataNote());
@@ -167,6 +167,36 @@ class WatchlistServiceImplTests {
         verify(watchlistRepository, never()).delete(any(UserWatchlist.class));
     }
 
+    @Test
+    void getWatchlistOrdersNullDisplayOrderRowsByCreatedAtThenId() {
+        UserWatchlist newer = watchlist("MSFT", null, LocalDateTime.of(2026, 1, 2, 10, 0), 2L);
+        UserWatchlist older = watchlist("AAPL", null, LocalDateTime.of(2026, 1, 1, 10, 0), 1L);
+        when(watchlistRepository.findByUserUserIdOrderByDisplayOrderAscCreatedAtAscWatchlistIdAsc(1L))
+                .thenReturn(List.of(newer, older));
+        when(stockRepository.findBySymbolIn(anyCollection())).thenReturn(List.of(stock("MSFT"), stock("AAPL")));
+
+        WatchlistResponse response = service.getCurrentUserWatchlist();
+
+        assertEquals(List.of("AAPL", "MSFT"), response.watchlistedStocks().stream()
+                .map(stock -> stock.symbol())
+                .toList());
+    }
+
+    @Test
+    void reorderRejectsMissingOwnedSymbolWithoutChangingExistingRows() {
+        UserWatchlist first = watchlist("MSFT", 0, LocalDateTime.of(2026, 1, 1, 10, 0), 1L);
+        UserWatchlist second = watchlist("AAPL", 1, LocalDateTime.of(2026, 1, 2, 10, 0), 2L);
+        when(watchlistRepository.findByUserUserIdOrderByDisplayOrderAscCreatedAtAscWatchlistIdAsc(1L))
+                .thenReturn(List.of(first, second));
+
+        assertThrows(IllegalArgumentException.class, () -> service.reorderCurrentUserWatchlist(List.of("AAPL")));
+
+        assertEquals(0, first.getDisplayOrder());
+        assertEquals(1, second.getDisplayOrder());
+        verify(watchlistRepository, never()).save(any(UserWatchlist.class));
+        verify(watchlistRepository, never()).saveAll(anyCollection());
+    }
+
     private Stock stock(String symbol) {
         Stock stock = new Stock();
         stock.setStockId(5L);
@@ -177,6 +207,16 @@ class WatchlistServiceImplTests {
         return stock;
     }
 
+    private UserWatchlist watchlist(String symbol, Integer displayOrder, LocalDateTime createdAt, Long watchlistId) {
+        UserWatchlist row = new UserWatchlist();
+        row.setWatchlistId(watchlistId);
+        row.setUser(user);
+        row.setSymbol(symbol);
+        row.setDisplayOrder(displayOrder);
+        row.setCreatedAt(createdAt);
+        return row;
+    }
+
     private DelayedMarketPrice delayedPrice(String symbol) {
         return new DelayedMarketPrice(
                 symbol,
@@ -185,7 +225,7 @@ class WatchlistServiceImplTests {
                 LocalDateTime.of(2026, 6, 19, 10, 15),
                 LocalDateTime.of(2026, 6, 19, 10, 20),
                 15,
-                DelayedPriceFreshnessStatus.AVAILABLE,
+                DelayedPriceFreshnessStatus.DELAYED_15_MINUTES,
                 true,
                 true,
                 "15-minute delayed educational market data",

@@ -33,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -41,6 +42,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -51,12 +53,16 @@ import java.util.stream.Collectors;
 public class StockMarketDataServiceImpl implements StockMarketDataService {
     private static final String ANALYSIS_TIMEFRAME = "7D";
     private static final String INTRADAY_TIMEFRAME = "1D";
+    private static final String FIVE_DAY_INTRADAY_TIMEFRAME = "5D";
     private static final String DAILY_TIMEFRAME = "7D";
     private static final String ONE_MONTH_TIMEFRAME = "1M";
     private static final String THREE_MONTH_TIMEFRAME = "3M";
     private static final String YEAR_TO_DATE_TIMEFRAME = "YTD";
     private static final String ONE_YEAR_TIMEFRAME = "1Y";
     private static final String AI_EXPLANATION_PROMPT_VERSION = "stock-explanation-v1";
+    private static final LocalTime REGULAR_SESSION_OPEN = LocalTime.of(9, 30);
+    private static final LocalTime REGULAR_SESSION_CLOSE = LocalTime.of(16, 0);
+    private static final int REGULAR_SESSION_POINT_COUNT = 390;
     private static final List<String> SUPPORTED_SYMBOLS = Arrays.stream(StockMetadata.SYMBOLS.split(","))
             .map(String::trim)
             .map(symbol -> symbol.toUpperCase(Locale.ROOT))
@@ -122,6 +128,9 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
         if (INTRADAY_TIMEFRAME.equals(normalizedTimeframe)) {
             return getIntradayHistory(normalizedSymbol);
         }
+        if (FIVE_DAY_INTRADAY_TIMEFRAME.equals(normalizedTimeframe)) {
+            return getFiveDayIntradayHistory(normalizedSymbol, delayedMarketPriceService.resolveForDisplay(normalizedSymbol));
+        }
         if (DAILY_TIMEFRAME.equals(normalizedTimeframe)) {
             return getLatestDailyHistory(normalizedSymbol, delayedMarketPriceService.resolveForDisplay(normalizedSymbol));
         }
@@ -132,6 +141,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
         DelayedIntradayHistorySelection selection = delayedMarketPriceService.loadOneDayHistoryForDisplay(symbol);
         List<StockHistoryPointResponse> points = selection.rows()
                 .stream()
+                .filter(this::isRegularSessionHistory)
                 .map(this::toHistoryPoint)
                 .toList();
 
@@ -144,7 +154,39 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 "stock_price_history_1min",
                 points,
                 message,
-                selection.metadata()
+                selection.metadata(),
+                includedTradingDays(points),
+                1,
+                intradayExpectedPointCount(expectedTradingDates(selection.metadata(), points), selection.metadata(), 1)
+        );
+    }
+
+    private StockHistoryResponse getFiveDayIntradayHistory(String symbol, DelayedMarketPrice delayedPrice) {
+        List<LocalDate> latestDates = new ArrayList<>(
+                historyRepository.findLatestTradingDates(symbol, "1min", PageRequest.of(0, 5))
+        );
+        Collections.reverse(latestDates);
+        List<StockHistoryPointResponse> points = latestDates.isEmpty()
+                ? List.of()
+                : historyRepository.findBySymbolAndTradingDateInAndTimeIntervalOrderByTimestampAsc(symbol, latestDates, "1min")
+                .stream()
+                .filter(this::isRegularSessionHistory)
+                .map(this::toHistoryPoint)
+                .toList();
+
+        String message = points.isEmpty()
+                ? "No stored 5D intraday history is available for " + symbol
+                : "Stored 5D intraday history returned";
+        return stockHistoryResponse(
+                symbol,
+                FIVE_DAY_INTRADAY_TIMEFRAME,
+                "stock_price_history_1min",
+                points,
+                message,
+                delayedPrice,
+                latestDates.size(),
+                5,
+                intradayExpectedPointCount(latestDates, delayedPrice, 5)
         );
     }
 
@@ -228,12 +270,15 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 snapshot == null ? null : snapshot.getMissingDataCount(),
                 snapshot == null ? null : snapshot.getAnalysisSnapshotId(),
                 isWatchlisted,
+                delayedPrice == null ? null : delayedPrice.previousClose(),
+                delayedPrice == null ? null : delayedPrice.displayedAbsoluteChange(),
                 delayedPrice == null ? null : delayedPrice.displayedPrice(),
                 delayedPrice == null ? null : delayedPrice.displayedPercentChange(),
                 delayedPrice == null ? null : delayedPrice.displayedMarketTime(),
                 delayedPrice == null ? null : delayedPrice.targetDisplayMarketTime(),
                 delayedPrice == null ? null : delayedPrice.dataDelayMinutes(),
                 delayedPrice == null ? null : delayedPrice.priceFreshnessStatusName(),
+                delayedPrice == null ? null : delayedPrice.priceFreshnessLabel(),
                 delayedPrice == null ? null : delayedPrice.priceAvailable(),
                 delayedPrice == null ? null : delayedPrice.tradeExecutable(),
                 delayedPrice == null ? null : delayedPrice.dataNote(),
@@ -291,6 +336,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 delayedPrice == null ? null : delayedPrice.targetDisplayMarketTime(),
                 delayedPrice == null ? null : delayedPrice.dataDelayMinutes(),
                 delayedPrice == null ? null : delayedPrice.priceFreshnessStatusName(),
+                delayedPrice == null ? null : delayedPrice.priceFreshnessLabel(),
                 delayedPrice == null ? null : delayedPrice.priceAvailable(),
                 delayedPrice == null ? null : delayedPrice.tradeExecutable(),
                 delayedPrice == null ? null : delayedPrice.dataNote(),
@@ -338,17 +384,9 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
             return DisplayedQuoteContext.empty();
         }
 
-        BigDecimal previousClose = dailyRepository
-                .findTopBySymbolAndTradingDateBeforeOrderByTradingDateDesc(symbol, delayedPrice.tradingDate())
-                .map(StockPriceDaily::getClosePrice)
-                .orElse(null);
-        BigDecimal displayedAbsoluteChange = delayedPrice.displayedPrice() == null || previousClose == null
-                ? null
-                : delayedPrice.displayedPrice().subtract(previousClose);
-
         return new DisplayedQuoteContext(
-                previousClose,
-                displayedAbsoluteChange,
+                delayedPrice.previousClose(),
+                delayedPrice.displayedAbsoluteChange(),
                 displayedVolume(symbol, delayedPrice)
         );
     }
@@ -388,6 +426,69 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
             String message,
             DelayedMarketPrice delayedPrice
     ) {
+        int requestedTradingDays = switch (timeframe) {
+            case INTRADAY_TIMEFRAME -> 1;
+            case FIVE_DAY_INTRADAY_TIMEFRAME -> 5;
+            case DAILY_TIMEFRAME -> 7;
+            default -> points == null ? 0 : points.size();
+        };
+        int includedTradingDays = (int) (points == null ? 0 : points.stream()
+                .map(StockHistoryPointResponse::tradingDate)
+                .filter(Objects::nonNull)
+                .distinct()
+                .count());
+        return stockHistoryResponse(symbol, timeframe, source, points, message, delayedPrice, includedTradingDays, requestedTradingDays);
+    }
+
+    private StockHistoryResponse stockHistoryResponse(
+            String symbol,
+            String timeframe,
+            String source,
+            List<StockHistoryPointResponse> points,
+            String message,
+            DelayedMarketPrice delayedPrice,
+            int includedTradingDays,
+            int requestedTradingDays
+    ) {
+        boolean intraday = DelayedMarketPriceService.INTRADAY_PRICE_SOURCE.equals(source);
+        int actualPointCount = points == null ? 0 : points.size();
+        int expectedPointCount = intraday ? Math.max(0, requestedTradingDays) * REGULAR_SESSION_POINT_COUNT : Math.max(0, requestedTradingDays);
+        return stockHistoryResponse(
+                symbol,
+                timeframe,
+                source,
+                points,
+                message,
+                delayedPrice,
+                includedTradingDays,
+                requestedTradingDays,
+                expectedPointCount
+        );
+    }
+
+    private StockHistoryResponse stockHistoryResponse(
+            String symbol,
+            String timeframe,
+            String source,
+            List<StockHistoryPointResponse> points,
+            String message,
+            DelayedMarketPrice delayedPrice,
+            int includedTradingDays,
+            int requestedTradingDays,
+            int expectedPointCount
+    ) {
+        boolean intraday = DelayedMarketPriceService.INTRADAY_PRICE_SOURCE.equals(source);
+        int actualPointCount = points == null ? 0 : points.size();
+        int missingDataCount = Math.max(0, expectedPointCount - actualPointCount);
+        boolean candlestickSupported = points != null && !points.isEmpty() && points.stream().allMatch(point ->
+                point.openPrice() != null
+                        && point.highPrice() != null
+                        && point.lowPrice() != null
+                        && point.closePrice() != null
+        );
+        String completenessNote = missingDataCount == 0
+                ? "Stored history is complete for the expected regular-session point count."
+                : "Stored history is incomplete; missing points were not synthesized.";
         return new StockHistoryResponse(
                 symbol,
                 timeframe,
@@ -396,16 +497,86 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 message,
                 delayedPrice == null ? null : delayedPrice.displayedPrice(),
                 delayedPrice == null ? null : delayedPrice.displayedPercentChange(),
+                delayedPrice == null ? null : delayedPrice.previousClose(),
+                delayedPrice == null ? null : delayedPrice.displayedAbsoluteChange(),
                 delayedPrice == null ? null : delayedPrice.displayedMarketTime(),
                 delayedPrice == null ? null : delayedPrice.targetDisplayMarketTime(),
                 delayedPrice == null ? null : delayedPrice.dataDelayMinutes(),
                 delayedPrice == null ? null : delayedPrice.priceFreshnessStatusName(),
+                delayedPrice == null ? null : delayedPrice.priceFreshnessLabel(),
                 delayedPrice == null ? null : delayedPrice.priceAvailable(),
                 delayedPrice == null ? null : delayedPrice.tradeExecutable(),
                 delayedPrice == null ? null : delayedPrice.dataNote(),
                 delayedPrice == null ? null : delayedPrice.priceSource(),
-                delayedPrice == null ? null : delayedPrice.marketTimeZone()
+                delayedPrice == null ? null : delayedPrice.marketTimeZone(),
+                intraday ? "INTRADAY_1MIN" : "DAILY",
+                actualPointCount > 0,
+                candlestickSupported,
+                expectedPointCount,
+                actualPointCount,
+                missingDataCount,
+                includedTradingDays,
+                requestedTradingDays,
+                "America/New_York",
+                source,
+                false,
+                completenessNote
         );
+    }
+
+    private boolean isRegularSessionHistory(StockPriceHistory history) {
+        if (history == null || history.getTimestamp() == null) {
+            return false;
+        }
+        LocalTime time = history.getTimestamp().toLocalTime();
+        return !time.isBefore(REGULAR_SESSION_OPEN) && time.isBefore(REGULAR_SESSION_CLOSE);
+    }
+
+    private int includedTradingDays(List<StockHistoryPointResponse> points) {
+        return (int) (points == null ? 0 : points.stream()
+                .map(StockHistoryPointResponse::tradingDate)
+                .filter(Objects::nonNull)
+                .distinct()
+                .count());
+    }
+
+    private List<LocalDate> expectedTradingDates(DelayedMarketPrice delayedPrice, List<StockHistoryPointResponse> points) {
+        if (delayedPrice != null && delayedPrice.tradingDate() != null) {
+            return List.of(delayedPrice.tradingDate());
+        }
+        return points == null ? List.of() : points.stream()
+                .map(StockHistoryPointResponse::tradingDate)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    private int intradayExpectedPointCount(List<LocalDate> selectedTradingDates, DelayedMarketPrice delayedPrice, int requestedTradingDays) {
+        int requested = Math.max(0, requestedTradingDays);
+        if (requested == 0) {
+            return 0;
+        }
+        if (delayedPrice == null
+                || delayedPrice.tradingDate() == null
+                || delayedPrice.targetDisplayMarketTime() == null
+                || selectedTradingDates == null
+                || !selectedTradingDates.contains(delayedPrice.tradingDate())) {
+            return requested * REGULAR_SESSION_POINT_COUNT;
+        }
+        int partialCurrentDayCount = regularSessionExpectedRowsThrough(delayedPrice.targetDisplayMarketTime().toLocalTime());
+        return Math.max(0, requested - 1) * REGULAR_SESSION_POINT_COUNT + partialCurrentDayCount;
+    }
+
+    private int regularSessionExpectedRowsThrough(LocalTime cutoffTime) {
+        if (cutoffTime == null || cutoffTime.isBefore(REGULAR_SESSION_OPEN)) {
+            return 0;
+        }
+        if (!cutoffTime.isBefore(REGULAR_SESSION_CLOSE)) {
+            return REGULAR_SESSION_POINT_COUNT;
+        }
+        int openMinute = REGULAR_SESSION_OPEN.getHour() * 60 + REGULAR_SESSION_OPEN.getMinute();
+        int cutoffMinute = cutoffTime.getHour() * 60 + cutoffTime.getMinute();
+        return Math.min(REGULAR_SESSION_POINT_COUNT, Math.max(0, cutoffMinute - openMinute + 1));
     }
 
     private boolean isAiExplanationAvailable(StockAnalysisSnapshot snapshot) {
@@ -481,6 +652,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
     private String normalizeTimeframe(String timeframe) {
         String normalizedTimeframe = timeframe == null ? "" : timeframe.trim().toUpperCase(Locale.ROOT);
         if (!INTRADAY_TIMEFRAME.equals(normalizedTimeframe)
+                && !FIVE_DAY_INTRADAY_TIMEFRAME.equals(normalizedTimeframe)
                 && !DAILY_TIMEFRAME.equals(normalizedTimeframe)
                 && !ONE_MONTH_TIMEFRAME.equals(normalizedTimeframe)
                 && !THREE_MONTH_TIMEFRAME.equals(normalizedTimeframe)

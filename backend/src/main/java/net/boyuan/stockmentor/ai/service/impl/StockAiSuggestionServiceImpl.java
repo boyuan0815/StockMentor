@@ -19,8 +19,11 @@ import net.boyuan.stockmentor.analysis.service.StockAnalysisService;
 import net.boyuan.stockmentor.auth.entity.AppUser;
 import net.boyuan.stockmentor.auth.service.CurrentUserService;
 import net.boyuan.stockmentor.common.util.StockMetadata;
+import net.boyuan.stockmentor.market.stock.dto.DelayedPriceMetadataResponse;
 import net.boyuan.stockmentor.market.stock.entity.Stock;
+import net.boyuan.stockmentor.market.stock.model.DelayedMarketPrice;
 import net.boyuan.stockmentor.market.stock.repository.StockRepository;
+import net.boyuan.stockmentor.market.stock.service.DelayedMarketPriceService;
 import net.boyuan.stockmentor.userprofile.entity.UserInvestmentProfile;
 import net.boyuan.stockmentor.userprofile.model.BehaviorConfidence;
 import net.boyuan.stockmentor.userprofile.model.PreferredVolatility;
@@ -60,6 +63,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
     private final StockAnalysisService stockAnalysisService;
     private final OpenAiClient openAiClient;
     private final UserBehaviorProfileService behaviorProfileService;
+    private final DelayedMarketPriceService delayedMarketPriceService;
     private final ObjectMapper objectMapper;
 
     private static final String PROMPT_VERSION = "stock-suggestion-v3";
@@ -1546,6 +1550,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         Set<String> watchlistedSymbols = watchlistRepository.findByUserUserIdAndSymbolIn(user.getUserId(), symbols).stream()
                 .map(UserWatchlist::getSymbol)
                 .collect(Collectors.toSet());
+        Map<String, DelayedMarketPrice> delayedPriceBySymbol = loadDelayedPrices(symbols);
 
         return new StockAiSuggestionResponse(
                 user.getUserId(),
@@ -1560,9 +1565,14 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 refreshAllowed,
                 nextRefreshAllowedAt,
                 topItems.stream()
-                        .map(item -> toSuggestedResponse(item, stockBySymbol.get(item.getSymbol()), watchlistedSymbols.contains(item.getSymbol())))
+                        .map(item -> toSuggestedResponse(
+                                item,
+                                stockBySymbol.get(item.getSymbol()),
+                                watchlistedSymbols.contains(item.getSymbol()),
+                                delayedPriceBySymbol.get(item.getSymbol())
+                        ))
                         .toList(),
-                buildRemainingStocks(topSymbols, stockBySymbol, watchlistedSymbols),
+                buildRemainingStocks(topSymbols, stockBySymbol, watchlistedSymbols, delayedPriceBySymbol),
                 message
         );
     }
@@ -1595,6 +1605,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         Set<String> watchlistedSymbols = watchlistRepository.findByUserUserIdAndSymbolIn(user.getUserId(), symbols).stream()
                 .map(UserWatchlist::getSymbol)
                 .collect(Collectors.toSet());
+        Map<String, DelayedMarketPrice> delayedPriceBySymbol = loadDelayedPrices(symbols);
 
         return new StockAiSuggestionResponse(
                 user.getUserId(),
@@ -1609,7 +1620,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 refreshAllowed,
                 nextRefreshAllowedAt,
                 List.of(),
-                buildRemainingStocks(Set.of(), stockBySymbol, watchlistedSymbols),
+                buildRemainingStocks(Set.of(), stockBySymbol, watchlistedSymbols, delayedPriceBySymbol),
                 message
         );
     }
@@ -1643,7 +1654,12 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         return new RefreshCooldown(true, null);
     }
 
-    private SuggestedStockResponse toSuggestedResponse(StockAiSuggestionItem item, Stock stock, boolean isWatchlisted) {
+    private SuggestedStockResponse toSuggestedResponse(
+            StockAiSuggestionItem item,
+            Stock stock,
+            boolean isWatchlisted,
+            DelayedMarketPrice delayedPrice
+    ) {
         StockAnalysisSnapshot snapshot = item.getAnalysisSnapshot();
         return new SuggestedStockResponse(
                 item.getSuggestionItemId(),
@@ -1666,19 +1682,30 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 snapshot == null ? null : snapshot.getPriceConsistency(),
                 snapshot == null ? null : snapshot.getIsFallback(),
                 snapshot == null ? null : snapshot.getMissingDataCount(),
-                isWatchlisted || item.getStatus() == StockAiSuggestionItemStatus.WATCHLISTED
+                isWatchlisted || item.getStatus() == StockAiSuggestionItemStatus.WATCHLISTED,
+                delayedPrice == null ? null : delayedPrice.displayedPrice(),
+                delayedPrice == null ? null : delayedPrice.displayedAbsoluteChange(),
+                delayedPrice == null ? null : delayedPrice.displayedPercentChange(),
+                delayedPrice == null ? null : delayedPrice.previousClose(),
+                delayedPrice == null ? null : delayedPrice.priceFreshnessStatusName(),
+                delayedPrice == null ? null : delayedPrice.priceFreshnessLabel(),
+                DelayedPriceMetadataResponse.from(delayedPrice),
+                delayedPrice == null ? null : delayedPrice.priceSource(),
+                delayedPrice == null ? null : delayedPrice.displayedMarketTime()
         );
     }
 
     private List<RemainingStockResponse> buildRemainingStocks(
             Set<String> excludedSymbols,
             Map<String, Stock> stockBySymbol,
-            Set<String> watchlistedSymbols
+            Set<String> watchlistedSymbols,
+            Map<String, DelayedMarketPrice> delayedPriceBySymbol
     ) {
         return SUPPORTED_SYMBOLS.stream()
                 .filter(symbol -> !excludedSymbols.contains(symbol))
                 .map(symbol -> {
                     Stock stock = stockBySymbol.get(symbol);
+                    DelayedMarketPrice delayedPrice = delayedPriceBySymbol.get(symbol);
                     StockAnalysisSnapshot snapshot = snapshotRepository.findTopBySymbolAndTimeframeOrderByCreatedAtDesc(symbol, ANALYSIS_TIMEFRAME).orElse(null);
                     return new RemainingStockResponse(
                             stock == null ? null : stock.getStockId(),
@@ -1690,10 +1717,32 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                             snapshot == null ? null : snapshot.getVolatilityLabel(),
                             snapshot == null ? StockMetadata.RISK_CATEGORY_MAP.getOrDefault(symbol, "moderate") : snapshot.getRiskCategory(),
                             false,
-                            watchlistedSymbols.contains(symbol)
+                            watchlistedSymbols.contains(symbol),
+                            delayedPrice == null ? null : delayedPrice.displayedPrice(),
+                            delayedPrice == null ? null : delayedPrice.displayedAbsoluteChange(),
+                            delayedPrice == null ? null : delayedPrice.displayedPercentChange(),
+                            delayedPrice == null ? null : delayedPrice.previousClose(),
+                            delayedPrice == null ? null : delayedPrice.priceFreshnessStatusName(),
+                            delayedPrice == null ? null : delayedPrice.priceFreshnessLabel(),
+                            DelayedPriceMetadataResponse.from(delayedPrice),
+                            delayedPrice == null ? null : delayedPrice.priceSource(),
+                            delayedPrice == null ? null : delayedPrice.displayedMarketTime()
                     );
                 })
                 .toList();
+    }
+
+    private Map<String, DelayedMarketPrice> loadDelayedPrices(Collection<String> symbols) {
+        Map<String, DelayedMarketPrice> delayedPriceBySymbol = new LinkedHashMap<>();
+        for (String symbol : symbols) {
+            try {
+                delayedPriceBySymbol.put(symbol, delayedMarketPriceService.resolveForDisplay(symbol));
+            } catch (RuntimeException exception) {
+                log.warn("Delayed display data unavailable for AI suggestion symbol={}", symbol);
+                delayedPriceBySymbol.put(symbol, null);
+            }
+        }
+        return delayedPriceBySymbol;
     }
 
     private String buildPromptInput(

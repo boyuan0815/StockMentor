@@ -12,6 +12,24 @@ public record StockHistoryPointResponse(
         BigDecimal lowPrice,
         BigDecimal closePrice,
         Long volume,
-        String source
+        String source,
+        BigDecimal price,
+        BigDecimal open,
+        BigDecimal high,
+        BigDecimal low,
+        BigDecimal close
 ) {
+    public StockHistoryPointResponse(
+            LocalDateTime timestamp,
+            LocalDate tradingDate,
+            BigDecimal openPrice,
+            BigDecimal highPrice,
+            BigDecimal lowPrice,
+            BigDecimal closePrice,
+            Long volume,
+            String source
+    ) {
+        this(timestamp, tradingDate, openPrice, highPrice, lowPrice, closePrice, volume, source,
+                closePrice, openPrice, highPrice, lowPrice, closePrice);
+    }
 }

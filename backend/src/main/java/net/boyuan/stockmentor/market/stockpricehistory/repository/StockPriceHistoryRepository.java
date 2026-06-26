@@ -1,6 +1,7 @@
 package net.boyuan.stockmentor.market.stockpricehistory.repository;
 
 import net.boyuan.stockmentor.market.stockpricehistory.entity.StockPriceHistory;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -117,6 +118,26 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
     Optional<LocalDate> findLatestTradingDateBySymbol(@Param("symbol") String symbol);
 
     Optional<StockPriceHistory> findTopBySymbolOrderByTimestampDesc(String symbol);
+
+    @Query("""
+        select distinct h.tradingDate
+        from StockPriceHistory h
+        where h.symbol = :symbol
+        and h.timeInterval = :timeInterval
+        and h.tradingDate is not null
+        order by h.tradingDate desc
+    """)
+    List<LocalDate> findLatestTradingDates(
+            @Param("symbol") String symbol,
+            @Param("timeInterval") String timeInterval,
+            Pageable pageable
+    );
+
+    List<StockPriceHistory> findBySymbolAndTradingDateInAndTimeIntervalOrderByTimestampAsc(
+            String symbol,
+            List<LocalDate> tradingDates,
+            String timeInterval
+    );
 
     @Modifying
     long deleteBySymbolAndTimestampBetween(

@@ -158,7 +158,7 @@ class StockMarketDataServiceImplTests {
         assertEquals("America/New_York", item.timezone());
         assertEquals("TwelveData", item.source());
         assertEquals(new BigDecimal("100.50"), item.displayedPrice());
-        assertEquals("AVAILABLE", item.priceFreshnessStatus());
+        assertEquals("DELAYED_15_MINUTES", item.priceFreshnessStatus());
         assertTrue(item.isPriceAvailable());
         assertTrue(item.isTradeExecutable());
         assertEquals("America/New_York", item.marketTimeZone());
@@ -285,15 +285,9 @@ class StockMarketDataServiceImplTests {
     void detailHighLowUseDisplayedIntradayDayRangeAndSnapshotFieldsUseAnalysisRange() {
         Stock msft = stock("MSFT", "Microsoft", "422.12");
         StockAnalysisSnapshot snapshot = snapshot("MSFT", 20L, "moderate", "strong uptrend");
-        StockPriceDaily previousDaily = daily("MSFT", LocalDate.of(2026, 1, 2));
-        previousDaily.setClosePrice(new BigDecimal("99.00"));
         when(stockRepository.findBySymbol("MSFT")).thenReturn(Optional.of(msft));
         when(snapshotRepository.findTopBySymbolAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc("MSFT", "7D"))
                 .thenReturn(Optional.of(snapshot));
-        when(dailyRepository.findTopBySymbolAndTradingDateBeforeOrderByTradingDateDesc(
-                "MSFT",
-                LocalDate.of(2026, 1, 5)
-        )).thenReturn(Optional.of(previousDaily));
         when(historyRepository.findDayRangeAtOrBefore(
                 "MSFT",
                 LocalDate.of(2026, 1, 5),
@@ -326,16 +320,10 @@ class StockMarketDataServiceImplTests {
         LocalDate tradingDate = LocalDate.of(2026, 1, 5);
         StockAnalysisSnapshot snapshot = snapshot("MSFT", 20L, "moderate", "strong uptrend");
         StockPriceDaily daily = daily("MSFT", tradingDate);
-        StockPriceDaily previousDaily = daily("MSFT", LocalDate.of(2026, 1, 2));
-        previousDaily.setClosePrice(new BigDecimal("100.00"));
         when(stockRepository.findBySymbol("MSFT")).thenReturn(Optional.of(stock("MSFT", "Microsoft", "422.12")));
         when(snapshotRepository.findTopBySymbolAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc("MSFT", "7D"))
                 .thenReturn(Optional.of(snapshot));
         when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(dailyDelayedPrice("MSFT", tradingDate));
-        when(dailyRepository.findTopBySymbolAndTradingDateBeforeOrderByTradingDateDesc(
-                "MSFT",
-                tradingDate
-        )).thenReturn(Optional.of(previousDaily));
         when(dailyRepository.findBySymbolAndTradingDate("MSFT", tradingDate)).thenReturn(Optional.of(daily));
 
         StockDetailResponse response = service.getStockDetailForCurrentUser("MSFT");
@@ -463,8 +451,33 @@ class StockMarketDataServiceImplTests {
         assertEquals(2, response.points().size());
         assertEquals(tradingDate, response.points().get(0).tradingDate());
         assertEquals(LocalDateTime.of(2026, 1, 5, 9, 30), response.points().get(0).timestamp());
-        assertEquals("AVAILABLE", response.priceFreshnessStatus());
+        assertEquals("DELAYED_15_MINUTES", response.priceFreshnessStatus());
         assertEquals("America/New_York", response.marketTimeZone());
+    }
+
+    @Test
+    void historyOneDayFiltersRegularSessionRowsAndUsesDelayedCutoffExpectedCount() {
+        LocalDate tradingDate = LocalDate.of(2026, 1, 5);
+        when(delayedMarketPriceService.loadOneDayHistoryForDisplay("MSFT"))
+                .thenReturn(new DelayedIntradayHistorySelection(
+                        List.of(
+                                intraday("MSFT", tradingDate, 9, 29),
+                                intraday("MSFT", tradingDate, 9, 30),
+                                intraday("MSFT", tradingDate, 10, 15),
+                                intraday("MSFT", tradingDate, 16, 0)
+                        ),
+                        delayedPriceAt("MSFT", tradingDate, 10, 15)
+                ));
+
+        StockHistoryResponse response = service.getStockHistoryForCurrentUser("MSFT", "1D");
+
+        assertEquals(List.of(
+                LocalDateTime.of(2026, 1, 5, 9, 30),
+                LocalDateTime.of(2026, 1, 5, 10, 15)
+        ), response.points().stream().map(point -> point.timestamp()).toList());
+        assertEquals(46, response.expectedPointCount());
+        assertEquals(2, response.actualPointCount());
+        assertEquals(44, response.missingDataCount());
     }
 
     @Test
@@ -481,7 +494,7 @@ class StockMarketDataServiceImplTests {
         assertEquals("stock_price_history_1min", response.source());
         assertEquals(2, response.points().size());
         assertEquals(DelayedMarketPriceService.DAILY_PRICE_SOURCE, response.priceSource());
-        assertEquals("NOT_READY_WITH_DAILY_FALLBACK", response.priceFreshnessStatus());
+        assertEquals("MARKET_CLOSED_LAST_CLOSE", response.priceFreshnessStatus());
         assertEquals(LocalDateTime.of(2026, 1, 5, 16, 0), response.targetDisplayMarketTime());
     }
 
@@ -495,6 +508,70 @@ class StockMarketDataServiceImplTests {
         assertEquals("MSFT", response.symbol());
         assertTrue(response.points().isEmpty());
         assertEquals("No stored delayed intraday history is available for MSFT", response.message());
+    }
+
+    @Test
+    void historyFiveDayReturnsStoredIntradayRowsWithCompletenessMetadata() {
+        LocalDate day1 = LocalDate.of(2026, 1, 2);
+        LocalDate day2 = LocalDate.of(2026, 1, 5);
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPriceAt("MSFT", day2, 16, 0));
+        when(historyRepository.findLatestTradingDates(eq("MSFT"), eq("1min"), org.mockito.ArgumentMatchers.any(Pageable.class)))
+                .thenReturn(List.of(day2, day1));
+        when(historyRepository.findBySymbolAndTradingDateInAndTimeIntervalOrderByTimestampAsc(
+                "MSFT",
+                List.of(day1, day2),
+                "1min"
+        )).thenReturn(List.of(
+                intraday("MSFT", day1, 9, 30),
+                intraday("MSFT", day2, 15, 59)
+        ));
+
+        StockHistoryResponse response = service.getStockHistoryForCurrentUser("MSFT", "5D");
+
+        assertEquals("5D", response.timeframe());
+        assertEquals("stock_price_history_1min", response.source());
+        assertEquals(List.of(day1, day2), response.points().stream().map(point -> point.tradingDate()).toList());
+        assertEquals("INTRADAY_1MIN", response.granularity());
+        assertTrue(response.lineChartSupported());
+        assertTrue(response.candlestickSupported());
+        assertEquals(1950, response.expectedPointCount());
+        assertEquals(2, response.actualPointCount());
+        assertEquals(1948, response.missingDataCount());
+        assertEquals(2, response.includedTradingDays());
+        assertEquals(5, response.requestedTradingDays());
+        assertEquals("America/New_York", response.timezone());
+        assertEquals(new BigDecimal("99.00"), response.previousClose());
+        assertEquals(new BigDecimal("1.50"), response.displayedAbsoluteChange());
+        assertEquals("Delayed 15 min", response.priceFreshnessLabel());
+    }
+
+    @Test
+    void historyFiveDayFiltersRegularSessionRowsAndUsesPartialCurrentDayExpectedCount() {
+        LocalDate previousDay = LocalDate.of(2026, 1, 2);
+        LocalDate currentDay = LocalDate.of(2026, 1, 5);
+        when(delayedMarketPriceService.resolveForDisplay("MSFT")).thenReturn(delayedPriceAt("MSFT", currentDay, 10, 15));
+        when(historyRepository.findLatestTradingDates(eq("MSFT"), eq("1min"), org.mockito.ArgumentMatchers.any(Pageable.class)))
+                .thenReturn(List.of(currentDay, previousDay));
+        when(historyRepository.findBySymbolAndTradingDateInAndTimeIntervalOrderByTimestampAsc(
+                "MSFT",
+                List.of(previousDay, currentDay),
+                "1min"
+        )).thenReturn(List.of(
+                intraday("MSFT", previousDay, 9, 30),
+                intraday("MSFT", previousDay, 16, 0),
+                intraday("MSFT", currentDay, 9, 29),
+                intraday("MSFT", currentDay, 10, 15)
+        ));
+
+        StockHistoryResponse response = service.getStockHistoryForCurrentUser("MSFT", "5D");
+
+        assertEquals(List.of(
+                LocalDateTime.of(2026, 1, 2, 9, 30),
+                LocalDateTime.of(2026, 1, 5, 10, 15)
+        ), response.points().stream().map(point -> point.timestamp()).toList());
+        assertEquals(1606, response.expectedPointCount());
+        assertEquals(2, response.actualPointCount());
+        assertEquals(1604, response.missingDataCount());
     }
 
     @Test
@@ -724,14 +801,39 @@ class StockMarketDataServiceImplTests {
                 LocalDateTime.of(2026, 1, 5, 9, 45),
                 LocalDateTime.of(2026, 1, 5, 9, 45),
                 15,
-                DelayedPriceFreshnessStatus.AVAILABLE,
+                DelayedPriceFreshnessStatus.DELAYED_15_MINUTES,
                 true,
                 true,
                 "Prices shown are delayed by about 15 minutes.",
                 DelayedMarketPriceService.INTRADAY_PRICE_SOURCE,
                 "America/New_York",
                 LocalDateTime.of(2026, 1, 5, 10, 0),
-                LocalDate.of(2026, 1, 5)
+                LocalDate.of(2026, 1, 5),
+                new BigDecimal("99.00"),
+                new BigDecimal("1.50"),
+                DelayedPriceFreshnessStatus.DELAYED_15_MINUTES.label()
+        );
+    }
+
+    private DelayedMarketPrice delayedPriceAt(String symbol, LocalDate tradingDate, int hour, int minute) {
+        return new DelayedMarketPrice(
+                symbol,
+                new BigDecimal("100.50"),
+                new BigDecimal("0.5000"),
+                tradingDate.atTime(hour, minute),
+                tradingDate.atTime(hour, minute),
+                15,
+                DelayedPriceFreshnessStatus.DELAYED_15_MINUTES,
+                true,
+                true,
+                "Prices shown are delayed by about 15 minutes.",
+                DelayedMarketPriceService.INTRADAY_PRICE_SOURCE,
+                "America/New_York",
+                tradingDate.atTime(hour, minute).plusMinutes(1),
+                tradingDate,
+                new BigDecimal("99.00"),
+                new BigDecimal("1.50"),
+                DelayedPriceFreshnessStatus.DELAYED_15_MINUTES.label()
         );
     }
 
@@ -743,14 +845,17 @@ class StockMarketDataServiceImplTests {
                 tradingDate.atTime(16, 0),
                 tradingDate.atTime(16, 0),
                 15,
-                DelayedPriceFreshnessStatus.MARKET_CLOSED,
+                DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE,
                 true,
                 true,
                 "Market is closed. This practice trade uses the latest stored daily close, not a live quote.",
                 DelayedMarketPriceService.DAILY_PRICE_SOURCE,
                 "America/New_York",
                 LocalDateTime.of(2026, 1, 5, 19, 0),
-                tradingDate
+                tradingDate,
+                new BigDecimal("100.00"),
+                new BigDecimal("2.00"),
+                DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE.label()
         );
     }
 
@@ -762,14 +867,17 @@ class StockMarketDataServiceImplTests {
                 tradingDate.atTime(16, 0),
                 tradingDate.atTime(16, 0),
                 15,
-                DelayedPriceFreshnessStatus.NOT_READY_WITH_DAILY_FALLBACK,
+                DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE,
                 true,
                 true,
                 "Today's delayed market display starts around 9:45 AM New York time. Showing the latest stored daily close.",
                 DelayedMarketPriceService.DAILY_PRICE_SOURCE,
                 "America/New_York",
                 LocalDateTime.of(2026, 1, 5, 19, 0),
-                tradingDate
+                tradingDate,
+                new BigDecimal("100.00"),
+                new BigDecimal("2.00"),
+                DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE.label()
         );
     }
 

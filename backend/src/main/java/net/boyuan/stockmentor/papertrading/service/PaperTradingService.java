@@ -19,6 +19,16 @@ public interface PaperTradingService {
             Boolean currentSessionOnly
     );
 
+    PaperTradeTransactionPageResponse getCurrentUserTransactionsPage(
+            String symbol,
+            String side,
+            String from,
+            String to,
+            Integer page,
+            Integer size,
+            Boolean currentSessionOnly
+    );
+
     PaperTradeTransactionResponse getCurrentUserTransaction(Long transactionId);
 
     PaperPortfolioResponse resetCurrentUserPortfolio();

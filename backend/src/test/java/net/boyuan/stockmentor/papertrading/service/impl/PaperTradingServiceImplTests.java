@@ -31,7 +31,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -159,7 +161,7 @@ class PaperTradingServiceImplTests {
                 "MSFT",
                 "105.00",
                 true,
-                DelayedPriceFreshnessStatus.MARKET_CLOSED,
+                DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE,
                 DelayedMarketPriceService.DAILY_PRICE_SOURCE
         ));
         when(positionRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.empty());
@@ -169,7 +171,7 @@ class PaperTradingServiceImplTests {
         PaperTradeExecutionResponse response = service.buyForCurrentUser(new PaperTradeRequest("MSFT", 1));
 
         assertEquals(new BigDecimal("105.0000"), response.transaction().executionPrice());
-        assertEquals("MARKET_CLOSED", response.delayedPriceMetadata().priceFreshnessStatus());
+        assertEquals("MARKET_CLOSED_LAST_CLOSE", response.delayedPriceMetadata().priceFreshnessStatus());
         assertEquals(DelayedMarketPriceService.DAILY_PRICE_SOURCE, response.delayedPriceMetadata().priceSource());
     }
 
@@ -182,7 +184,7 @@ class PaperTradingServiceImplTests {
                 "MSFT",
                 "104.50",
                 true,
-                DelayedPriceFreshnessStatus.MARKET_CLOSED_PENDING_DAILY_CLOSE,
+                DelayedPriceFreshnessStatus.LATEST_STORED_PRICE,
                 DelayedMarketPriceService.INTRADAY_PRICE_SOURCE
         ));
         when(positionRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.empty());
@@ -192,7 +194,7 @@ class PaperTradingServiceImplTests {
         PaperTradeExecutionResponse response = service.buyForCurrentUser(new PaperTradeRequest("MSFT", 1));
 
         assertEquals(new BigDecimal("104.5000"), response.transaction().executionPrice());
-        assertEquals("MARKET_CLOSED_PENDING_DAILY_CLOSE", response.delayedPriceMetadata().priceFreshnessStatus());
+        assertEquals("LATEST_STORED_PRICE", response.delayedPriceMetadata().priceFreshnessStatus());
         assertEquals(DelayedMarketPriceService.INTRADAY_PRICE_SOURCE, response.delayedPriceMetadata().priceSource());
         assertTrue(response.delayedPriceMetadata().dataNote().contains("daily close is not available yet"));
     }
@@ -206,7 +208,7 @@ class PaperTradingServiceImplTests {
                 "MSFT",
                 "102.00",
                 false,
-                DelayedPriceFreshnessStatus.FALLBACK_DAILY,
+                DelayedPriceFreshnessStatus.LATEST_STORED_PRICE,
                 DelayedMarketPriceService.DAILY_PRICE_SOURCE
         ));
 
@@ -343,7 +345,7 @@ class PaperTradingServiceImplTests {
                 "MSFT",
                 "102.00",
                 false,
-                DelayedPriceFreshnessStatus.FALLBACK_DAILY,
+                DelayedPriceFreshnessStatus.LATEST_STORED_PRICE,
                 DelayedMarketPriceService.DAILY_PRICE_SOURCE
         ));
 
@@ -384,6 +386,120 @@ class PaperTradingServiceImplTests {
         assertEquals(1, service.getCurrentUserTransactions(null, null, null, null, null, null, null).size());
         verify(positionRepository).findByUserUserIdOrderBySymbolAsc(1L);
         verify(transactionRepository).findTop50ByUserUserIdOrderByExecutedAtDesc(1L);
+    }
+
+    @Test
+    void portfolioShowsFeeAwareUnrealizedRealizedAndTotalProfitLoss() {
+        PaperTradingAccount account = account(user, "999899.00");
+        PaperPosition position = position(user, "MSFT", 1, "101.00", "101.00");
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+        when(positionRepository.findByUserUserIdOrderBySymbolAsc(1L)).thenReturn(List.of(position));
+        when(stockRepository.findBySymbolIn(List.of("MSFT"))).thenReturn(List.of(stock("MSFT", "100.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT"))
+                .thenReturn(delayedPriceWithMovement("MSFT", "100.00", "100.00"));
+        when(transactionRepository.sumCurrentSessionRealizedProfitLossByUserIdAndSide(1L, PaperTradeSide.SELL))
+                .thenReturn(BigDecimal.ZERO);
+        when(transactionRepository.sumCurrentSessionFeeByUserIdAndSideIn(eq(1L), anyList()))
+                .thenReturn(TRADE_FEE);
+
+        PaperPortfolioResponse response = service.getCurrentUserPortfolio();
+
+        assertEquals(new BigDecimal("-1.0000"), response.unrealizedProfitLoss());
+        assertEquals(BigDecimal.ZERO.setScale(4), response.realizedProfitLossAfterFees());
+        assertEquals(new BigDecimal("-1.0000"), response.totalProfitLoss());
+        assertEquals(TRADE_FEE.setScale(4), response.totalFeesPaid());
+    }
+
+    @Test
+    void portfolioPreservesRealizedLossAfterFullSellAndResetClearsCurrentSessionProfitLoss() {
+        PaperTradingAccount account = account(user, "999998.00");
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+        when(positionRepository.findByUserUserIdOrderBySymbolAsc(1L)).thenReturn(List.of());
+        when(transactionRepository.sumCurrentSessionRealizedProfitLossByUserIdAndSide(1L, PaperTradeSide.SELL))
+                .thenReturn(new BigDecimal("-2.00"));
+        when(transactionRepository.sumCurrentSessionFeeByUserIdAndSideIn(eq(1L), anyList()))
+                .thenReturn(new BigDecimal("2.00"));
+
+        PaperPortfolioResponse soldOut = service.getCurrentUserPortfolio();
+
+        assertEquals(BigDecimal.ZERO.setScale(4), soldOut.unrealizedProfitLoss());
+        assertEquals(new BigDecimal("-2.0000"), soldOut.realizedProfitLossAfterFees());
+        assertEquals(new BigDecimal("-2.0000"), soldOut.totalProfitLoss());
+
+        PaperTradingAccount resetAccount = account(user, "1000000.00");
+        resetAccount.setCurrentSessionNumber(2);
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(resetAccount));
+        when(transactionRepository.sumCurrentSessionRealizedProfitLossByUserIdAndSide(1L, PaperTradeSide.SELL))
+                .thenReturn(BigDecimal.ZERO);
+        when(transactionRepository.sumCurrentSessionFeeByUserIdAndSideIn(eq(1L), anyList()))
+                .thenReturn(BigDecimal.ZERO);
+
+        PaperPortfolioResponse afterReset = service.getCurrentUserPortfolio();
+
+        assertEquals(BigDecimal.ZERO.setScale(4), afterReset.unrealizedProfitLoss());
+        assertEquals(BigDecimal.ZERO.setScale(4), afterReset.realizedProfitLossAfterFees());
+        assertEquals(BigDecimal.ZERO.setScale(4), afterReset.totalProfitLoss());
+        assertEquals(BigDecimal.ZERO.setScale(4), afterReset.totalFeesPaid());
+    }
+
+    @Test
+    void portfolioTodayProfitLossCombinesOpenPositionMovementAndTodayRealizedSellLoss() {
+        PaperTradingAccount account = account(user, "999899.00");
+        PaperPosition position = position(user, "MSFT", 1, "101.00", "101.00");
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+        when(positionRepository.findByUserUserIdOrderBySymbolAsc(1L)).thenReturn(List.of(position));
+        when(stockRepository.findBySymbolIn(List.of("MSFT"))).thenReturn(List.of(stock("MSFT", "105.00")));
+        when(delayedMarketPriceService.resolveForDisplay("MSFT"))
+                .thenReturn(delayedPriceWithMovement("MSFT", "105.00", "100.00"));
+        when(transactionRepository.sumCurrentSessionRealizedProfitLossByUserIdAndSide(1L, PaperTradeSide.SELL))
+                .thenReturn(new BigDecimal("-2.00"));
+        when(transactionRepository.sumCurrentSessionFeeByUserIdAndSideIn(eq(1L), anyList()))
+                .thenReturn(new BigDecimal("2.00"));
+        when(transactionRepository.sumCurrentSessionRealizedProfitLossByUserIdAndSideAndExecutedAtBetween(
+                eq(1L), eq(PaperTradeSide.SELL), any(LocalDateTime.class), any(LocalDateTime.class)
+        )).thenReturn(new BigDecimal("-2.00"));
+
+        PaperPortfolioResponse response = service.getCurrentUserPortfolio();
+
+        assertEquals(new BigDecimal("5.0000"), response.todayOpenPositionProfitLoss());
+        assertEquals(new BigDecimal("-2.0000"), response.todayRealizedProfitLossAfterFees());
+        assertEquals(new BigDecimal("3.0000"), response.todayProfitLoss());
+        assertEquals("Percentage is based on current session starting cash.", response.todayProfitLossNote());
+        assertTrue(response.todayProfitLossComplete());
+    }
+
+    @Test
+    void portfolioTodayRealizedProfitLossUsesNewYorkDayInTransactionStorageTimezone() {
+        PaperTradingAccount account = account(user, "999998.00");
+        when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+        when(positionRepository.findByUserUserIdOrderBySymbolAsc(1L)).thenReturn(List.of());
+        when(transactionRepository.sumCurrentSessionRealizedProfitLossByUserIdAndSide(1L, PaperTradeSide.SELL))
+                .thenReturn(new BigDecimal("-2.00"));
+        when(transactionRepository.sumCurrentSessionFeeByUserIdAndSideIn(eq(1L), anyList()))
+                .thenReturn(new BigDecimal("2.00"));
+        when(transactionRepository.sumCurrentSessionRealizedProfitLossByUserIdAndSideAndExecutedAtBetween(
+                eq(1L), eq(PaperTradeSide.SELL), any(LocalDateTime.class), any(LocalDateTime.class)
+        )).thenReturn(new BigDecimal("-2.00"));
+
+        PaperPortfolioResponse response = service.getCurrentUserPortfolio();
+
+        LocalDate nyToday = LocalDate.now(ZoneId.of("America/New_York"));
+        ZoneId storageZone = ZoneId.systemDefault();
+        LocalDateTime expectedFrom = nyToday.atStartOfDay(ZoneId.of("America/New_York"))
+                .withZoneSameInstant(storageZone)
+                .toLocalDateTime();
+        LocalDateTime expectedTo = nyToday.plusDays(1).atStartOfDay(ZoneId.of("America/New_York"))
+                .withZoneSameInstant(storageZone)
+                .toLocalDateTime()
+                .minusNanos(1);
+
+        assertEquals(new BigDecimal("-2.0000"), response.todayRealizedProfitLossAfterFees());
+        verify(transactionRepository).sumCurrentSessionRealizedProfitLossByUserIdAndSideAndExecutedAtBetween(
+                1L,
+                PaperTradeSide.SELL,
+                expectedFrom,
+                expectedTo
+        );
     }
 
     @Test
@@ -549,8 +665,33 @@ class PaperTradingServiceImplTests {
                 symbol,
                 price,
                 executable,
-                executable ? DelayedPriceFreshnessStatus.AVAILABLE : DelayedPriceFreshnessStatus.UNAVAILABLE,
+                executable ? DelayedPriceFreshnessStatus.DELAYED_15_MINUTES : DelayedPriceFreshnessStatus.UNAVAILABLE,
                 executable ? DelayedMarketPriceService.INTRADAY_PRICE_SOURCE : null
+        );
+    }
+
+    private DelayedMarketPrice delayedPriceWithMovement(String symbol, String price, String previousClose) {
+        BigDecimal displayedPrice = new BigDecimal(price);
+        BigDecimal previousCloseValue = new BigDecimal(previousClose);
+        BigDecimal absoluteChange = displayedPrice.subtract(previousCloseValue);
+        return new DelayedMarketPrice(
+                symbol,
+                displayedPrice,
+                absoluteChange.multiply(BigDecimal.valueOf(100)).divide(previousCloseValue, 4, java.math.RoundingMode.HALF_UP),
+                LocalDateTime.of(2026, 1, 5, 9, 45),
+                LocalDateTime.of(2026, 1, 5, 9, 45),
+                15,
+                DelayedPriceFreshnessStatus.DELAYED_15_MINUTES,
+                true,
+                true,
+                "Practice trades use StockMentor's delayed stored price, not a live market quote.",
+                DelayedMarketPriceService.INTRADAY_PRICE_SOURCE,
+                "America/New_York",
+                LocalDateTime.of(2026, 1, 5, 10, 0),
+                LocalDate.of(2026, 1, 5),
+                previousCloseValue,
+                absoluteChange,
+                DelayedPriceFreshnessStatus.DELAYED_15_MINUTES.label()
         );
     }
 

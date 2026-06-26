@@ -1,7 +1,10 @@
 package net.boyuan.stockmentor.watchlist.service;
 
+import net.boyuan.stockmentor.watchlist.dto.WatchlistBatchRemoveResponse;
 import net.boyuan.stockmentor.watchlist.dto.WatchlistActionResponse;
 import net.boyuan.stockmentor.watchlist.dto.WatchlistResponse;
+
+import java.util.List;
 
 public interface WatchlistService {
     WatchlistResponse getCurrentUserWatchlist();
@@ -9,4 +12,8 @@ public interface WatchlistService {
     WatchlistActionResponse addSymbolToCurrentUserWatchlist(String symbol);
 
     WatchlistActionResponse removeSymbolFromCurrentUserWatchlist(String symbol);
+
+    WatchlistResponse reorderCurrentUserWatchlist(List<String> symbols);
+
+    WatchlistBatchRemoveResponse batchRemoveFromCurrentUserWatchlist(List<String> symbols);
 }

@@ -81,7 +81,7 @@ public class DelayedMarketPriceService {
                         symbol,
                         history,
                         context,
-                        DelayedPriceFreshnessStatus.AVAILABLE,
+                        DelayedPriceFreshnessStatus.DELAYED_15_MINUTES,
                         true,
                         "Prices shown are delayed by about 15 minutes. Practice trades use StockMentor's delayed stored price, not a live market quote."
                 );
@@ -91,7 +91,7 @@ public class DelayedMarketPriceService {
                         symbol,
                         history,
                         context,
-                        DelayedPriceFreshnessStatus.STALE,
+                        DelayedPriceFreshnessStatus.DELAYED_15_MINUTES,
                         true,
                         "Latest stored delayed price is slightly before the displayed market target. Practice trades use StockMentor's delayed stored price, not a live market quote."
                 );
@@ -102,7 +102,7 @@ public class DelayedMarketPriceService {
                 symbol,
                 context.latestCompletedTradingDate(),
                 context,
-                DelayedPriceFreshnessStatus.FALLBACK_DAILY,
+                DelayedPriceFreshnessStatus.LATEST_STORED_PRICE,
                 false,
                 "Delayed intraday price is not available yet. Showing latest stored daily close for display only."
         ).orElseGet(() -> unavailable(
@@ -118,7 +118,7 @@ public class DelayedMarketPriceService {
                 symbol,
                 context.latestCompletedTradingDate(),
                 context,
-                DelayedPriceFreshnessStatus.NOT_READY_WITH_DAILY_FALLBACK,
+                DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE,
                 true,
                 "Today's delayed market display starts around 9:45 AM New York time. Showing the latest stored daily close."
         ).orElseGet(() -> unavailable(
@@ -134,7 +134,7 @@ public class DelayedMarketPriceService {
                 symbol,
                 context.targetTradingDate(),
                 context,
-                DelayedPriceFreshnessStatus.MARKET_CLOSED,
+                DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE,
                 true,
                 "Market is closed. This practice trade uses the latest stored daily close, not a live quote."
         );
@@ -152,7 +152,7 @@ public class DelayedMarketPriceService {
                         symbol,
                         history,
                         context,
-                        DelayedPriceFreshnessStatus.MARKET_CLOSED_PENDING_DAILY_CLOSE,
+                        DelayedPriceFreshnessStatus.LATEST_STORED_PRICE,
                         true,
                         "Market is closed. Today's daily close is not available yet, so this practice trade uses the latest stored intraday close."
                 ))
@@ -169,7 +169,7 @@ public class DelayedMarketPriceService {
                 symbol,
                 context.latestCompletedTradingDate(),
                 context,
-                DelayedPriceFreshnessStatus.MARKET_CLOSED,
+                DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE,
                 true,
                 "Market is closed. Prices shown are based on the latest completed trading day."
         ).orElseGet(() -> unavailable(
@@ -203,10 +203,11 @@ public class DelayedMarketPriceService {
             boolean tradeExecutable,
             String note
     ) {
+        PriceMovement movement = priceMovement(symbol, history.getTradingDate(), history.getClosePrice());
         return new DelayedMarketPrice(
                 symbol,
                 history.getClosePrice(),
-                intradayPercentChange(symbol, history),
+                movement.displayedPercentChange(),
                 history.getTimestamp(),
                 context.targetDisplayMarketTime(),
                 context.dataDelayMinutes(),
@@ -217,7 +218,10 @@ public class DelayedMarketPriceService {
                 INTRADAY_PRICE_SOURCE,
                 context.marketTimeZone(),
                 history.getCreatedAt(),
-                history.getTradingDate()
+                history.getTradingDate(),
+                movement.previousClose(),
+                movement.displayedAbsoluteChange(),
+                status.label()
         );
     }
 
@@ -231,22 +235,28 @@ public class DelayedMarketPriceService {
     ) {
         return dailyRepository.findBySymbolAndTradingDate(symbol, tradingDate)
                 .filter(this::hasPositiveClose)
-                .map(daily -> new DelayedMarketPrice(
-                        symbol,
-                        daily.getClosePrice(),
-                        percentChange(daily.getOpenPrice(), daily.getClosePrice()),
-                        daily.getTradingDate().atTime(MARKET_CLOSE),
-                        context.targetDisplayMarketTime(),
-                        context.dataDelayMinutes(),
-                        status,
-                        true,
-                        tradeExecutable,
-                        note,
-                        DAILY_PRICE_SOURCE,
-                        context.marketTimeZone(),
-                        daily.getUpdatedAt() == null ? daily.getCreatedAt() : daily.getUpdatedAt(),
-                        daily.getTradingDate()
-                ));
+                .map(daily -> {
+                    PriceMovement movement = priceMovement(symbol, daily.getTradingDate(), daily.getClosePrice());
+                    return new DelayedMarketPrice(
+                            symbol,
+                            daily.getClosePrice(),
+                            movement.displayedPercentChange(),
+                            daily.getTradingDate().atTime(MARKET_CLOSE),
+                            context.targetDisplayMarketTime(),
+                            context.dataDelayMinutes(),
+                            status,
+                            true,
+                            tradeExecutable,
+                            note,
+                            DAILY_PRICE_SOURCE,
+                            context.marketTimeZone(),
+                            daily.getUpdatedAt() == null ? daily.getCreatedAt() : daily.getUpdatedAt(),
+                            daily.getTradingDate(),
+                            movement.previousClose(),
+                            movement.displayedAbsoluteChange(),
+                            status.label()
+                    );
+                });
     }
 
     private DelayedMarketPrice unavailable(
@@ -269,29 +279,36 @@ public class DelayedMarketPriceService {
                 null,
                 context.marketTimeZone(),
                 null,
-                context.targetTradingDate()
+                context.targetTradingDate(),
+                null,
+                null,
+                status.label()
         );
     }
 
-    private BigDecimal intradayPercentChange(String symbol, StockPriceHistory history) {
-        return historyRepository
-                .findTopBySymbolAndTradingDateAndTimeIntervalOrderByTimestampAsc(
-                        symbol,
-                        history.getTradingDate(),
-                        ONE_MINUTE_INTERVAL
-                )
-                .map(first -> percentChange(first.getOpenPrice(), history.getClosePrice()))
-                .orElse(null);
+    private PriceMovement priceMovement(String symbol, LocalDate tradingDate, BigDecimal displayedPrice) {
+        if (displayedPrice == null || tradingDate == null) {
+            return new PriceMovement(null, null, null);
+        }
+        return dailyRepository.findTopBySymbolAndTradingDateBeforeOrderByTradingDateDesc(symbol, tradingDate)
+                .map(StockPriceDaily::getClosePrice)
+                .filter(previousClose -> previousClose.compareTo(ZERO) > 0)
+                .map(previousClose -> {
+                    BigDecimal absoluteChange = displayedPrice.subtract(previousClose);
+                    BigDecimal percentChange = percentChange(previousClose, displayedPrice);
+                    return new PriceMovement(previousClose, absoluteChange, percentChange);
+                })
+                .orElse(new PriceMovement(null, null, null));
     }
 
-    private BigDecimal percentChange(BigDecimal openPrice, BigDecimal closePrice) {
-        if (openPrice == null || openPrice.compareTo(ZERO) <= 0 || closePrice == null) {
+    private BigDecimal percentChange(BigDecimal previousClose, BigDecimal displayedPrice) {
+        if (previousClose == null || previousClose.compareTo(ZERO) <= 0 || displayedPrice == null) {
             return null;
         }
-        return closePrice
-                .subtract(openPrice)
+        return displayedPrice
+                .subtract(previousClose)
                 .multiply(BigDecimal.valueOf(100))
-                .divide(openPrice, PERCENT_SCALE, RoundingMode.HALF_UP);
+                .divide(previousClose, PERCENT_SCALE, RoundingMode.HALF_UP);
     }
 
     private boolean hasPositiveClose(StockPriceDaily daily) {
@@ -300,5 +317,12 @@ public class DelayedMarketPriceService {
 
     private String normalizeSymbol(String symbol) {
         return symbol == null ? "" : symbol.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private record PriceMovement(
+            BigDecimal previousClose,
+            BigDecimal displayedAbsoluteChange,
+            BigDecimal displayedPercentChange
+    ) {
     }
 }

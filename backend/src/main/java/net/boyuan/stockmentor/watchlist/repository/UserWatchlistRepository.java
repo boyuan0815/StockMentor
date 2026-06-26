@@ -14,5 +14,7 @@ public interface UserWatchlistRepository extends JpaRepository<UserWatchlist, Lo
 
     List<UserWatchlist> findByUserUserId(Long userId);
 
+    List<UserWatchlist> findByUserUserIdOrderByDisplayOrderAscCreatedAtAscWatchlistIdAsc(Long userId);
+
     List<UserWatchlist> findByUserUserIdAndSymbolIn(Long userId, Collection<String> symbols);
 }

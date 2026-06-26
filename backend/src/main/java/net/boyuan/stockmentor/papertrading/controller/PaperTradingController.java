@@ -37,7 +37,20 @@ public class PaperTradingController {
         return paperTradingService.getCurrentUserTransactions(symbol, side, from, to, page, size, currentSessionOnly);
     }
 
-    @GetMapping("/transactions/{transactionId}")
+    @GetMapping("/transactions/page")
+    public PaperTradeTransactionPageResponse getTransactionsPage(
+            @RequestParam(required = false) String symbol,
+            @RequestParam(required = false) String side,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            @RequestParam(required = false) Boolean currentSessionOnly
+    ) {
+        return paperTradingService.getCurrentUserTransactionsPage(symbol, side, from, to, page, size, currentSessionOnly);
+    }
+
+    @GetMapping("/transactions/{transactionId:\\d+}")
     public PaperTradeTransactionResponse getTransaction(@PathVariable Long transactionId) {
         return paperTradingService.getCurrentUserTransaction(transactionId);
     }

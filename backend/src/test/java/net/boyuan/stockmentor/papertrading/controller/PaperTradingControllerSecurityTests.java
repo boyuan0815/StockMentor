@@ -86,6 +86,7 @@ class PaperTradingControllerSecurityTests {
         mockMvc.perform(get("/api/paper-trading/account")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/paper-trading/portfolio")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/paper-trading/transactions")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/paper-trading/transactions/page")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/paper-trading/transactions/1")).andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/paper-trading/portfolio/reset")).andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/paper-trading/buy")
@@ -113,6 +114,13 @@ class PaperTradingControllerSecurityTests {
         mockMvc.perform(get("/api/paper-trading/transactions")
                         .with(httpBasic("paper-auth@example.com", "password")))
                 .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/paper-trading/transactions/page")
+                        .with(httpBasic("paper-auth@example.com", "password")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.transactions").isArray())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(50));
     }
 
     @Test
@@ -192,7 +200,7 @@ class PaperTradingControllerSecurityTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.transaction.side").value("BUY"))
                 .andExpect(jsonPath("$.transaction.executionPrice").value(100.0000))
-                .andExpect(jsonPath("$.delayedPriceMetadata.priceFreshnessStatus").value("AVAILABLE"))
+                .andExpect(jsonPath("$.delayedPriceMetadata.priceFreshnessStatus").value("DELAYED_15_MINUTES"))
                 .andExpect(jsonPath("$.position.quantity").value(3));
 
         mockMvc.perform(post("/api/paper-trading/sell")
@@ -334,6 +342,46 @@ class PaperTradingControllerSecurityTests {
                 .andExpect(jsonPath("$[0].symbol").doesNotExist());
     }
 
+    @Test
+    void transactionPageIsScopedToCurrentUserAndDoesNotConflictWithDetailRoute() throws Exception {
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-auth@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"MSFT\",\"quantity\":1}"))
+                .andExpect(status().isOk());
+        Long ownTransactionId = transactionRepository.findTop50ByUserUserIdOrderByExecutedAtDesc(authUser.getUserId())
+                .get(0)
+                .getTransactionId();
+
+        mockMvc.perform(post("/api/paper-trading/buy")
+                        .with(httpBasic("paper-other@example.com", "password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symbol\":\"KO\",\"quantity\":1}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/paper-trading/transactions/page?userId=" + otherUser.getUserId())
+                        .with(httpBasic("paper-auth@example.com", "password")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.transactions[0].symbol").value("MSFT"))
+                .andExpect(jsonPath("$.totalElements").value(1));
+
+        mockMvc.perform(get("/api/paper-trading/transactions/" + ownTransactionId)
+                        .with(httpBasic("paper-auth@example.com", "password")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.transactionId").value(ownTransactionId));
+    }
+
+    @Test
+    void transactionPageRejectsInvalidFilters() throws Exception {
+        mockMvc.perform(get("/api/paper-trading/transactions/page?symbol=META")
+                        .with(httpBasic("paper-auth@example.com", "password")))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/paper-trading/transactions/page?side=DIVIDEND")
+                        .with(httpBasic("paper-auth@example.com", "password")))
+                .andExpect(status().isBadRequest());
+    }
+
     private AppUser ensureUser(String email, String username) {
         return appUserRepository.findByEmailOrUsername(email, username)
                 .orElseGet(() -> {
@@ -379,7 +427,7 @@ class PaperTradingControllerSecurityTests {
                 LocalDateTime.of(2026, 1, 5, 9, 45),
                 LocalDateTime.of(2026, 1, 5, 9, 45),
                 15,
-                DelayedPriceFreshnessStatus.AVAILABLE,
+                DelayedPriceFreshnessStatus.DELAYED_15_MINUTES,
                 true,
                 true,
                 "Practice trades use StockMentor's delayed stored price, not a live market quote.",

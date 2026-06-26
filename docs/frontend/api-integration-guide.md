@@ -231,12 +231,15 @@ Frontend responsibilities:
 Current backend contract:
 
 - Stock list/detail/history and watchlist stock responses expose backend delayed display fields including `displayedPrice`,
-  `displayedPercentChange`, `displayedMarketTime`, `targetDisplayMarketTime`, `dataDelayMinutes`,
-  `priceFreshnessStatus`, `isPriceAvailable`, `isTradeExecutable`, `dataNote`, `priceSource`, `marketTimeZone`, and
-  where applicable `lastBackendUpdatedAt`.
+  `displayedAbsoluteChange`, `displayedPercentChange`, `previousClose`, `displayedMarketTime`,
+  `targetDisplayMarketTime`, `dataDelayMinutes`, `priceFreshnessStatus`, `priceFreshnessLabel`, `isPriceAvailable`,
+  `isTradeExecutable`, `dataNote`, `priceSource`, `marketTimeZone`, and where applicable `lastBackendUpdatedAt`.
 - Frontend display should prefer `displayedPrice`, `displayedPercentChange`, `displayedMarketTime`,
-  `targetDisplayMarketTime`, and `priceFreshnessStatus`, but compact stock rows must not expose raw `priceSource`,
-  backend table names, or raw freshness enum values to users.
+  `displayedAbsoluteChange`, `targetDisplayMarketTime`, and `priceFreshnessLabel`, but compact stock rows must not expose
+  raw `priceSource`, backend table names, or raw freshness enum values to users.
+- Backend movement is previous-close based: `displayedAbsoluteChange = displayedPrice - previousClose` and
+  `displayedPercentChange = displayedAbsoluteChange / previousClose * 100`. The frontend must not recalculate these
+  trusted values.
 - Legacy `currentPrice`, `percentChange`, and `lastUpdated` are backward-compatible stock table snapshot fields.
 - Stock detail `dataSource` is a legacy analysis-source field. Use `analysisDataSource`, `snapshotHighPrice`,
   `snapshotLowPrice`, and `snapshotTimeframe` for latest analysis snapshot metadata.
@@ -244,26 +247,21 @@ Current backend contract:
 - Stock detail may expose `previousClose`, `displayedAbsoluteChange`, and `displayedVolume`. Use these backend fields
   for the quote panel when present. Do not calculate trusted absolute change or volume in the frontend.
 - Watchlist stock rows expose the same delayed display fields as stock list/detail rows while keeping legacy
-  `currentPrice` and `percentChange` compatibility fields.
+  `currentPrice` and `percentChange` compatibility fields. Future edit mode may use backend reorder and batch-remove
+  endpoints rather than client-only ordering.
 - `1D` history can return stored intraday chart rows even when quote metadata uses daily fallback during pre-open.
+- `5D` is the preferred multi-day intraday chart timeframe. `7D` remains daily/backward-compatible. History responses
+  include completeness metadata (`expectedPointCount`, `actualPointCount`, `missingDataCount`, `completenessNote`) and
+  `candlestickSupported`; the frontend must not synthesize missing points or fake OHLC candles.
 - Paper-trading buy/sell accepts only `symbol` and `quantity`; backend decides execution price using the delayed stored
   market price selector.
 
-Known B1 market-data follow-up, not fixed by the frontend:
+Canonical backend freshness statuses:
 
-- `priceFreshnessStatus` can still lead to confusing user-facing `Latest Stored Prices` wording.
-- Scheduler/admin refresh paths need investigation so freshness metadata stays consistent.
-- After market close, stock-table current price selection may still use the latest 1-minute close instead of the latest
-  daily close.
-
-Known backend formula issue for a future backend pass:
-
-- `displayedPercentChange` currently comes from the delayed price selector and uses same-day open or the first
-  intraday open as the baseline.
-- `displayedAbsoluteChange` uses `previousClose` as the baseline.
-- These fields are therefore inconsistent for broker-style display. Future backend work should align displayed percent
-  change to the previous-close baseline if StockMentor wants broker-style movement semantics. Do not fix this in the
-  frontend by inventing a percent change.
+- `DELAYED_15_MINUTES` / `Delayed 15 min`
+- `MARKET_CLOSED_LAST_CLOSE` / `Market Closed · Last Close`
+- `LATEST_STORED_PRICE` / `Latest Stored Price`
+- `UNAVAILABLE` / `Unavailable`
 
 ## Phase 3B Stock Endpoint Usage
 
@@ -271,10 +269,12 @@ Known backend formula issue for a future backend pass:
 - `GET /api/watchlist` is the source for the Watchlist table and should use delayed fields from watchlist row DTOs.
 - `GET /api/stocks/{symbol}` is the source for stock detail. Clear old detail state when `symbol` changes so stale
   stock content never flashes.
-- `GET /api/stocks/{symbol}/history?timeframe=1D|7D|1M|3M|YTD|1Y` powers the history summary/list. Use returned points
-  exactly; do not fill, smooth, or synthesize missing candles.
+- `GET /api/stocks/{symbol}/history?timeframe=1D|5D|7D|1M|3M|YTD|1Y` powers chart/history. Use returned points exactly;
+  do not fill, smooth, or synthesize missing candles. Prefer `5D` for multi-day intraday chart UI.
 - `GET /api/stocks/{symbol}/ai-explanation?timeframe=1D|7D|1M|3M` is called only after the user opens the AI drawer.
   Do not prefetch this endpoint from list/detail initial load. For `YTD` and `1Y`, show unsupported explanation copy
   and send no request.
 - Watchlist add/remove uses `POST /api/watchlist/{symbol}` and `DELETE /api/watchlist/{symbol}` with duplicate-tap
   guards. On failure, preserve the previous local state and show a toast.
+- Watchlist edit/reorder can use `PATCH /api/watchlist/reorder` with the full owned symbol list and
+  `POST /api/watchlist/batch-remove` for multi-remove. Do not send `userId`.

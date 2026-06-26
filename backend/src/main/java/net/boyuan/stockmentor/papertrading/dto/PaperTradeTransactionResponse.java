@@ -15,6 +15,7 @@ public record PaperTradeTransactionResponse(
         BigDecimal netAmount,
         BigDecimal totalAmount,
         BigDecimal realizedProfitLoss,
+        BigDecimal realizedProfitLossAfterFees,
         BigDecimal cashBalanceAfter,
         Boolean isCurrentSession,
         Integer sessionNumber,

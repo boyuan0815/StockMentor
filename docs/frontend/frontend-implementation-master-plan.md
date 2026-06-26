@@ -174,7 +174,7 @@ normal implementation phases must not edit, stage, or commit `.agents/` or `skil
 - Must not change: admin console, real paper-trading writes beyond placeholder navigation links, package files, or lock
   files unless the user explicitly scopes that work.
 - Endpoints involved: `GET /api/stocks`, `GET /api/stocks/{symbol}`,
-  `GET /api/stocks/{symbol}/history?timeframe=1D|7D|1M|3M|YTD|1Y`,
+  `GET /api/stocks/{symbol}/history?timeframe=1D|5D|7D|1M|3M|YTD|1Y`,
   `GET /api/stocks/{symbol}/ai-explanation?timeframe=1D|7D|1M|3M`, `GET /api/watchlist`, `POST /api/watchlist/{symbol}`,
   `DELETE /api/watchlist/{symbol}`.
 - Dependency policy: do not install chart dependencies by default. First use existing dependencies and backend-returned

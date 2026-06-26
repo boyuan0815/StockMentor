@@ -151,7 +151,7 @@ class StockMarketDataControllerSecurityTests {
                 .andExpect(jsonPath("$.stocks[5].currentPrice").value(422.120000))
                 .andExpect(jsonPath("$.stocks[5].percentChange").value(1.2500))
                 .andExpect(jsonPath("$.stocks[5].displayedPrice").value(422.000000))
-                .andExpect(jsonPath("$.stocks[5].priceFreshnessStatus").value("AVAILABLE"))
+                .andExpect(jsonPath("$.stocks[5].priceFreshnessStatus").value("DELAYED_15_MINUTES"))
                 .andExpect(jsonPath("$.stocks[5].isPriceAvailable").value(true))
                 .andExpect(jsonPath("$.stocks[5].isTradeExecutable").value(true))
                 .andExpect(jsonPath("$.stocks[5].marketTimeZone").value("America/New_York"))
@@ -185,7 +185,7 @@ class StockMarketDataControllerSecurityTests {
                 .andExpect(jsonPath("$.source").value("stock_price_history_1min"))
                 .andExpect(jsonPath("$.points.length()").value(2))
                 .andExpect(jsonPath("$.targetDisplayMarketTime").value("2026-01-07T09:31:00"))
-                .andExpect(jsonPath("$.priceFreshnessStatus").value("AVAILABLE"));
+                .andExpect(jsonPath("$.priceFreshnessStatus").value("DELAYED_15_MINUTES"));
 
         mockMvc.perform(get("/api/stocks/GOOG/history?timeframe=7D")
                         .with(httpBasic("stock-market-auth@example.com", "password")))
@@ -468,7 +468,7 @@ class StockMarketDataControllerSecurityTests {
                 LocalDateTime.of(2026, 1, 7, 9, 31),
                 LocalDateTime.of(2026, 1, 7, 9, 31),
                 15,
-                DelayedPriceFreshnessStatus.AVAILABLE,
+                DelayedPriceFreshnessStatus.DELAYED_15_MINUTES,
                 true,
                 true,
                 "Prices shown are delayed by about 15 minutes.",

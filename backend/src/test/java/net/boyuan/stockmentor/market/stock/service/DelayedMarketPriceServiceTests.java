@@ -11,7 +11,9 @@ import net.boyuan.stockmentor.market.stockpricehistory.repository.StockPriceHist
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.time.*;
@@ -23,6 +25,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class DelayedMarketPriceServiceTests {
     @Mock
     private StockPriceHistoryRepository historyRepository;
@@ -39,6 +42,8 @@ class DelayedMarketPriceServiceTests {
         )).thenReturn(Optional.of(selected));
         when(historyRepository.findTopBySymbolAndTradingDateAndTimeIntervalOrderByTimestampAsc("MSFT", tradingDate, "1min"))
                 .thenReturn(Optional.of(intraday("MSFT", tradingDate, 9, 30, "100.00")));
+        when(dailyRepository.findTopBySymbolAndTradingDateBeforeOrderByTradingDateDesc("MSFT", tradingDate))
+                .thenReturn(Optional.of(daily("MSFT", LocalDate.of(2026, 6, 12), "100.00")));
 
         DelayedMarketPrice price = service.resolveForDisplay("msft");
 
@@ -46,7 +51,7 @@ class DelayedMarketPriceServiceTests {
         assertThat(price.displayedPercentChange()).isEqualByComparingTo("1.0000");
         assertThat(price.displayedMarketTime()).isEqualTo(LocalDateTime.of(2026, 6, 15, 9, 45));
         assertThat(price.targetDisplayMarketTime()).isEqualTo(LocalDateTime.of(2026, 6, 15, 9, 45));
-        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.AVAILABLE);
+        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.DELAYED_15_MINUTES);
         assertThat(price.priceSource()).isEqualTo(DelayedMarketPriceService.INTRADAY_PRICE_SOURCE);
         assertThat(price.priceAvailable()).isTrue();
         assertThat(price.tradeExecutable()).isTrue();
@@ -64,7 +69,7 @@ class DelayedMarketPriceServiceTests {
 
         DelayedMarketPrice price = service.resolveForDisplay("MSFT");
 
-        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.STALE);
+        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.DELAYED_15_MINUTES);
         assertThat(price.displayedMarketTime()).isEqualTo(LocalDateTime.of(2026, 6, 15, 9, 40));
         assertThat(price.tradeExecutable()).isTrue();
     }
@@ -78,6 +83,8 @@ class DelayedMarketPriceServiceTests {
         )).thenReturn(Optional.of(intraday("MSFT", tradingDate, 9, 45, "106.00")));
         when(historyRepository.findTopBySymbolAndTradingDateAndTimeIntervalOrderByTimestampAsc("MSFT", tradingDate, "1min"))
                 .thenReturn(Optional.of(intradayWithOpen("MSFT", tradingDate, 9, 30, "100.00", "101.00")));
+        when(dailyRepository.findTopBySymbolAndTradingDateBeforeOrderByTradingDateDesc("MSFT", tradingDate))
+                .thenReturn(Optional.of(daily("MSFT", LocalDate.of(2026, 6, 12), "100.00")));
 
         DelayedMarketPrice price = service.resolveForDisplay("MSFT");
 
@@ -97,7 +104,7 @@ class DelayedMarketPriceServiceTests {
 
         DelayedMarketPrice price = service.resolveForDisplay("MSFT");
 
-        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.AVAILABLE);
+        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.DELAYED_15_MINUTES);
         assertThat(price.priceSource()).isEqualTo(DelayedMarketPriceService.INTRADAY_PRICE_SOURCE);
         assertThat(price.targetDisplayMarketTime()).isEqualTo(LocalDateTime.of(2026, 6, 15, 15, 59));
         assertThat(price.displayedMarketTime()).isEqualTo(LocalDateTime.of(2026, 6, 15, 15, 59));
@@ -117,7 +124,7 @@ class DelayedMarketPriceServiceTests {
 
         DelayedMarketPrice price = service.resolveForDisplay("MSFT");
 
-        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.FALLBACK_DAILY);
+        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.LATEST_STORED_PRICE);
         assertThat(price.priceAvailable()).isTrue();
         assertThat(price.tradeExecutable()).isFalse();
         assertThat(price.priceSource()).isEqualTo(DelayedMarketPriceService.DAILY_PRICE_SOURCE);
@@ -132,7 +139,7 @@ class DelayedMarketPriceServiceTests {
 
         DelayedMarketPrice price = service.resolveForDisplay("MSFT");
 
-        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.NOT_READY_WITH_DAILY_FALLBACK);
+        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE);
         assertThat(price.targetDisplayMarketTime()).isEqualTo(LocalDateTime.of(2026, 6, 12, 16, 0));
         assertThat(price.displayedMarketTime()).isEqualTo(LocalDateTime.of(2026, 6, 12, 16, 0));
         assertThat(price.priceSource()).isEqualTo(DelayedMarketPriceService.DAILY_PRICE_SOURCE);
@@ -162,10 +169,12 @@ class DelayedMarketPriceServiceTests {
         LocalDate tradingDate = LocalDate.of(2026, 6, 15);
         when(dailyRepository.findBySymbolAndTradingDate("MSFT", tradingDate))
                 .thenReturn(Optional.of(daily("MSFT", tradingDate, "105.00")));
+        when(dailyRepository.findTopBySymbolAndTradingDateBeforeOrderByTradingDateDesc("MSFT", tradingDate))
+                .thenReturn(Optional.of(daily("MSFT", LocalDate.of(2026, 6, 12), "100.00")));
 
         DelayedMarketPrice price = service.resolveForDisplay("MSFT");
 
-        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.MARKET_CLOSED);
+        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE);
         assertThat(price.priceSource()).isEqualTo(DelayedMarketPriceService.DAILY_PRICE_SOURCE);
         assertThat(price.displayedPrice()).isEqualByComparingTo("105.00");
         assertThat(price.displayedPercentChange()).isEqualByComparingTo("5.0000");
@@ -190,7 +199,7 @@ class DelayedMarketPriceServiceTests {
 
         DelayedMarketPrice price = service.resolveForDisplay("MSFT");
 
-        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.MARKET_CLOSED_PENDING_DAILY_CLOSE);
+        assertThat(price.priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.LATEST_STORED_PRICE);
         assertThat(price.targetDisplayMarketTime()).isEqualTo(LocalDateTime.of(2026, 6, 15, 16, 0));
         assertThat(price.displayedMarketTime()).isEqualTo(LocalDateTime.of(2026, 6, 15, 15, 59));
         assertThat(price.priceSource()).isEqualTo(DelayedMarketPriceService.INTRADAY_PRICE_SOURCE);
@@ -253,7 +262,7 @@ class DelayedMarketPriceServiceTests {
 
         assertThat(selection.rows()).containsExactly(first, last);
         assertThat(selection.metadata().priceFreshnessStatus())
-                .isEqualTo(DelayedPriceFreshnessStatus.NOT_READY_WITH_DAILY_FALLBACK);
+                .isEqualTo(DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE);
         assertThat(selection.metadata().priceSource()).isEqualTo(DelayedMarketPriceService.DAILY_PRICE_SOURCE);
         assertThat(selection.metadata().targetDisplayMarketTime())
                 .isEqualTo(LocalDateTime.of(2026, 6, 12, 16, 0));
@@ -276,7 +285,7 @@ class DelayedMarketPriceServiceTests {
 
         assertThat(selection.rows()).isEmpty();
         assertThat(selection.metadata().priceFreshnessStatus())
-                .isEqualTo(DelayedPriceFreshnessStatus.NOT_READY_WITH_DAILY_FALLBACK);
+                .isEqualTo(DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE);
     }
 
     @Test
@@ -293,7 +302,7 @@ class DelayedMarketPriceServiceTests {
         DelayedIntradayHistorySelection selection = service.loadOneDayHistoryForDisplay("MSFT");
 
         assertThat(selection.rows()).containsExactly(visible);
-        assertThat(selection.metadata().priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.MARKET_CLOSED);
+        assertThat(selection.metadata().priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE);
         assertThat(selection.metadata().priceSource()).isEqualTo(DelayedMarketPriceService.DAILY_PRICE_SOURCE);
     }
 
@@ -311,7 +320,7 @@ class DelayedMarketPriceServiceTests {
         DelayedIntradayHistorySelection selection = service.loadOneDayHistoryForDisplay("MSFT");
 
         assertThat(selection.rows()).containsExactly(visible);
-        assertThat(selection.metadata().priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.MARKET_CLOSED);
+        assertThat(selection.metadata().priceFreshnessStatus()).isEqualTo(DelayedPriceFreshnessStatus.MARKET_CLOSED_LAST_CLOSE);
         assertThat(selection.metadata().priceSource()).isEqualTo(DelayedMarketPriceService.DAILY_PRICE_SOURCE);
         verify(historyRepository).findBySymbolAndTradingDateAndTimeIntervalAndTimestampLessThanEqualOrderByTimestampAsc(
                 "MSFT", tradingDate, "1min", LocalDateTime.of(2026, 6, 15, 16, 0)
@@ -348,7 +357,7 @@ class DelayedMarketPriceServiceTests {
 
         assertThat(selection.rows()).containsExactly(visible);
         assertThat(selection.metadata().priceFreshnessStatus())
-                .isEqualTo(DelayedPriceFreshnessStatus.MARKET_CLOSED_PENDING_DAILY_CLOSE);
+                .isEqualTo(DelayedPriceFreshnessStatus.LATEST_STORED_PRICE);
         assertThat(selection.metadata().priceSource())
                 .isEqualTo(DelayedMarketPriceService.INTRADAY_PRICE_SOURCE);
         assertThat(selection.metadata().targetDisplayMarketTime())

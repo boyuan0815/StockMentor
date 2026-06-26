@@ -40,6 +40,7 @@ public record StockDetailResponse(
         LocalDateTime targetDisplayMarketTime,
         Integer dataDelayMinutes,
         String priceFreshnessStatus,
+        String priceFreshnessLabel,
         Boolean isPriceAvailable,
         Boolean isTradeExecutable,
         String dataNote,

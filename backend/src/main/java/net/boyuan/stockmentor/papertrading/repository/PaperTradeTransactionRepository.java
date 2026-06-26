@@ -59,4 +59,19 @@ public interface PaperTradeTransactionRepository extends JpaRepository<PaperTrad
             @Param("userId") Long userId,
             @Param("sides") List<PaperTradeSide> sides
     );
+
+    @Query("""
+            select coalesce(sum(transaction.realizedProfitLoss), 0)
+            from PaperTradeTransaction transaction
+            where transaction.user.userId = :userId
+              and transaction.side = :side
+              and (transaction.isCurrentSession = true or transaction.isCurrentSession is null)
+              and transaction.executedAt between :from and :to
+            """)
+    BigDecimal sumCurrentSessionRealizedProfitLossByUserIdAndSideAndExecutedAtBetween(
+            @Param("userId") Long userId,
+            @Param("side") PaperTradeSide side,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
 }

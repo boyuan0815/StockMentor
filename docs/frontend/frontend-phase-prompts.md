@@ -265,7 +265,7 @@ Scope:
 Backend endpoints:
 - `GET /api/stocks`
 - `GET /api/stocks/{symbol}`
-- `GET /api/stocks/{symbol}/history?timeframe=1D|7D|1M|3M|YTD|1Y`
+- `GET /api/stocks/{symbol}/history?timeframe=1D|5D|7D|1M|3M|YTD|1Y`
 - `GET /api/stocks/{symbol}/ai-explanation?timeframe=1D|7D|1M|3M`
 - `GET /api/watchlist`
 - `POST /api/watchlist/{symbol}`

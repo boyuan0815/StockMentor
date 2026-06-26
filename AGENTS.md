@@ -167,7 +167,7 @@
 - Current US009 endpoints are:
   `GET /api/stocks`,
   `GET /api/stocks/{symbol}`,
-  and `GET /api/stocks/{symbol}/history?timeframe=1D|7D|1M|3M|YTD|1Y`.
+  and `GET /api/stocks/{symbol}/history?timeframe=1D|5D|7D|1M|3M|YTD|1Y`.
 - US009 endpoints are read-only and must use Basic Auth plus `CurrentUserService`; do not accept or trust
   frontend-provided `userId`.
 - US009 must only read stored backend data. It must not call Twelve Data, OpenAI, scheduler/backfill flows,
@@ -178,6 +178,13 @@
   15-minute delayed educational market data selector.
 - The delayed selector consumes stored backend data only. It must not fetch Twelve Data, call OpenAI, run scheduler
   jobs, trigger backfill, or create synthetic candles.
+- Delayed display movement must use the previous trading-day daily close:
+  `displayedAbsoluteChange = displayedPrice - previousClose` and
+  `displayedPercentChange = displayedAbsoluteChange / previousClose * 100`. Do not fall back to same-day open or first
+  intraday open when `previousClose` is missing.
+- Canonical freshness statuses are `DELAYED_15_MINUTES` (`Delayed 15 min`),
+  `MARKET_CLOSED_LAST_CLOSE` (`Market Closed · Last Close`), `LATEST_STORED_PRICE` (`Latest Stored Price`), and
+  `UNAVAILABLE` (`Unavailable`). Frontend surfaces should use backend status/label directly.
 - `displayedMarketTime` means the actual stored price timestamp selected by the backend; `targetDisplayMarketTime` means
   the ideal backend-calculated delayed cutoff.
 - Stock detail responses may expose `previousClose`, `displayedAbsoluteChange`, and `displayedVolume` for the quote
@@ -195,8 +202,14 @@
   independently of the quote `priceSource`. During pre-delayed-open, it may return latest completed trading-day
   intraday rows while quote metadata uses daily fallback. If no delayed intraday history is available, return an empty
   safe response instead of backfilling or failing.
-- `7D`, `1M`, `3M`, `YTD`, and `1Y` stock history should read stored daily candles only. Date-range timeframes should
-  calculate from the latest stored daily candle date, not from the current system date.
+- `5D` stock history is the preferred multi-day intraday chart timeframe and returns the last five trading days of
+  stored 1-minute rows, oldest to newest. Do not synthesize missing rows. A normal full trading day expects 390 rows
+  (09:30 through 15:59 ET), so a complete five-day response expects 1950 rows.
+- `7D`, `1M`, `3M`, `YTD`, and `1Y` stock history should read stored daily candles only. `7D` is retained for backward
+  compatibility. Date-range timeframes should calculate from the latest stored daily candle date, not from the current
+  system date.
+- Candlestick support must be true only when every returned point has real stored non-null OHLC fields. Never fake
+  candles by copying close into open/high/low.
 
 ## Watchlist Rules
 
@@ -205,10 +218,14 @@
 - Current watchlist endpoints are:
   `GET /api/watchlist`,
   `POST /api/watchlist/{symbol}`,
-  and `DELETE /api/watchlist/{symbol}`.
+  `DELETE /api/watchlist/{symbol}`,
+  `PATCH /api/watchlist/reorder`,
+  and `POST /api/watchlist/batch-remove`.
 - Watchlist logic must resolve the authenticated user through `CurrentUserService`; never accept or trust
   frontend-provided `userId`.
 - Watchlist actions are limited to the supported StockMentor stock universe and should be idempotent where practical.
+- Watchlist rows have `displayOrder`; GET returns `displayOrder`, then `createdAt`, then `watchlistId`. Add appends to
+  the end, reorder requires the full owned symbol list and is atomic, and batch remove normalizes remaining order.
 - Watchlist actions must not call Twelve Data, OpenAI, scheduler/backfill flows, stock analysis snapshot creation,
   behavior recalculation, or paper-trading services.
 - Watchlist responses may include the same delayed educational display fields used by stock list/detail responses, while
@@ -237,6 +254,10 @@
   accept or trust frontend-provided `userId`.
 - AI suggestions may use onboarding profile, behavior summary, stock snapshots, and backend candidate-fit signals, but
   must not expose raw prompts, raw OpenAI responses, API keys, service tier, fingerprints, or secrets.
+- AI suggestion responses may be decorated with delayed display fields (`displayedPrice`, `displayedAbsoluteChange`,
+  `displayedPercentChange`, `previousClose`, freshness status/label, and metadata). These fields must not change
+  `inputHash`, prompt version, analysis timeframe, or trigger OpenAI regeneration. Current AI suggestion analysis
+  timeframe remains `7D` unless a prompt-versioned AI change explicitly says otherwise.
 - Behavior personalization must come through `UserBehaviorProfileService`; do not calculate behavior from watchlist
   rows, suggestion dismissals, page views, clicks, or browsing.
 - US006 suggestion generation must not create, insert, or recalculate `user_behavior_profile`; it may only read
@@ -292,6 +313,7 @@
   `POST /api/paper-trading/buy`,
   `POST /api/paper-trading/sell`,
   `GET /api/paper-trading/transactions`,
+  `GET /api/paper-trading/transactions/page`,
   and `GET /api/paper-trading/transactions/{transactionId}`.
 - Paper-trading endpoints must resolve the authenticated user through `CurrentUserService`; never accept or trust
   frontend-provided `userId`.
@@ -312,9 +334,12 @@
 - For full sells, use the position's full remaining `totalCost` as `costBasisSold` to avoid rounding drift. For partial
   sells, use `quantity * averageCost`.
 - Portfolio responses should expose current-session performance fields such as `totalPortfolioValue`,
-  `realizedProfitLoss`, `returnPercentage`, `totalFeesPaid`, `currentSessionNumber`, and `lastResetAt`. Do not
-  reintroduce duplicate aliases such as `estimatedPortfolioValue` or `initialCash` unless an API compatibility task
-  explicitly requires it.
+  `realizedProfitLoss`, `realizedProfitLossAfterFees`, `unrealizedProfitLoss`, `totalProfitLoss`,
+  `totalProfitLossPercent`, `returnPercentage`, `todayOpenPositionProfitLoss`, `todayRealizedProfitLossAfterFees`,
+  `todayProfitLoss`, `todayProfitLossPercent`, `todayProfitLossComplete`, `todayProfitLossNote`, `totalFeesPaid`,
+  `currentSessionNumber`, and `lastResetAt`. `unrealizedProfitLoss` is open positions only; `realizedProfitLossAfterFees`
+  is closed/sold shares in the current session after fees; `totalProfitLoss` is realized plus unrealized.
+  `totalFeesPaid` is current-session only.
 - Portfolio valuation should use backend delayed stored price metadata where safely supported. Do not silently fall back
   to `stock.currentPrice` for unavailable positions; return partial valuation metadata when some positions cannot be
   priced.
@@ -323,6 +348,9 @@
   weights.
 - Transaction history supports current-user filters for `symbol`, `side`, `from`, `to`, `page`, `size`, and
   `currentSessionOnly`; it must still return a plain list, not a paged wrapper.
+- `GET /api/paper-trading/transactions/page` returns paged metadata for future load-more UI. It supports exact supported
+  `symbol`, `side=BUY|SELL|RESET|ALL`, inclusive `from`/`to`, `currentSessionOnly`, `page >= 0`, and `size` capped at
+  100. Sort newest first by `executedAt DESC`, then `transactionId DESC`.
 - RESET is a backend-created transaction side only. RESET rows use `symbol = null`, zero quantity/amounts/fee/P&L, and
   mark the new current session. RESET must not trigger stock lookup, price lookup, OpenAI, Twelve Data, or behavior
   recalculation.
@@ -405,6 +433,3 @@
   selling, and brokerage integration are out of scope unless explicitly requested.
 - JWT may be added later, but backend business logic should continue to rely on `CurrentUserService` for current-user
   resolution.
-- B1 stock market-data follow-up remains open: investigate confusing `priceFreshnessStatus` copy, scheduler/admin
-  freshness consistency, and after-hours stock-table price baseline selection. Do not document these as fixed until the
-  backend pass lands.

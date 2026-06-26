@@ -1,6 +1,9 @@
 package net.boyuan.stockmentor.ai.dto;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+import net.boyuan.stockmentor.market.stock.dto.DelayedPriceMetadataResponse;
 
 public record SuggestedStockResponse(
         Long itemId,
@@ -23,6 +26,15 @@ public record SuggestedStockResponse(
         String priceConsistency,
         Boolean isFallback,
         Integer missingDataCount,
-        Boolean isWatchlisted
+        Boolean isWatchlisted,
+        BigDecimal displayedPrice,
+        BigDecimal displayedAbsoluteChange,
+        BigDecimal displayedPercentChange,
+        BigDecimal previousClose,
+        String priceFreshnessStatus,
+        String priceFreshnessLabel,
+        DelayedPriceMetadataResponse delayedPriceMetadata,
+        String displayDataSource,
+        LocalDateTime displayedMarketTime
 ) {
 }

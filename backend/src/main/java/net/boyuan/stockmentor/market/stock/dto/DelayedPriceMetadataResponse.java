@@ -12,12 +12,15 @@ public record DelayedPriceMetadataResponse(
         LocalDateTime targetDisplayMarketTime,
         Integer dataDelayMinutes,
         String priceFreshnessStatus,
+        String priceFreshnessLabel,
         Boolean isPriceAvailable,
         Boolean isTradeExecutable,
         String dataNote,
         String priceSource,
         String marketTimeZone,
-        LocalDateTime lastBackendUpdatedAt
+        LocalDateTime lastBackendUpdatedAt,
+        BigDecimal previousClose,
+        BigDecimal displayedAbsoluteChange
 ) {
     public static DelayedPriceMetadataResponse from(DelayedMarketPrice price) {
         if (price == null) {
@@ -30,12 +33,15 @@ public record DelayedPriceMetadataResponse(
                 price.targetDisplayMarketTime(),
                 price.dataDelayMinutes(),
                 price.priceFreshnessStatusName(),
+                price.priceFreshnessLabel(),
                 price.priceAvailable(),
                 price.tradeExecutable(),
                 price.dataNote(),
                 price.priceSource(),
                 price.marketTimeZone(),
-                price.lastBackendUpdatedAt()
+                price.lastBackendUpdatedAt(),
+                price.previousClose(),
+                price.displayedAbsoluteChange()
         );
     }
 }

@@ -36,6 +36,9 @@ public class UserWatchlist {
     @Column(name = "symbol", length = 10, nullable = false)
     private String symbol;
 
+    @Column(name = "display_order")
+    private Integer displayOrder;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "source", nullable = false, length = 30)
     private WatchlistSource source;

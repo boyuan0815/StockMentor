@@ -124,20 +124,18 @@ UI language:
 
 Current backend contract:
 
-- Stock list/detail/history DTOs expose delayed fields such as `displayedPrice`, `displayedPercentChange`,
-  `displayedMarketTime`, `targetDisplayMarketTime`, `dataDelayMinutes`, `priceFreshnessStatus`, `isPriceAvailable`,
-  `isTradeExecutable`, `dataNote`, `priceSource`, `marketTimeZone`, and where applicable `lastBackendUpdatedAt`.
+- Stock list/detail/history DTOs expose delayed fields such as `displayedPrice`, `displayedAbsoluteChange`,
+  `displayedPercentChange`, `previousClose`, `displayedMarketTime`, `targetDisplayMarketTime`, `dataDelayMinutes`,
+  `priceFreshnessStatus`, `priceFreshnessLabel`, `isPriceAvailable`, `isTradeExecutable`, `dataNote`, `priceSource`,
+  `marketTimeZone`, and where applicable `lastBackendUpdatedAt`.
 - Frontend display should prefer delayed fields over legacy `currentPrice`, `percentChange`, and `lastUpdated`.
 - Stock detail `dataSource` is a legacy analysis-source field; `analysisDataSource`, `snapshotHighPrice`,
   `snapshotLowPrice`, and `snapshotTimeframe` describe the latest analysis snapshot.
 - `highPrice` and `lowPrice` describe the displayed/latest day range selected by the delayed market view.
 - Stock detail may expose `previousClose`, `displayedAbsoluteChange`, and `displayedVolume`; show these only when the
   backend returns them.
-- Frontend implementation must not invent trusted prices or displayed market times.
-
-Known future backend pass: `displayedPercentChange` currently uses same-day open or first intraday open as the baseline,
-while `displayedAbsoluteChange` uses `previousClose`. Do not correct this inconsistency in the frontend by inventing a
-new percent change.
+- Frontend implementation must not invent trusted prices, displayed market times, absolute changes, or percent changes.
+- Backend movement is previous-close based. Use backend `displayedAbsoluteChange` and `displayedPercentChange` directly.
 
 Opening and closing behavior:
 
