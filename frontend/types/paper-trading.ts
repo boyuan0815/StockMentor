@@ -45,6 +45,15 @@ export type PaperPortfolioResponse = {
   totalPortfolioValue: ApiNumber;
   unrealizedProfitLoss: ApiNumber;
   realizedProfitLoss: ApiNumber;
+  realizedProfitLossAfterFees?: ApiNumber;
+  totalProfitLoss?: ApiNumber;
+  totalProfitLossPercent?: ApiNumber;
+  todayOpenPositionProfitLoss?: ApiNumber;
+  todayRealizedProfitLossAfterFees?: ApiNumber;
+  todayProfitLoss?: ApiNumber;
+  todayProfitLossPercent?: ApiNumber;
+  todayProfitLossComplete?: boolean | null;
+  todayProfitLossNote?: string | null;
   returnPercentage: ApiNumber;
   totalFeesPaid: ApiNumber;
   currentSessionNumber: number | null;
@@ -70,6 +79,7 @@ export type PaperTradeTransactionResponse = {
   netAmount: ApiNumber;
   totalAmount: ApiNumber;
   realizedProfitLoss: ApiNumber;
+  realizedProfitLossAfterFees?: ApiNumber;
   cashBalanceAfter: ApiNumber;
   isCurrentSession: boolean | null;
   sessionNumber: number | null;
@@ -87,4 +97,12 @@ export type PaperTradeExecutionResponse = {
 export type PaperTradeRequest = {
   symbol: string;
   quantity: number;
+};
+
+export type PaperTradeTransactionPageResponse = {
+  transactions: PaperTradeTransactionResponse[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
 };

@@ -1,7 +1,7 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { type Href, useRouter } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -55,7 +55,6 @@ export function DashboardScreen() {
         setErrorMessage('Sign in again to load your watchlist.');
         setIsLoading(false);
         setIsRefreshing(false);
-        hasLoadedRef.current = true;
         return;
       }
 
@@ -69,7 +68,8 @@ export function DashboardScreen() {
 
       try {
         const response = await watchlistApi.getWatchlist(credentials);
-        setWatchlistStocks(response.watchlistedStocks ?? []);
+        const rows = response.watchlistedStocks ?? [];
+        setWatchlistStocks(rows);
       } catch (error) {
         setErrorMessage(getStockApiErrorMessage(error, 'Watchlist could not be loaded.'));
       } finally {
@@ -85,6 +85,13 @@ export function DashboardScreen() {
   useMinuteBoundaryRefresh({
     onRefresh: () => loadWatchlist('focus'),
   });
+
+  useEffect(() => {
+    if (!credentials || hasLoadedRef.current) {
+      return;
+    }
+    void loadWatchlist('focus');
+  }, [credentials, loadWatchlist]);
 
   useFocusEffect(
     useCallback(() => {
@@ -150,6 +157,14 @@ export function DashboardScreen() {
       pathname: '/stocks/search-context',
       params: { from: 'watchlist' },
     } as Href);
+  };
+
+  const openSearchTab = () => {
+    router.push('/stocks/search' as Href);
+  };
+
+  const openEditList = () => {
+    router.push('/watchlist/edit' as Href);
   };
 
   const showUnsupported = activeTab === 'HK' || activeTab === 'MY';
@@ -272,9 +287,40 @@ export function DashboardScreen() {
                 stock={stock}
               />
             ))}
+            <WatchlistInlineActions onAddSymbol={openSearchTab} onEditList={openEditList} />
           </View>
         )}
       </ScrollView>
+    </View>
+  );
+}
+
+function WatchlistInlineActions({
+  onAddSymbol,
+  onEditList,
+}: {
+  onAddSymbol: () => void;
+  onEditList: () => void;
+}) {
+  return (
+    <View style={styles.inlineActions}>
+      <Pressable
+        accessibilityLabel="Add symbol to watchlist"
+        accessibilityRole="button"
+        onPress={onAddSymbol}
+        style={({ pressed }) => [styles.inlineAction, pressed ? styles.pressed : undefined]}>
+        <IconSymbol color={Colors.light.mutedText} name="heart" size={18} />
+        <Text style={styles.inlineActionText}>Add Symbol</Text>
+      </Pressable>
+      <View style={styles.inlineDivider} />
+      <Pressable
+        accessibilityLabel="Edit watchlist"
+        accessibilityRole="button"
+        onPress={onEditList}
+        style={({ pressed }) => [styles.inlineAction, pressed ? styles.pressed : undefined]}>
+        <IconSymbol color={Colors.light.mutedText} name="line.3.horizontal.decrease" size={18} />
+        <Text style={styles.inlineActionText}>Edit List</Text>
+      </Pressable>
     </View>
   );
 }
@@ -451,6 +497,33 @@ const styles = StyleSheet.create({
   },
   rows: {
     gap: 0,
+  },
+  inlineActions: {
+    alignItems: 'center',
+    backgroundColor: Colors.light.surface,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: Spacing.sm,
+    minHeight: 54,
+    paddingHorizontal: Spacing.md,
+  },
+  inlineAction: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  inlineActionText: {
+    color: Colors.light.mutedText,
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  inlineDivider: {
+    backgroundColor: Colors.light.border,
+    height: 24,
+    width: 1,
   },
   pressed: {
     opacity: 0.82,

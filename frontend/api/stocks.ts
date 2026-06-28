@@ -39,7 +39,7 @@ export const stocksApi = {
   getStockExplanation(
     credentials: BasicAuthCredentials,
     symbol: string,
-    timeframe: StockExplanationTimeframe = '7D',
+    timeframe: StockExplanationTimeframe = '5D',
   ) {
     return apiRequest<StockExplanationResponse>(
       `/api/stocks/${normalizeStockSymbol(symbol)}/ai-explanation?timeframe=${timeframe}`,

@@ -80,9 +80,9 @@ Search empty states show `Search History` and at most three `Latest Viewed Stock
 supported stock list when the input is empty. Typed search may search all supported backend stocks and render quote rows
 with symbol/name plus a heart toggle.
 
-Toast/snackbar feedback should be centralized, centered, non-blocking, auto-dismissed, English-only, and styled as a
-dark navy layer with white text and a visible shadow. Watchlist success/remove and refresh-cooldown messages use neutral
-toast styling; errors may add a soft danger accent.
+Toast/snackbar feedback should be centralized in a full-screen pointer-transparent overlay, centered, non-blocking,
+auto-dismissed, English-only, and visually small. Use soft dark/danger backgrounds, minimal padding, non-bold text, and
+only subtle shadow so toast feedback does not overpower the mobile UI.
 
 ## Phase 3B Stock UI Standard
 
@@ -101,12 +101,17 @@ Watchlist page:
 - Search and refresh actions are icon-only.
 - Market tabs are `All`, `US`, `HK`, and `MY`; `HK` and `MY` are planned states, not implemented market data.
 - Rows do not show heart icons. Columns are `No.`, `Symbol`, `Price`, and `Chg %`.
+- Main Watchlist edit entry is not embedded in the table header. Use lightweight `Add Symbol` and `Edit List` actions
+  below the final row; `Edit List` opens a stacked edit page with checkboxes, `Top`, drag reorder, and batch remove.
 - `Symbol`, `Price`, and `Chg %` headers are sortable.
 
 Stocks page:
 
 - Title is `Stocks`, compact and aligned with the Watchlist header style.
 - Market tabs are `US`, `MY`, and `HK`; only `US` shows the supported stock table.
+- A centered Net Assets tier card sits between the market notice and the stock table. It uses tier-specific badge,
+  gradient/layered card styling, `Portfolio >`, compact Reset pill, `Today's P/L`, and balanced `View AI Picks` /
+  `View Stocklist` segmented actions. `View AI Picks` is placeholder-only until the full AI Suggestions phase.
 - Row tap opens stock detail. The practice-trade action opens a guarded buy ticket and does not execute a trade
   directly.
 - Table columns are `No.`, `Symbol`, `Price`, `Chg %`, and `Action`.
@@ -118,15 +123,12 @@ Portfolio page:
 - Bottom-tab entry defaults to `Assets` at the top; `/paper-trading?tab=history` and `/paper-trading/transactions`
   intentionally open `History`.
 - The fixed area contains the StockMentor-logo `Portfolio` header and `Assets` / `History` tabs.
-- Assets summary starts collapsed with `Net Assets · USD`, Holdings Value, and Unrealized P/L only. Expanded content may
-  show Cash, Fees Paid, Session, and Last reset. Do not show Today P/L unless backend exposes exact fields for that
-  meaning.
+- Assets summary shows `Net Assets · USD`, Holdings Value, Today's P/L, Today's P/L %, and expanded Remaining Cash, Fees Paid, total `P/L`, Session, and Last reset. Main `P/L` uses backend `totalProfitLoss`; Today's P/L uses backend `todayProfitLoss`.
 - Empty positions use the `View Stock Page` CTA. Loading keeps the portfolio body in skeleton state instead of flashing
   empty positions.
 - Positions use a fixed `Stock` column plus one horizontally scrollable metric table: `Latest Value/QTY`,
   `Current Price/Avg Cost`, `P/L`, `% Position`, and centered `Action` / Sell.
-- History uses `Action`, `Stock`, `Price/Qty`, and `P/L`, with current-session toggle, local loaded-row search, and
-  transaction detail navigation. Reset/null-symbol rows render as portfolio reset records.
+- History uses `Action`, `Stock`, `Price/Qty`, and `P/L`, with current-session toggle, paged `Load more`, exact-symbol backend filtering, local loaded-row search, and transaction detail navigation. Reset/null-symbol rows render as portfolio reset records.
 - Trade tickets are stock-scoped and must not include internal all-stock pickers, generic holdings selectors, bid/ask,
   editable price, order type, time-in-force, session selector, max buying power, margin/options, or frontend-sent price,
   fee, amount, or max quantity.
@@ -224,12 +226,17 @@ Keep it visible but not frightening.
 
 ## Chart Presentation
 
-- Phase 3B does not ship a real chart dependency. Use a compact history summary/list until a chart package is approved.
-- Show timeframe.
-- Show source/fallback notes when backend provides them.
+- Stock detail charts use `react-native-wagmi-charts` with `react-native-svg`, Reanimated, Gesture Handler, and the
+  Expo-managed worklets setup.
+- Show frontend timeframes `1D`, `5D`, `1M`, `3M`, `YTD`, and `1Y`; hide backend-compatible `7D` from chart UI.
+- `1D` and `5D` are line-only. Daily timeframes may show Line/Candle mode only when backend
+  `candlestickSupported=true`.
+- Never fake candles: candle mode uses only backend real OHLC points and hides the toggle when OHLC is incomplete.
+- Chart details are focus-only: normal vertical scroll should win, and the selected detail overlay appears during
+  intentional long-press/inspection rather than being permanently visible.
+- Avoid persistent technical metadata rows such as point counts or raw granularity. Use subtle helper copy only for
+  empty, loading, fallback, or incomplete-data states when it helps the user recover.
 - No advanced trading indicators.
-- Candlestick chart is optional only if easy later.
-- For intraday charts, label the latest visible point as delayed using backend delayed display metadata.
 - Missing-data copy: "Some minute-level data may be missing because provider data and free-tier retrieval are delayed."
 
 ## Accessibility And HCI Basics

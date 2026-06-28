@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
 import { AppProviders } from '@/providers/app-providers';
@@ -10,15 +11,17 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   return (
-    <AppProviders>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(public)" />
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(onboarding)" />
-        <Stack.Screen name="(user)" />
-        <Stack.Screen name="(admin)" />
-      </Stack>
-      <StatusBar style="auto" />
-    </AppProviders>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AppProviders>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(public)" />
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(onboarding)" />
+          <Stack.Screen name="(user)" />
+          <Stack.Screen name="(admin)" />
+        </Stack>
+        <StatusBar style="auto" />
+      </AppProviders>
+    </GestureHandlerRootView>
   );
 }

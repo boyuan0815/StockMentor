@@ -19,24 +19,14 @@ The frontend must not:
 
 The frontend foundation includes a typed API client core, backend base URL helper, Basic Auth header support, admin token
 header support, request timeout/cancellation handling, JSON parsing, normalized `ApiError`, sanitized auth diagnostics,
-and the landed auth/profile API modules used by Phase 2B/2.5. Later feature phases should add stock, suggestion,
-watchlist, paper-trading, and admin API modules on top of that core.
-
-Recommended later modules:
-
-- `stocksApi`
-- `suggestionsApi`
-- `watchlistApi`
-- `paperTradingApi`
-- `adminUsersApi`
-- `adminAiApi`
-- `adminStocksApi`
+and landed auth/profile/stock/watchlist/paper-trading API modules. AI Suggestions and admin API modules should follow
+the same thin-client pattern when those UI phases are completed.
 
 Use `fetch` or Expo-compatible fetch. Avoid Axios unless a later implementation task gives a strong reason.
 
-Phase 3B stock-learning modules live outside `frontend/app` and should remain the pattern for future work: route files
-stay thin, API calls go through the existing Basic Auth API client, DTO types live in `frontend/types`, and stock display
-helpers live in `frontend/utils`.
+Feature modules live outside `frontend/app` and should remain the pattern for future work: route files stay thin, API
+calls go through the existing Basic Auth API client, DTO types live in `frontend/types`, and display helpers live in
+`frontend/utils`.
 
 ## Base URL
 
@@ -247,7 +237,7 @@ Current backend contract:
 - Stock detail may expose `previousClose`, `displayedAbsoluteChange`, and `displayedVolume`. Use these backend fields
   for the quote panel when present. Do not calculate trusted absolute change or volume in the frontend.
 - Watchlist stock rows expose the same delayed display fields as stock list/detail rows while keeping legacy
-  `currentPrice` and `percentChange` compatibility fields. Future edit mode may use backend reorder and batch-remove
+  `currentPrice` and `percentChange` compatibility fields. Watchlist edit uses backend reorder and batch-remove
   endpoints rather than client-only ordering.
 - `1D` history can return stored intraday chart rows even when quote metadata uses daily fallback during pre-open.
 - `5D` is the preferred multi-day intraday chart timeframe. `7D` remains daily/backward-compatible. History responses
@@ -263,7 +253,7 @@ Canonical backend freshness statuses:
 - `LATEST_STORED_PRICE` / `Latest Stored Price`
 - `UNAVAILABLE` / `Unavailable`
 
-## Phase 3B Stock Endpoint Usage
+## Current Stock Endpoint Usage
 
 - `GET /api/stocks` is the source for the Stocks table and typed search universe.
 - `GET /api/watchlist` is the source for the Watchlist table and should use delayed fields from watchlist row DTOs.
@@ -271,7 +261,7 @@ Canonical backend freshness statuses:
   stock content never flashes.
 - `GET /api/stocks/{symbol}/history?timeframe=1D|5D|7D|1M|3M|YTD|1Y` powers chart/history. Use returned points exactly;
   do not fill, smooth, or synthesize missing candles. Prefer `5D` for multi-day intraday chart UI.
-- `GET /api/stocks/{symbol}/ai-explanation?timeframe=1D|7D|1M|3M` is called only after the user opens the AI drawer.
+- `GET /api/stocks/{symbol}/ai-explanation?timeframe=1D|5D|1M|3M` is called only after the user opens the AI drawer.
   Do not prefetch this endpoint from list/detail initial load. For `YTD` and `1Y`, show unsupported explanation copy
   and send no request.
 - Watchlist add/remove uses `POST /api/watchlist/{symbol}` and `DELETE /api/watchlist/{symbol}` with duplicate-tap

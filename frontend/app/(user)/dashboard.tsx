@@ -1,5 +1,5 @@
-import { DashboardScreen } from '@/screens/dashboard-screen';
+import { Redirect } from 'expo-router';
 
 export default function DashboardRoute() {
-  return <DashboardScreen />;
+  return <Redirect href="/watchlist" />;
 }

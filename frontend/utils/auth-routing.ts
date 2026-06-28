@@ -12,7 +12,7 @@ export function getPostAuthRoute(user: AuthUserResponse): Href {
   }
 
   if (user.role === 'BEGINNER_INVESTOR') {
-    return '/dashboard' as Href;
+    return '/watchlist' as Href;
   }
 
   return '/' as Href;

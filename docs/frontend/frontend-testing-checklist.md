@@ -27,8 +27,17 @@ Use this checklist after frontend implementation begins. This documentation task
 - Confirm Watchlist sorting cycles default -> ascending -> descending -> default for Symbol, Price, and Chg %, with
   small up/down icon states.
 - Confirm Watchlist refreshes on focus after add/remove from detail.
+- Confirm Watchlist main page keeps title `Watchlists` and shows lightweight `Add Symbol` / `Edit List` actions below
+  the final row.
+- Confirm Watchlist Edit opens as a stacked page, supports local search, checkbox selection, `Top`, drag reorder,
+  select-all, remove confirmation, and batch remove. Back and Done save the full draft order before closing; failed
+  saves stay on the edit page with the draft preserved.
 - View Stocks tab.
 - Confirm Stocks page title is compact `Stocks`, tabs are `US`, `MY`, `HK`, and `MY`/`HK` show planned states only.
+- Confirm Stocks page shows a portfolio summary card above the stock rows, and stock rows still render if that card
+  cannot load portfolio data.
+- Confirm `AI Picks` on the Stocks portfolio card shows deferred placeholder behavior and does not call
+  `/api/stocks/ai-suggestions`; card `Reset` opens confirmation before calling portfolio reset.
 - Confirm Stocks table columns are `No.`, `Symbol`, `Price`, `Chg %`, `Action`, and the practice-trade button does not
   trigger row navigation.
 - Confirm Watchlist, Stocks, Suggestions, Portfolio, and Profile use fixed StockMentor-logo headers; Search keeps its
@@ -43,6 +52,11 @@ Use this checklist after frontend implementation begins. This documentation task
   full Volume when backend fields are present.
 - Confirm Volume is not truncated with ellipsis.
 - Change history timeframe.
+- Confirm chart timeframes are `1D`, `5D`, `1M`, `3M`, `YTD`, and `1Y`; `7D` is not shown.
+- Confirm `1D` and `5D` are line-only, daily timeframes can show candle mode only when backend
+  `candlestickSupported=true`, and no fake candle is shown when OHLC is incomplete.
+- Confirm normal page scroll works over the chart, long-press/focus shows selected chart details only while active, and
+  releasing hides the detail/cursor without updating the main quote header.
 - Confirm delayed data badge/note appears from backend delayed metadata.
 - Confirm unavailable/null price states use `priceFreshnessStatus`, `isPriceAvailable`, and `dataNote`.
 - Confirm 9:30-9:44 AM New York opening message is clear when backend indicates current-day delayed data is not ready.
@@ -52,6 +66,7 @@ Use this checklist after frontend implementation begins. This documentation task
 - View AI explanation drawer and unavailable state.
 - Confirm AI endpoint is not called on initial stock detail load.
 - Confirm AI drawer titles are `View AI Stock Explanation` and `Close AI Stock Explanation`.
+- Confirm AI explanation is available for frontend-supported `1D`, `5D`, `1M`, and `3M` only.
 - Confirm backend cache/generated status messages are hidden while disclaimer/data window remain visible.
 - Confirm `YTD` and `1Y` show unsupported AI explanation copy without sending a request.
 - View AI suggestions.
@@ -63,9 +78,8 @@ Use this checklist after frontend implementation begins. This documentation task
 - Confirm Portfolio bottom-tab entry opens `Assets` at the top; `/paper-trading?tab=history` and
   `/paper-trading/transactions` open `History`.
 - Confirm Portfolio has fixed `Assets` and `History` top tabs.
-- Confirm Assets shows `Net Assets · USD`, Holdings Value, Unrealized P/L, positions, valuation warnings, View Stocks,
-  and Reset Portfolio; expanded content may show Cash, Fees Paid, Session, and Last reset. It does not show Today P/L
-  without backend support.
+- Confirm Assets shows `Net Assets · USD`, Holdings Value, Today's P/L, Today's P/L %, positions, valuation warnings, View Stocks,
+  and Reset Portfolio; expanded content may show Remaining Cash, Fees Paid, total `P/L`, Session, and Last reset. The main Portfolio card does not show `Unrealized P/L`.
 - Confirm initial portfolio loading keeps the portfolio body in skeleton state and does not briefly show empty
   positions.
 - Confirm empty positions CTA says `View Stock Page`.
@@ -86,8 +100,8 @@ Use this checklist after frontend implementation begins. This documentation task
 - Confirm Stock List and Stock Detail `Practice Trade` CTAs open the guarded buy ticket and do not execute directly.
 - View History tab and transaction detail.
 - Confirm History defaults to current session, supports side filters and local symbol/company search over loaded rows,
-  displays `Action`, `Stock`, `Price/Qty`, and `P/L`, and displays RESET/null-symbol rows as session reset rows without
-  stock links or price assumptions.
+  uses paged `size=20` loads with `Load more`, displays `Action`, `Stock`, `Price/Qty`, and `P/L`, and displays
+  RESET/null-symbol rows as session reset rows without stock links or price assumptions.
 - Logout clears session.
 
 ## Admin Web Flow

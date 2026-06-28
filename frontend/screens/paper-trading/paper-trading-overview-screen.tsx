@@ -1,7 +1,7 @@
-import { useFocusEffect } from '@react-navigation/native';
+﻿import { useFocusEffect } from '@react-navigation/native';
 import { type Href, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { paperTradingApi } from '@/api/paper-trading';
@@ -10,6 +10,7 @@ import { ActionButton } from '@/components/foundation/action-button';
 import { EmptyState } from '@/components/foundation/empty-state';
 import { ErrorBanner } from '@/components/foundation/error-banner';
 import { SkeletonRows } from '@/components/foundation/skeleton-block';
+import { ResetCardSheet } from '@/components/paper-trading/reset-card-sheet';
 import {
   InlineNotice,
   PaperHeader,
@@ -36,6 +37,7 @@ import type { StockListItemResponse } from '@/types/stocks';
 import {
   formatPaperDateTime,
   formatPaperMoney,
+  formatPaperPercent,
   formatSignedPaperMoney,
   getPaperTradingApiErrorMessage,
   toPaperNumber,
@@ -44,6 +46,7 @@ import { normalizeStockSymbol } from '@/utils/stock-display';
 
 type PortfolioTab = 'assets' | 'history';
 type SideFilter = 'ALL' | 'BUY' | 'SELL' | 'RESET';
+const HISTORY_PAGE_SIZE = 20;
 
 export function PaperTradingOverviewScreen({
   historyFocusBehavior = 'once',
@@ -59,6 +62,8 @@ export function PaperTradingOverviewScreen({
   const { showToast } = useToast();
   const requestIdRef = useRef(0);
   const inFlightRef = useRef(false);
+  const transactionRequestIdRef = useRef(0);
+  const transactionInFlightRef = useRef(false);
   const hasLoadedRef = useRef(false);
   const historyTabConsumedRef = useRef(initialTab !== 'history');
   const [activeTab, setActiveTab] = useState<PortfolioTab>(initialTab);
@@ -77,6 +82,10 @@ export function PaperTradingOverviewScreen({
   const [sideFilter, setSideFilter] = useState<SideFilter>('ALL');
   const [historySearch, setHistorySearch] = useState('');
   const [currentSessionOnly, setCurrentSessionOnly] = useState(true);
+  const [transactionPage, setTransactionPage] = useState(0);
+  const [transactionTotalPages, setTransactionTotalPages] = useState(0);
+  const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
+  const [isLoadingMoreTransactions, setIsLoadingMoreTransactions] = useState(false);
   const scrollRef = useRef<ScrollView | null>(null);
 
   useEffect(() => {
@@ -98,6 +107,75 @@ export function PaperTradingOverviewScreen({
       }
       return undefined;
     }, [historyFocusBehavior, initialTab]),
+  );
+
+  const stockCompanyMap = useMemo(
+    () => new Map(stocks.map((stock) => [stock.symbol, stock.companyName])),
+    [stocks],
+  );
+  const exactSearchSymbol = useMemo(() => {
+    const candidate = normalizeStockSymbol(historySearch);
+    return candidate && stockCompanyMap.has(candidate) ? candidate : null;
+  }, [historySearch, stockCompanyMap]);
+
+  const loadTransactionsPage = useCallback(
+    async (page = 0, append = false) => {
+      if (transactionInFlightRef.current) {
+        return;
+      }
+
+      if (!credentials) {
+        setTransactionError('Sign in again to load transactions.');
+        setIsLoadingTransactions(false);
+        setIsLoadingMoreTransactions(false);
+        return;
+      }
+
+      const requestId = transactionRequestIdRef.current + 1;
+      transactionRequestIdRef.current = requestId;
+      transactionInFlightRef.current = true;
+      if (append) {
+        setIsLoadingMoreTransactions(true);
+      } else {
+        setIsLoadingTransactions(true);
+      }
+
+      try {
+        const response = await paperTradingApi.getTransactionsPage(credentials, {
+          currentSessionOnly,
+          page,
+          side: sideFilter === 'ALL' ? null : sideFilter,
+          size: HISTORY_PAGE_SIZE,
+          symbol: exactSearchSymbol,
+        });
+        if (transactionRequestIdRef.current !== requestId) {
+          return;
+        }
+        setTransactions((current) =>
+          append ? [...current, ...(response.transactions ?? [])] : response.transactions ?? [],
+        );
+        setTransactionPage(response.page ?? page);
+        setTransactionTotalPages(response.totalPages ?? 0);
+        setTransactionError(null);
+      } catch (error) {
+        if (transactionRequestIdRef.current !== requestId) {
+          return;
+        }
+        setTransactionError(getPaperTradingApiErrorMessage(error, 'Transactions could not be loaded.'));
+        if (!append) {
+          setTransactions([]);
+          setTransactionPage(0);
+          setTransactionTotalPages(0);
+        }
+      } finally {
+        if (transactionRequestIdRef.current === requestId) {
+          transactionInFlightRef.current = false;
+          setIsLoadingTransactions(false);
+          setIsLoadingMoreTransactions(false);
+        }
+      }
+    },
+    [credentials, currentSessionOnly, exactSearchSymbol, sideFilter],
   );
 
   const loadPortfolioData = useCallback(
@@ -125,10 +203,9 @@ export function PaperTradingOverviewScreen({
         setIsLoading(true);
       }
 
-      const [accountResult, portfolioResult, transactionResult, stockResult] = await Promise.allSettled([
+      const [accountResult, portfolioResult, stockResult] = await Promise.allSettled([
         paperTradingApi.getAccount(credentials),
         paperTradingApi.getPortfolio(credentials),
-        paperTradingApi.getTransactions(credentials, { currentSessionOnly, size: 50 }),
         stocksApi.getStocks(credentials),
       ]);
 
@@ -151,15 +228,6 @@ export function PaperTradingOverviewScreen({
         setPortfolioError(getPaperTradingApiErrorMessage(portfolioResult.reason, 'Portfolio could not be loaded.'));
       }
 
-      if (transactionResult.status === 'fulfilled') {
-        setTransactions(transactionResult.value ?? []);
-        setTransactionError(null);
-      } else {
-        setTransactionError(
-          getPaperTradingApiErrorMessage(transactionResult.reason, 'Transactions could not be loaded.'),
-        );
-      }
-
       if (stockResult.status === 'fulfilled') {
         setStocks(stockResult.value.stocks ?? []);
       }
@@ -169,27 +237,34 @@ export function PaperTradingOverviewScreen({
       setIsLoading(false);
       setIsRefreshing(false);
     },
-    [credentials, currentSessionOnly],
+    [credentials],
   );
 
   useMinuteBoundaryRefresh({
     enabled: !showResetSheet && !isResetting,
-    onRefresh: () => loadPortfolioData('soft'),
+    onRefresh: async () => {
+      await Promise.allSettled([loadPortfolioData('soft'), loadTransactionsPage(0, false)]);
+    },
   });
 
   useEffect(() => {
     void loadPortfolioData('soft');
-  }, [currentSessionOnly, loadPortfolioData]);
+  }, [loadPortfolioData]);
+
+  useEffect(() => {
+    setTransactionPage(0);
+    setTransactions([]);
+    void loadTransactionsPage(0, false);
+  }, [loadTransactionsPage]);
 
   const handleRefresh = () => {
-    guardedRefresh(() => void loadPortfolioData('refresh'));
+    guardedRefresh(() => {
+      void loadPortfolioData('refresh');
+      void loadTransactionsPage(0, false);
+    });
   };
 
   const positions = portfolio?.positions ?? [];
-  const stockCompanyMap = useMemo(
-    () => new Map(stocks.map((stock) => [stock.symbol, stock.companyName])),
-    [stocks],
-  );
   const valuationWarnings = useMemo(() => {
     const warnings: string[] = [];
     if (portfolio?.portfolioValuationComplete === false) {
@@ -247,6 +322,7 @@ export function PaperTradingOverviewScreen({
       setShowResetSheet(false);
       showToast('Simulated portfolio reset.');
       await loadPortfolioData('refresh');
+      await loadTransactionsPage(0, false);
     } catch (error) {
       showToast(getPaperTradingApiErrorMessage(error, 'Simulated portfolio could not be reset.'), 'error');
     } finally {
@@ -301,9 +377,13 @@ export function PaperTradingOverviewScreen({
         ) : (
           <HistoryTab
             currentSessionOnly={currentSessionOnly}
+            canLoadMore={transactionPage + 1 < transactionTotalPages}
             errorMessage={transactionError}
             filteredTransactions={filteredTransactions}
             historySearch={historySearch}
+            isLoading={isLoadingTransactions}
+            isLoadingMore={isLoadingMoreTransactions}
+            onLoadMore={() => void loadTransactionsPage(transactionPage + 1, true)}
             onOpenTransaction={openTransaction}
             onSearchChange={setHistorySearch}
             onSideChange={setSideFilter}
@@ -315,7 +395,7 @@ export function PaperTradingOverviewScreen({
       </ScrollView>
 
       <ResetCardSheet
-        netAssets={portfolio?.totalPortfolioValue ?? null}
+        nextSessionNumber={(portfolio?.currentSessionNumber ?? account?.currentSessionNumber ?? 1) + 1}
         onConfirm={() => void resetPortfolio()}
         onClose={() => setShowResetSheet(false)}
         pending={isResetting}
@@ -365,18 +445,40 @@ function AssetsTab({
               value={formatPaperMoney(portfolio.totalPortfolioValue)}
             />
             <View style={styles.metricRow}>
-              <PaperMetric label="Holdings Value" value={formatPaperMoney(portfolio.estimatedMarketValue)} />
-              <PaperMetric
-                label="Unrealized P/L"
-                toneValue={portfolio.unrealizedProfitLoss}
-                value={formatSignedPaperMoney(portfolio.unrealizedProfitLoss)}
-              />
+              <View style={styles.metricWide}>
+                <PaperMetric label="Holdings Value" value={formatPaperMoney(portfolio.estimatedMarketValue)} />
+              </View>
+              <View style={styles.metricMedium}>
+                <PaperMetric
+                  label="Today's P/L"
+                  toneValue={portfolio.todayProfitLoss}
+                  value={formatSignedPaperMoney(portfolio.todayProfitLoss ?? null)}
+                />
+              </View>
+              <View style={styles.metricNarrow}>
+                <PaperMetric
+                  label="Today's P/L %"
+                  toneValue={portfolio.todayProfitLossPercent}
+                  value={formatPaperPercent(portfolio.todayProfitLossPercent ?? null)}
+                />
+              </View>
             </View>
             {assetsExpanded ? (
               <>
                 <View style={styles.metricRow}>
-                  <PaperMetric label="Cash" value={formatPaperMoney(portfolio.cashBalance)} />
-                  <PaperMetric label="Fees Paid" value={formatPaperMoney(portfolio.totalFeesPaid)} />
+                  <View style={styles.metricWide}>
+                    <PaperMetric label="Remaining Cash" value={formatPaperMoney(portfolio.cashBalance)} />
+                  </View>
+                  <View style={styles.metricNarrow}>
+                    <PaperMetric label="Fees Paid" value={formatPaperMoney(portfolio.totalFeesPaid)} />
+                  </View>
+                  <View style={styles.metricNarrow}>
+                    <PaperMetric
+                      label="P/L"
+                      toneValue={portfolio.totalProfitLoss ?? portfolio.unrealizedProfitLoss}
+                      value={formatSignedPaperMoney(portfolio.totalProfitLoss ?? portfolio.unrealizedProfitLoss)}
+                    />
+                  </View>
                 </View>
                 <View style={styles.sessionRow}>
                   <Text selectable style={styles.sessionText}>
@@ -400,6 +502,11 @@ function AssetsTab({
               />
             </Pressable>
           </View>
+          {portfolio.todayProfitLossComplete === false ? (
+            <Text selectable style={styles.todayNote}>
+              Today's P/L is based on available delayed stored price data.
+            </Text>
+          ) : null}
           {valuationWarnings.map((warning) => (
             <InlineNotice key={warning} message={warning} tone="warn" />
           ))}
@@ -448,10 +555,14 @@ function AssetsTab({
 }
 
 function HistoryTab({
+  canLoadMore,
   currentSessionOnly,
   errorMessage,
   filteredTransactions,
   historySearch,
+  isLoading,
+  isLoadingMore,
+  onLoadMore,
   onOpenTransaction,
   onSearchChange,
   onSideChange,
@@ -459,10 +570,14 @@ function HistoryTab({
   sideFilter,
   stockCompanyMap,
 }: {
+  canLoadMore: boolean;
   currentSessionOnly: boolean;
   errorMessage: string | null;
   filteredTransactions: PaperTradeTransactionResponse[];
   historySearch: string;
+  isLoading: boolean;
+  isLoadingMore: boolean;
+  onLoadMore: () => void;
   onOpenTransaction: (transaction: PaperTradeTransactionResponse) => void;
   onSearchChange: (value: string) => void;
   onSideChange: (side: SideFilter) => void;
@@ -515,7 +630,12 @@ function HistoryTab({
 
       {errorMessage ? <ErrorBanner title="Transactions need attention" message={errorMessage} /> : null}
 
-      {filteredTransactions.length === 0 ? (
+      {isLoading && filteredTransactions.length === 0 ? (
+        <View style={styles.loadingBlock}>
+          <Text selectable style={styles.loadingText}>Loading transactions...</Text>
+          <SkeletonRows count={4} />
+        </View>
+      ) : filteredTransactions.length === 0 ? (
         <EmptyState title="No transactions found" description="Try another filter or complete a paper trade." />
       ) : (
         <View style={styles.rows}>
@@ -532,6 +652,16 @@ function HistoryTab({
               />
             );
           })}
+          {canLoadMore ? (
+            <View style={styles.loadMoreWrap}>
+              <ActionButton
+                disabled={isLoadingMore}
+                label={isLoadingMore ? 'Loading more...' : 'Load more'}
+                onPress={onLoadMore}
+                style={styles.loadMoreButton}
+              />
+            </View>
+          ) : null}
         </View>
       )}
     </>
@@ -556,135 +686,6 @@ function TextInputShim({
       value={value}
     />
   );
-}
-
-function ResetCardSheet({
-  netAssets,
-  onClose,
-  onConfirm,
-  pending,
-  startingCash,
-  visible,
-}: {
-  netAssets: PaperPortfolioResponse['totalPortfolioValue'];
-  onClose: () => void;
-  onConfirm: () => void;
-  pending: boolean;
-  startingCash: PaperTradingAccountResponse['startingCash'];
-  visible: boolean;
-}) {
-  const tier = getResetCardTier(netAssets);
-  const startingCashText = formatPaperMoney(startingCash);
-  const [mounted, setMounted] = useState(visible);
-  const slideAnim = useRef(new Animated.Value(visible ? 1 : 0)).current;
-
-  useEffect(() => {
-    if (visible) {
-      setMounted(true);
-      slideAnim.setValue(0);
-      Animated.timing(slideAnim, {
-        duration: 230,
-        toValue: 1,
-        useNativeDriver: true,
-      }).start();
-      return;
-    }
-
-    Animated.timing(slideAnim, {
-      duration: 190,
-      toValue: 0,
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (finished) {
-        setMounted(false);
-      }
-    });
-  }, [slideAnim, visible]);
-
-  if (!mounted) {
-    return null;
-  }
-
-  const translateY = slideAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [420, 0],
-  });
-
-  return (
-    <Modal
-      animationType="none"
-      onRequestClose={() => {
-        if (!pending) {
-          onClose();
-        }
-      }}
-      transparent
-      visible={mounted}>
-      <View style={styles.sheetBackdrop}>
-        <Pressable
-          accessibilityLabel="Close reset card"
-          disabled={pending}
-          onPress={onClose}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
-      <View pointerEvents="box-none" style={styles.sheetLayer}>
-        <Animated.View style={[styles.sheet, { transform: [{ translateY }] }]}>
-          <View style={styles.dragHandle} />
-          <View style={styles.sheetTitleRow}>
-            <Text selectable style={styles.sheetTitle}>Reset Portfolio</Text>
-            <Pressable
-              accessibilityLabel="Close reset sheet"
-              accessibilityRole="button"
-              disabled={pending}
-              onPress={onClose}
-              style={styles.sheetClose}>
-              <IconSymbol color={Colors.light.text} name="xmark" size={22} />
-            </Pressable>
-          </View>
-          <View style={[styles.resetCard, { borderColor: tier.border, backgroundColor: tier.background }]}>
-            <Text selectable style={[styles.resetCardKicker, { color: tier.subText }]}>{tier.label} reset</Text>
-            <Text selectable style={[styles.resetCardTitle, { color: tier.text }]}>Portfolio Reset</Text>
-            <Text selectable style={[styles.resetCardSub, { color: tier.subText }]}>Practice account reset</Text>
-            <Text selectable style={[styles.resetCardFine, { color: tier.subText }]}>
-              Restores simulated Net Assets · USD to {startingCashText}.
-            </Text>
-          </View>
-          <View style={styles.resetInfo}>
-            <Text selectable style={styles.resetInfoTitle}>Attributes</Text>
-            <Text selectable style={styles.resetInfoText}>
-              Restores simulated Net Assets · USD to {startingCashText}.
-            </Text>
-            <View style={styles.resetDivider} />
-            <Text selectable style={styles.resetInfoTitle}>Effect</Text>
-            <Text selectable style={styles.resetInfoText}>
-              Open positions are cleared, a new session starts, and the action cannot be undone.
-            </Text>
-          </View>
-          <ActionButton
-            disabled={pending}
-            label={pending ? 'Resetting...' : 'Reset Portfolio'}
-            onPress={onConfirm}
-            style={styles.redeemButton}
-          />
-        </Animated.View>
-      </View>
-    </Modal>
-  );
-}
-
-function getResetCardTier(value: PaperPortfolioResponse['totalPortfolioValue']) {
-  const numericValue = toPaperNumber(value);
-  if (numericValue !== null && numericValue >= 2_500_000) {
-    return { background: '#E5E7EB', border: '#94A3B8', label: 'Platinum', text: '#111827', subText: '#475569' };
-  }
-  if (numericValue !== null && numericValue >= 1_800_000) {
-    return { background: '#FEF3C7', border: '#D97706', label: 'Gold', text: '#111827', subText: '#92400E' };
-  }
-  if (numericValue !== null && numericValue >= 1_300_000) {
-    return { background: '#F8FAFC', border: '#94A3B8', label: 'Silver', text: '#111827', subText: '#475569' };
-  }
-  return { background: '#111827', border: '#334155', label: 'Standard', text: '#FFFFFF', subText: '#CBD5E1' };
 }
 
 const styles = StyleSheet.create({
@@ -717,11 +718,26 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   assetSummary: {
-    gap: Spacing.sm,
+    gap: Spacing.md,
   },
   metricRow: {
     flexDirection: 'row',
-    gap: Spacing.lg,
+    gap: Spacing.md,
+    marginTop: Spacing.xs,
+  },
+  metricWide: {
+    flex: 0.45,
+  },
+  metricMedium: {
+    flex: 0.275,
+  },
+  metricNarrow: {
+    flex: 0.275,
+  },
+  todayNote: {
+    color: Colors.light.mutedText,
+    fontSize: 12,
+    lineHeight: 17,
   },
   expandButton: {
     alignItems: 'center',
@@ -760,7 +776,7 @@ const styles = StyleSheet.create({
     minHeight: 46,
   },
   positionsWrap: {
-    marginTop: Spacing.lg,
+    marginTop: Spacing.xl,
   },
   emptyWrap: {
     alignItems: 'center',
@@ -879,106 +895,13 @@ const styles = StyleSheet.create({
   rows: {
     backgroundColor: Colors.light.surface,
   },
-  sheetBackdrop: {
-    backgroundColor: 'rgba(15, 23, 42, 0.42)',
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 0,
+  loadMoreWrap: {
+    padding: Spacing.md,
   },
-  sheetLayer: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: Colors.light.surface,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    gap: Spacing.lg,
-    paddingBottom: Spacing.lg,
-    paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.md,
-  },
-  dragHandle: {
-    alignSelf: 'center',
-    backgroundColor: '#D1D5DB',
+  loadMoreButton: {
+    backgroundColor: '#052344',
+    borderColor: '#052344',
     borderRadius: 999,
-    height: 5,
-    width: 54,
-  },
-  sheetTitle: {
-    color: Colors.light.text,
-    flex: 1,
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  sheetTitleRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: Spacing.md,
-  },
-  sheetClose: {
-    alignItems: 'center',
-    height: 38,
-    justifyContent: 'center',
-    width: 38,
-  },
-  resetCard: {
-    alignSelf: 'center',
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: Spacing.sm,
-    minHeight: 210,
-    padding: Spacing.lg,
-    shadowColor: '#000000',
-    shadowOffset: { height: 12, width: 0 },
-    shadowOpacity: 0.2,
-    shadowRadius: 24,
-    width: '88%',
-    elevation: 8,
-  },
-  resetCardTitle: {
-    color: '#FFFFFF',
-    fontSize: 26,
-    fontWeight: '800',
-  },
-  resetCardKicker: {
-    color: '#CBD5E1',
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 0,
-    textTransform: 'uppercase',
-  },
-  resetCardSub: {
-    color: '#CBD5E1',
-    fontSize: 16,
-  },
-  resetCardFine: {
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 'auto',
-  },
-  resetInfo: {
-    gap: Spacing.sm,
-  },
-  resetDivider: {
-    backgroundColor: Colors.light.border,
-    height: 1,
-    marginVertical: Spacing.xs,
-  },
-  resetInfoTitle: {
-    color: Colors.light.text,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  resetInfoText: {
-    color: Colors.light.mutedText,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  redeemButton: {
-    backgroundColor: '#111827',
-    borderColor: '#111827',
+    minHeight: 42,
   },
 });

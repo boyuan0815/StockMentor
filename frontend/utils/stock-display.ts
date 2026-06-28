@@ -142,7 +142,22 @@ export function getStockSourceLabel(stock: StockListItemResponse | DelayedStockF
 }
 
 export function getFreshnessLabel(stock: StockListItemResponse | DelayedStockFields) {
-  return stock.priceFreshnessStatus ? labelize(stock.priceFreshnessStatus) : 'Stored data';
+  if (stock.priceFreshnessLabel) {
+    return stock.priceFreshnessLabel;
+  }
+
+  switch (stock.priceFreshnessStatus) {
+    case 'DELAYED_15_MINUTES':
+      return 'Delayed 15 min';
+    case 'MARKET_CLOSED_LAST_CLOSE':
+      return 'Market Closed · Last Close';
+    case 'LATEST_STORED_PRICE':
+      return 'Latest Stored Price';
+    case 'UNAVAILABLE':
+      return 'Unavailable';
+    default:
+      return stock.priceFreshnessStatus ? labelize(stock.priceFreshnessStatus) : 'Stored data';
+  }
 }
 
 export function getMarketNoticeCopy(stocks: Array<DelayedStockFields | StockListItemResponse>) {
@@ -155,6 +170,21 @@ export function getMarketNoticeCopy(stocks: Array<DelayedStockFields | StockList
     toNumber(compatibilityPrice) !== null;
 
   switch (status) {
+    case 'DELAYED_15_MINUTES':
+      return {
+        label:
+          'US market data is delayed 15 minutes for learning and paper-trading practice.',
+      };
+    case 'MARKET_CLOSED_LAST_CLOSE':
+      return {
+        label:
+          'US market is closed. Last close prices are shown for learning and paper-trading practice.',
+      };
+    case 'LATEST_STORED_PRICE':
+      return {
+        label:
+          'Latest stored prices are shown for learning and paper-trading practice.',
+      };
     case 'AVAILABLE':
       return {
         label:
@@ -191,6 +221,10 @@ export function getMarketNoticeCopy(stocks: Array<DelayedStockFields | StockList
 }
 
 export function getMarketStatusLabel(stock: DelayedStockFields | StockListItemResponse) {
+  if (stock.priceFreshnessLabel) {
+    return stock.priceFreshnessLabel;
+  }
+
   const compatibilityPrice =
     'currentPrice' in stock ? (stock as StockListItemResponse).currentPrice : null;
   const hasDisplayedPrice =
@@ -198,6 +232,12 @@ export function getMarketStatusLabel(stock: DelayedStockFields | StockListItemRe
     toNumber(compatibilityPrice) !== null;
 
   switch (stock.priceFreshnessStatus) {
+    case 'DELAYED_15_MINUTES':
+      return 'Delayed 15 min';
+    case 'MARKET_CLOSED_LAST_CLOSE':
+      return 'Market Closed · Last Close';
+    case 'LATEST_STORED_PRICE':
+      return 'Latest Stored Price';
     case 'AVAILABLE':
       return 'Market Open';
     case 'NOT_READY':
@@ -223,9 +263,9 @@ export function getMarketStatusWithTime(stock: DelayedStockFields | StockListIte
 }
 
 export function isAiExplanationTimeframe(
-  timeframe: StockTimeframe,
+  timeframe: StockTimeframe | StockExplanationTimeframe | string,
 ): timeframe is StockExplanationTimeframe {
-  return timeframe === '1D' || timeframe === '7D' || timeframe === '1M' || timeframe === '3M';
+  return timeframe === '1D' || timeframe === '5D' || timeframe === '1M' || timeframe === '3M';
 }
 
 export function getPriceAvailabilityCopy(stock: StockListItemResponse | DelayedStockFields) {
@@ -280,4 +320,51 @@ export function getHistoryPointLabel(point: StockHistoryPointResponse) {
   }
 
   return point.tradingDate ?? 'Date unavailable';
+}
+
+export function formatTradingDateLabel(value: string | null | undefined) {
+  if (!value) {
+    return 'Date unavailable';
+  }
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return formatBackendDateTime(value);
+  }
+
+  const [, rawYear, rawMonth, rawDay] = match;
+  const year = Number(rawYear);
+  const monthIndex = Number(rawMonth) - 1;
+  const day = Number(rawDay);
+  const date = new Date(year, monthIndex, day, 12, 0, 0);
+  return new Intl.DateTimeFormat('en-US', {
+    day: 'numeric',
+    month: 'short',
+    weekday: 'short',
+    year: 'numeric',
+  }).format(date);
+}
+
+export function formatHistoryMinuteLabel(value: string | null | undefined) {
+  if (!value) {
+    return 'Time unavailable';
+  }
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(value);
+  if (!match) {
+    return formatBackendDateTime(value);
+  }
+
+  const [, rawYear, rawMonth, rawDay, rawHour, rawMinute] = match;
+  const year = Number(rawYear);
+  const monthIndex = Number(rawMonth) - 1;
+  const day = Number(rawDay);
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+  const date = new Date(year, monthIndex, day, hour, minute, 0);
+  const dateText = new Intl.DateTimeFormat('en-US', {
+    day: 'numeric',
+    month: 'short',
+  }).format(date);
+  return `${dateText} ${rawHour}:${rawMinute}`;
 }

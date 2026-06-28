@@ -162,7 +162,7 @@ export function StockSearchScreen() {
     }
 
     if (from === 'watchlist') {
-      router.replace('/dashboard' as Href);
+      router.replace('/watchlist' as Href);
       return;
     }
 

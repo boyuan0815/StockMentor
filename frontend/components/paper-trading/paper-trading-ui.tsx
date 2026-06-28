@@ -207,9 +207,9 @@ export function PositionsTable({
             <View style={styles.metricHeaderRow}>
               <MetricHeader title="Latest Value/QTY" width={116} />
               <MetricHeader title="Current Price/Avg Cost" width={122} />
-              <MetricHeader title="P/L" width={88} />
+              <MetricHeader title="P/L" width={96} />
               <MetricHeader title="% Position" width={112} />
-              <MetricHeader align="center" title="Action" width={92} />
+              <MetricHeader align="center" title="Action" width={100} />
             </View>
             {positions.map((position) => (
               <View key={position.positionId ?? position.symbol} style={styles.metricDataRow}>
@@ -228,7 +228,7 @@ export function PositionsTable({
                   primaryTone={position.unrealizedProfitLoss}
                   secondary={formatPaperPercent(position.unrealizedProfitLossPercent)}
                   secondaryTone={position.unrealizedProfitLossPercent}
-                  width={88}
+                  width={96}
                 />
                 <MetricPair
                   primary={formatPaperPercent(position.portfolioWeightPercent)}
@@ -356,8 +356,10 @@ export function TransactionRow({
   const canOpen = Boolean(transaction.transactionId);
   const side = getTransactionSideLabel(transaction.side);
   const reset = isResetTransaction(transaction);
+  const realizedProfitLoss =
+    transaction.realizedProfitLossAfterFees ?? transaction.realizedProfitLoss;
   const profitLoss =
-    transaction.side === 'SELL' ? formatSignedPaperMoney(transaction.realizedProfitLoss) : '-';
+    transaction.side === 'SELL' ? formatSignedPaperMoney(realizedProfitLoss) : '-';
 
   const openTransaction = () => {
     if (onPress) {
@@ -414,7 +416,7 @@ export function TransactionRow({
           numberOfLines={1}
           style={[
             styles.transactionPrimary,
-            transaction.side === 'SELL' ? { color: getMovementColor(transaction.realizedProfitLoss) } : undefined,
+            transaction.side === 'SELL' ? { color: getMovementColor(realizedProfitLoss) } : undefined,
           ]}>
           {profitLoss}
         </Text>
@@ -703,7 +705,7 @@ const styles = StyleSheet.create({
   },
   actionColumn: {
     alignItems: 'center',
-    width: 90,
+    width: 100,
   },
   tableHeaderText: {
     color: Colors.light.mutedText,

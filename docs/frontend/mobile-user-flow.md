@@ -83,24 +83,33 @@ depending on tab history.
 
 ### Watchlist
 
-- Backend: `GET /api/watchlist`, `POST /api/watchlist/{symbol}`, `DELETE /api/watchlist/{symbol}`.
+- Backend: `GET /api/watchlist`, `POST /api/watchlist/{symbol}`, `DELETE /api/watchlist/{symbol}`,
+  `PATCH /api/watchlist/reorder`, and `POST /api/watchlist/batch-remove`.
 - Tab label: `Watchlist`; page title: `Watchlists`.
 - Sections: compact title/logo row, icon-only search and refresh, market tabs `All`, `US`, `HK`, `MY`, market notice
   marquee, and a full-width watchlist table.
 - Rows: `No.`, `Symbol`, `Price`, `Chg %`; no row hearts; sortable `Symbol`, `Price`, and `Chg %`.
+- After the final watchlist row, show lightweight `Add Symbol` and `Edit List` actions. `Add Symbol` opens the Search
+  tab. `Edit List` opens the stacked watchlist edit route.
 - Empty: concise copy such as "No watchlist stocks yet. Search stocks and tap the heart to add one."
+- Edit route: header title is `All`; back and Done both save the full ordered symbol list before closing. Use
+  checkboxes for batch remove, `Top` for move-to-top, and drag reorder through the edit list. While search is active,
+  selection/removal remains available but `Top` and drag reorder are disabled with `Clear search to reorder.` copy.
 - Guardrail: refresh on focus with in-flight request protection; disable add/remove while pending; do not show raw
   backend source/status/time in rows.
 
 ### Stock List
 
-- Backend: `GET /api/stocks`.
+- Backend: `GET /api/stocks`; the page also reads `/api/paper-trading/portfolio` for the paper portfolio card.
 - Use case: US009 View Stock Market Data.
 - Tab label: `Stocks`; page title: `Stocks`.
 - Sections: fixed StockMentor-logo header row, icon-only search/refresh, market tabs `US`, `MY`, `HK`, market notice
-  marquee, and a full-width supported-stock table with fixed table header.
+  marquee, portfolio summary card, and a full-width supported-stock table.
 - Rows: `No.`, `Symbol`, `Price`, `Chg %`, `Action`.
 - Empty: no stored stock data message for `US`; `MY` and `HK` show planned-state copy only.
+- Portfolio card: a centered rounded static-tier paper card shows `Net Assets · USD`, backend `todayProfitLoss`, a
+  confirmation-protected `Reset` chip, `Portfolio >`, and balanced `AI Picks` / `Watchlist` actions. `AI Picks` is a
+  placeholder and must not call `/api/stocks/ai-suggestions`. Stock rows still render if portfolio loading fails.
 - Intended display: show backend-provided `displayedPrice`, `displayedPercentChange`, `displayedMarketTime`,
   `targetDisplayMarketTime`, `priceFreshnessStatus`, and `priceSource`.
 - Legacy `currentPrice`, `percentChange`, and `lastUpdated` are compatibility fields, not preferred display fields.
@@ -127,7 +136,7 @@ depending on tab history.
 
 - Backend: `GET /api/stocks/{symbol}`, `GET /api/stocks/{symbol}/history`.
 - Use case: US009 View Stock Market Data.
-- Sections: fixed dynamic header, market notice marquee, compact quote panel, history summary/list, AI explanation
+- Sections: fixed dynamic header, market notice marquee, compact quote panel, interactive history chart, AI explanation
   drawer, and practice trade footer.
 - Fixed header states:
   1. blank title area at top;
@@ -137,8 +146,13 @@ depending on tab history.
 - Quote panel: symbol/company, market status, displayed price, tight `▲`/`▼` direction marker, absolute change, percent
   change, High, Low, and full Volume when backend fields are present.
 - Use `priceFreshnessStatus`, `isPriceAvailable`, and `dataNote` for unavailable or fallback delayed data states.
+- Chart: visible timeframes are `1D`, `5D`, `1M`, `3M`, `YTD`, and `1Y`; `7D` is hidden from the frontend selector.
+  `1D` and `5D` are line-only. Daily timeframes show a line/candle toggle only when backend
+  `candlestickSupported=true`.
 - Empty: empty chart state if backend returns no points.
-- Guardrail: chart must show timeframe and data/fallback notes when available. The UI may refetch about once per displayed minute during market display hours, but it must not imply immediate market data.
+- Guardrail: chart must use backend points exactly, never synthesize missing rows, and never fake candlesticks by copying
+  close into open/high/low. Normal page scroll takes priority; selected point details appear only during intentional
+  chart focus/long-press and update the chart overlay only, not the main quote header.
 - Detail `highPrice`/`lowPrice` describe the displayed/latest day range. `analysisDataSource`, `snapshotHighPrice`,
   `snapshotLowPrice`, and `snapshotTimeframe` describe the latest analysis snapshot.
 - `1D` history can return stored intraday chart rows even when quote metadata uses daily fallback during pre-open.
@@ -150,7 +164,8 @@ depending on tab history.
 
 ### AI Explanation
 
-- Backend: `GET /api/stocks/{symbol}/ai-explanation?timeframe=1D|7D|1M|3M`.
+- Backend: `GET /api/stocks/{symbol}/ai-explanation?timeframe=1D|5D|1M|3M` for the current frontend drawer.
+  Backend-compatible `7D` may still exist, but the visible chart/explanation UI uses `5D`.
 - Use case: US012 View AI Stock Explanation.
 - Sections: drawer row titled `View AI Stock Explanation` or `Close AI Stock Explanation`, educational disclaimer,
   explanation, and data window.
@@ -176,8 +191,9 @@ depending on tab history.
 - Sections: fixed Portfolio header, fixed `Assets` and `History` top tabs, account/portfolio summary, valuation
   warnings, positions table, stock-scoped guarded buy/sell ticket, reset bottom sheet, transaction list, and
   transaction detail.
-- Assets: show `Net Assets · USD`, Holdings Value, Unrealized P/L, optional Cash/Fees/Session/Last reset, `View Stocks`,
-  and `Reset Portfolio`. Do not show Today P/L or Today P/L% until backend fields with that exact meaning exist.
+- Assets: show `Net Assets · USD`, Holdings Value, Today's P/L, Today's P/L %, optional Remaining Cash, Fees Paid,
+  total `P/L`, Session/Last reset, `View Stocks`, and `Reset Portfolio`. Main Portfolio `P/L` uses backend
+  `totalProfitLoss`; Today's P/L uses backend `todayProfitLoss`.
 - Empty: no positions yet, show `View Stock Page`; buy entry comes from Stock rows/detail, not a generic portfolio buy
   selector.
 - Guardrail: every buy, sell, and reset requires confirmation. BUY/SELL request bodies must contain only `symbol` and
@@ -195,9 +211,11 @@ depending on tab history.
 - Submit success: successful buy/sell redirects to `/paper-trading?tab=history`.
 - Reset: use the reset-card bottom sheet with dim backdrop and slide-up/down behavior. The sheet says simulated cash
   returns to starting balance, open positions are cleared, a new session starts, and the action cannot be undone.
-- History: `/paper-trading/transactions` opens/reuses the `History` tab. Load about 50 rows, filter loaded rows locally
-  by side and symbol/company, and show `Action`, `Stock`, `Price/Qty`, and `P/L`. Handle `RESET` / `symbol=null` rows
-  as portfolio/session reset records without stock links or price assumptions.
+- History: `/paper-trading/transactions` opens/reuses the `History` tab. Load paged transactions with default
+  `page=0`, `size=20`, and `currentSessionOnly=true`; `Load more` appends later pages. Side `ALL` omits the backend
+  side filter, exact supported symbols may be sent to the backend, and partial search remains local over loaded rows.
+  Show `Action`, `Stock`, `Price/Qty`, and `P/L`. Handle `RESET` / `symbol=null` rows as portfolio/session reset
+  records without stock links or price assumptions.
 - Price concept: practice trades must use the backend-decided delayed stored price. The frontend must not send or invent
   execution price.
 - Refresh: Portfolio and History soft refresh on focus and minute boundary without clearing visible data, scroll/input

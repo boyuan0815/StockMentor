@@ -89,7 +89,7 @@ export function AiExplanationDrawer({
     setLoadedSymbol(null);
     setLoadedTimeframe(null);
     setLoading(false);
-  }, [symbol]);
+  }, [symbol, timeframe]);
 
   useEffect(() => {
     if (!open || !supported) {
@@ -183,7 +183,7 @@ export function AiExplanationDrawer({
             )
           ) : (
             <Text selectable style={styles.mutedText}>
-              AI explanation is available for 1D, 7D, 1M, and 3M only.
+              AI explanation is available for 1D, 5D, 1M, and 3M only.
             </Text>
           )}
         </View>
@@ -225,7 +225,9 @@ const styles = StyleSheet.create({
   body: {
     borderTopColor: Colors.light.border,
     borderTopWidth: 1,
-    padding: Spacing.sm,
+    paddingBottom: Spacing.xxl + Spacing.xl,
+    paddingHorizontal: Spacing.sm,
+    paddingTop: Spacing.sm,
   },
   loadingRow: {
     alignItems: 'center',

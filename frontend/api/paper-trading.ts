@@ -4,6 +4,7 @@ import type {
   PaperPortfolioResponse,
   PaperTradeExecutionResponse,
   PaperTradeRequest,
+  PaperTradeTransactionPageResponse,
   PaperTradeTransactionResponse,
   PaperTradingAccountResponse,
 } from '@/types/paper-trading';
@@ -11,9 +12,12 @@ import { normalizeStockSymbol } from '@/utils/stock-display';
 
 type TransactionFilters = {
   currentSessionOnly?: boolean;
+  from?: string | null;
+  page?: number;
   side?: string | null;
   size?: number;
   symbol?: string | null;
+  to?: string | null;
 };
 
 export const paperTradingApi = {
@@ -74,6 +78,35 @@ export const paperTradingApi = {
 
     return apiRequest<PaperTradeTransactionResponse[]>(
       `/api/paper-trading/transactions?${params.toString()}`,
+      {
+        credentials,
+      },
+    );
+  },
+
+  getTransactionsPage(credentials: BasicAuthCredentials, filters: TransactionFilters = {}) {
+    const params = new URLSearchParams();
+    params.set('page', String(filters.page ?? 0));
+    params.set('size', String(filters.size ?? 20));
+
+    if (filters.currentSessionOnly !== undefined) {
+      params.set('currentSessionOnly', String(filters.currentSessionOnly));
+    }
+    if (filters.side && filters.side !== 'ALL') {
+      params.set('side', filters.side);
+    }
+    if (filters.symbol) {
+      params.set('symbol', normalizeStockSymbol(filters.symbol));
+    }
+    if (filters.from) {
+      params.set('from', filters.from);
+    }
+    if (filters.to) {
+      params.set('to', filters.to);
+    }
+
+    return apiRequest<PaperTradeTransactionPageResponse>(
+      `/api/paper-trading/transactions/page?${params.toString()}`,
       {
         credentials,
       },

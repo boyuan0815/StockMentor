@@ -73,7 +73,7 @@ export function OnboardingScreen() {
 
   useEffect(() => {
     if (isManualCompletedVisit) {
-      router.replace('/dashboard');
+      router.replace('/watchlist');
       return;
     }
 

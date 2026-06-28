@@ -53,13 +53,15 @@ export function ToastProvider({ children }: PropsWithChildren) {
       <View style={styles.root}>
         {children}
         {toast ? (
-          <View
-            accessibilityLiveRegion="polite"
-            pointerEvents="none"
-            style={[styles.toast, getToastStyle(toast.tone)]}>
-            <Text selectable style={[styles.toastText, getToastTextStyle(toast.tone)]}>
-              {toast.message}
-            </Text>
+          <View pointerEvents="box-none" style={styles.overlay}>
+            <View
+              accessibilityLiveRegion="polite"
+              pointerEvents="none"
+              style={[styles.toast, getToastStyle(toast.tone)]}>
+              <Text selectable style={[styles.toastText, getToastTextStyle(toast.tone)]}>
+                {toast.message}
+              </Text>
+            </View>
           </View>
         ) : null}
       </View>
@@ -96,43 +98,45 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  toast: {
-    alignSelf: 'center',
-    borderRadius: Radius.md,
-    borderWidth: 1,
+  overlay: {
+    alignItems: 'center',
+    bottom: 0,
     justifyContent: 'center',
-    left: Spacing.xl,
-    maxWidth: 520,
-    minHeight: 58,
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.lg,
+    left: 0,
     position: 'absolute',
-    right: Spacing.xl,
-    top: '44%',
+    right: 0,
+    top: 0,
     zIndex: 50,
   },
+  toast: {
+    alignSelf: 'center',
+    borderRadius: Radius.sm,
+    justifyContent: 'center',
+    maxWidth: 320,
+    minHeight: 34,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
   neutralToast: {
-    backgroundColor: '#052344',
-    borderColor: '#0B3A63',
-    elevation: 10,
+    backgroundColor: 'rgba(15, 23, 42, 0.9)',
+    elevation: 5,
     shadowColor: '#020617',
-    shadowOffset: { height: 10, width: 0 },
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
+    shadowOffset: { height: 6, width: 0 },
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
   },
   errorToast: {
-    backgroundColor: '#052344',
-    borderColor: '#FDA4AF',
-    elevation: 10,
+    backgroundColor: 'rgba(127, 29, 29, 0.92)',
+    elevation: 5,
     shadowColor: '#020617',
-    shadowOffset: { height: 10, width: 0 },
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
+    shadowOffset: { height: 6, width: 0 },
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
   },
   toastText: {
-    fontSize: 16,
-    fontWeight: '500',
-    lineHeight: 22,
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 18,
     textAlign: 'center',
   },
   neutralToastText: {

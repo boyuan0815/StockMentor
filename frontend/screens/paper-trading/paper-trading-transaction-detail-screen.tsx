@@ -88,6 +88,9 @@ export function PaperTradingTransactionDetailScreen({
   );
 
   const reset = transaction ? isResetTransaction(transaction) : false;
+  const realizedProfitLoss = transaction
+    ? transaction.realizedProfitLossAfterFees ?? transaction.realizedProfitLoss
+    : null;
 
   return (
     <ScrollView
@@ -136,8 +139,8 @@ export function PaperTradingTransactionDetailScreen({
               <FieldRow label="Net amount" value={formatPaperMoney(transaction.netAmount ?? transaction.totalAmount)} />
               <FieldRow
                 label="Realized P/L"
-                toneValue={transaction.side === 'SELL' ? transaction.realizedProfitLoss : undefined}
-                value={transaction.side === 'SELL' ? formatSignedPaperMoney(transaction.realizedProfitLoss) : '-'}
+                toneValue={transaction.side === 'SELL' ? realizedProfitLoss : undefined}
+                value={transaction.side === 'SELL' ? formatSignedPaperMoney(realizedProfitLoss) : '-'}
               />
             </>
           ) : null}

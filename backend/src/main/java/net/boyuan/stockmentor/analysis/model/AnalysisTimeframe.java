@@ -2,6 +2,7 @@ package net.boyuan.stockmentor.analysis.model;
 
 public enum AnalysisTimeframe {
     ONE_DAY("1D", 1),
+    FIVE_DAYS("5D", 5),
     SEVEN_DAYS("7D", 7),
     ONE_MONTH("1M", 21),
     THREE_MONTHS("3M", 63);

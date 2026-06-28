@@ -115,8 +115,8 @@ export function OnboardingResultScreen() {
       )}
 
       <View style={styles.actions}>
-        <Link href={'/dashboard' as Href} asChild>
-          <ActionButton disabled={!hasProfile} label="Go to dashboard" />
+        <Link href={'/watchlist' as Href} asChild>
+          <ActionButton disabled={!hasProfile} label="Go to Watchlist" />
         </Link>
         <Link href={'/profile' as Href} asChild>
           <ActionButton label="View full profile" variant="secondary" />

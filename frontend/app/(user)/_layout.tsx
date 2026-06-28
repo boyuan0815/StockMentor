@@ -27,7 +27,7 @@ export default function UserLayout() {
           },
         }}>
         <Tabs.Screen
-          name="dashboard"
+          name="watchlist"
           options={{
             title: 'Watchlist',
             tabBarIcon: ({ color }) => <IconSymbol name="heart.fill" color={color} />,
@@ -87,6 +87,7 @@ export default function UserLayout() {
         <Tabs.Screen name="stocks/[symbol]" options={{ href: null }} />
         <Tabs.Screen name="stocks/[symbol]/explanation" options={{ href: null }} />
         <Tabs.Screen name="stocks/search-context" options={{ href: null }} />
+        <Tabs.Screen name="dashboard" options={{ href: null }} />
         <Tabs.Screen name="paper-trading/buy" options={{ href: null }} />
         <Tabs.Screen name="paper-trading/sell" options={{ href: null }} />
         <Tabs.Screen name="paper-trading/transactions" options={{ href: null }} />

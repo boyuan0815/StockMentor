@@ -22,7 +22,6 @@ import { SkeletonRows } from '@/components/foundation/skeleton-block';
 import { AiExplanationDrawer } from '@/components/stocks/ai-explanation-drawer';
 import { StockHistoryView } from '@/components/stocks/stock-history-view';
 import { StockMarketNotice } from '@/components/stocks/stock-market-notice';
-import { TimeframeSelector } from '@/components/stocks/timeframe-selector';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Spacing } from '@/constants/theme';
 import { useMinuteBoundaryRefresh } from '@/hooks/use-minute-boundary-refresh';
@@ -270,7 +269,7 @@ export function StockDetailScreen({
     }
 
     if (returnTo === 'watchlist') {
-      router.replace('/dashboard' as Href);
+      router.replace('/watchlist' as Href);
       return;
     }
 
@@ -429,7 +428,7 @@ export function StockDetailScreen({
         contentContainerStyle={[
           styles.content,
           {
-            paddingBottom: Math.max(70, insets.bottom + 58),
+            paddingBottom: Math.max(54, insets.bottom + 46),
             paddingTop: headerHeight,
           },
         ]}
@@ -491,30 +490,30 @@ export function StockDetailScreen({
                 }}
               />
             </View>
+            <View style={styles.priceDividerGap} />
 
             <View style={styles.historySection}>
               <View style={styles.sectionHeader}>
                 <Text selectable style={styles.sectionTitle}>
-                  History
+                  Chart
                 </Text>
               </View>
-              <TimeframeSelector
-                onSelect={handleSelectTimeframe}
-                pending={isHistoryLoading}
-                selectedTimeframe={selectedTimeframe}
-                timeframes={STOCK_TIMEFRAMES}
-              />
               <StockHistoryView
                 errorMessage={historyError}
                 history={history}
                 loading={isHistoryLoading}
+                onSelectTimeframe={handleSelectTimeframe}
                 onRetry={() => void loadHistory(selectedTimeframe)}
+                pendingTimeframe={isHistoryLoading}
+                selectedTimeframe={selectedTimeframe}
+                timeframes={STOCK_TIMEFRAMES}
               />
             </View>
 
             <View onLayout={(event) => setAiSectionY(event.nativeEvent.layout.y)}>
               <AiExplanationDrawer
                 credentials={credentials}
+                key={`${detail.symbol}-${selectedTimeframe}`}
                 onContentReady={scrollToAiSection}
                 onOpen={scrollToAiSection}
                 symbol={detail.symbol}
@@ -802,11 +801,14 @@ const styles = StyleSheet.create({
   },
   pricePanel: {
     backgroundColor: Colors.light.surface,
-    borderBottomColor: Colors.light.border,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0,
     gap: Spacing.sm,
     paddingHorizontal: Spacing.md,
     paddingVertical: 9,
+  },
+  priceDividerGap: {
+    backgroundColor: '#F1F5F9',
+    height: Spacing.xs,
   },
   identityCopy: {
     gap: 2,
@@ -907,10 +909,13 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.lg,
   },
   sectionTitle: {
     color: Colors.light.text,
-    fontSize: 17,
+    fontSize: 19,
     fontWeight: '700',
   },
   pills: {
@@ -919,7 +924,9 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   historySection: {
-    gap: Spacing.md,
+    gap: Spacing.sm,
+    marginTop: 0,
+    paddingBottom: Spacing.sm,
   },
   footer: {
     backgroundColor: 'transparent',

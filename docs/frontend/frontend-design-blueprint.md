@@ -24,10 +24,10 @@ It should be read with:
 - The Spring Boot backend is the only source of app data.
 
 The current `frontend/` folder has the Phase 1 StockMentor route shell and API core, the landed Phase 2B/2.5 account
-experience, and the Phase 3B stock-learning UI: Watchlist, Stocks, Search, stock detail, history summary/list,
-watchlist actions, safe storage for search history/latest viewed stocks, and on-demand AI explanation drawer. Future
-frontend work should build on that foundation rather than returning to Expo starter routes or older card-heavy stock
-screens.
+experience, stock-learning UI, interactive stock charts, watchlist edit/reorder, paper-trading Portfolio/History/ticket
+flows, safe storage for search history/latest viewed stocks, and the on-demand AI explanation drawer. Full AI
+Suggestions UI and the admin web/tablet console remain future phases. Future frontend work should build on the current
+implementation rather than returning to Expo starter routes or older card-heavy stock screens.
 
 ## Final Use Case Map
 
@@ -176,9 +176,15 @@ frontend/app/
   (user)/
     _layout.tsx
     dashboard.tsx
+    watchlist/
+      _layout.tsx
+      index.tsx
+      edit.tsx
     stocks/index.tsx
     stocks/[symbol].tsx
     stocks/[symbol]/explanation.tsx
+    stocks/search.tsx
+    stocks/search-context.tsx
     suggestions/index.tsx
     paper-trading/index.tsx
     paper-trading/buy.tsx
@@ -291,14 +297,16 @@ Use this ownership model during implementation:
 
 ## History And Chart Direction
 
-Phase 3B ships a compact history summary/list because no chart dependency is part of the approved baseline. A real line
-or candlestick chart requires a separate dependency task.
+Stock detail now uses an interactive chart implementation.
 
-- Show selected timeframe.
-- Show data source and fallback notes when available.
+- Frontend chart timeframes are `1D`, `5D`, `1M`, `3M`, `YTD`, and `1Y`; backend-compatible `7D` is hidden from the
+  visible selector.
+- `1D` and `5D` use backend intraday points and are line-only.
+- `1M`, `3M`, `YTD`, and `1Y` use backend daily points and may show candle mode only when backend
+  `candlestickSupported=true`.
+- Candle mode must use real backend OHLC only; never fake candles by copying close into open/high/low.
 - Do not add advanced trading indicators.
-- Candlestick charts are optional only if easy later.
-- The history display should help beginners understand movement, not simulate a professional trading terminal.
+- The chart should help beginners inspect stored educational movement, not simulate a professional trading terminal.
 - During the active delayed display window, the latest visible intraday point should normally be no later than the
   backend-decided displayed market time, about 15 minutes behind current New York market time.
 - The frontend must not silently invent or fill missing 1-minute candles.

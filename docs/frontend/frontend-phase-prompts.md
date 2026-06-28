@@ -1,624 +1,385 @@
 # StockMentor Frontend Phase Prompts
 
-Copy one prompt into a fresh Codex chat for the matching implementation phase. Each prompt assumes no previous chat
-memory. The future Codex session must inspect the current codebase before editing because frontend files may differ from
-this plan.
+This file is the current future-work guide for StockMentor frontend sessions. It is written for fresh Codex chats with
+no prior memory.
 
-Do not create branches or worktrees unless the user explicitly asks in that future chat. Suggested branch/worktree names
-are guidance only.
+Future sessions must inspect the live repository before editing. The current implementation has moved ahead of the
+original phase order: stock learning, interactive charts, watchlist edit, paper trading, portfolio history pagination,
+and the Stocks portfolio card are already implemented in the working tree after backend commit
+`feat(backend): complete market display and paper trading contracts`.
 
-Skills named in the prompts are already installed locally under `.agents/skills/`. Future Codex chats may read the
-relevant `SKILL.md` and reference files as guidance, but must not install skills or edit, stage, or commit `.agents/` or
-`skills-lock.json`.
+Do not create branches or worktrees unless the user explicitly asks. Do not stage or commit unless the user explicitly
+asks. Do not modify `.agents/`, `skills-lock.json`, protected package/lock files, or `frontend/.gitignore` unless the
+user explicitly scopes that work.
 
-## How Future Codex Chats Should Use These Prompts
+## Fresh Worktree Rules
 
-When a future user pastes a phase prompt into Codex, Codex should start by inspecting the repo and reading the listed
-docs/files. For named skills, read the relevant local `.agents/skills/<skill>/SKILL.md` files and directly relevant
-reference files; `.agents/skills/` contains already installed local guidance files, not app source code, package
-dependencies, or runtime files. Start with an implementation plan and wait for user approval before editing unless the
-user explicitly says to implement immediately. Verify backend endpoints and DTOs before implementing API calls. Avoid
-broad rewrites, follow existing project style, keep changes scoped to the phase, and never edit, stage, or commit
-`.agents/` or `skills-lock.json`.
+Every future Codex session should start by reading:
 
-## Phase 1 Prompt: Frontend Foundation, Route Shell, And API Core
+- `AGENTS.md`
+- `docs/frontend/frontend-phase-prompts.md`
+- `docs/frontend/frontend-implementation-master-plan.md`
+- `docs/frontend/frontend-implementation-roadmap.md`
+- `docs/frontend/backend-api-screen-map.md`
+- `docs/frontend/api-integration-guide.md`
+- `docs/frontend/mobile-user-flow.md`
+- `docs/frontend/design-system.md`
+- `docs/frontend/interaction-guardrails.md`
+- `docs/frontend/frontend-testing-checklist.md`
+- `frontend/package.json`
+- the current implementation files touched by the requested task
+
+Before implementing API calls, verify the backend endpoints and DTO records in the current checkout. Treat code as the
+source of truth if docs drift. Report manual testing gaps honestly; do not claim device/simulator verification unless it
+was actually run.
+
+## Current Implementation Snapshot
+
+Based on the current codebase after the backend contract commit and the uncommitted frontend pass:
+
+- Stack: Expo SDK 54, React Native 0.81, Expo Router, TypeScript.
+- Auth/onboarding/profile: implemented with Basic Auth, `/api/auth/me` bootstrap, onboarding gate, onboarding quiz,
+  profile/result, and logout.
+- Visible beginner tabs: `Watchlist`, `Stocks`, `Suggestions`, `Portfolio`, `Profile`, `Search`.
+- Hidden routes: stock detail, stock search context, stock explanation compatibility route, paper buy/sell tickets,
+  paper transactions, transaction detail, and nested watchlist edit.
+- Watchlist: implemented as the first tab with fixed `Watchlists` header, market notice, compact table, add/remove,
+  minute-boundary refresh, and lightweight `Add Symbol` / `Edit List` actions.
+- Watchlist edit: implemented as a nested stacked route under `/watchlist/edit`, using `react-native-draggable-flatlist`
+  for reorder, checkboxes for batch remove, `Top`, local search, and backend reorder/batch-remove endpoints.
+- Stocks: implemented with compact stock table, independent portfolio summary card above rows, placeholder-only `AI
+  Picks`, `Watchlist` action, and reset-card bottom sheet.
+- Stock detail: implemented with delayed quote panel, interactive `react-native-wagmi-charts` line/candle chart, visible
+  chart timeframes `1D`, `5D`, `1M`, `3M`, `YTD`, `1Y`, and hidden backend-compatible `7D`.
+- Chart rules: `1D` and `5D` are line-only; daily timeframes can show candle mode only when backend
+  `candlestickSupported=true`; the frontend uses backend points exactly and never fakes OHLC.
+- AI explanation: implemented as on-demand drawer for `1D`, `5D`, `1M`, and `3M`; `YTD` and `1Y` show unsupported copy.
+- AI suggestions: bottom tab/placeholder exists, but full suggestions list, refresh, dismiss, and add-to-watchlist flow
+  are still pending.
+- Portfolio/paper trading: implemented with `Assets`/`History`, backend P/L fields, stock-scoped buy/sell tickets,
+  reset-card bottom sheet, transaction detail, paged history with `size=20`, side filter, and exact-symbol backend
+  filter.
+- Admin console: route shell/placeholders exist, but tablet/web admin screens are still pending.
+- Major frontend dependencies now present: `react-native-wagmi-charts`, `react-native-svg`,
+  `react-native-draggable-flatlist`, `react-native-reanimated`, `react-native-gesture-handler`, and
+  `react-native-worklets`.
+- Intentionally deferred: full AI Suggestions UI, admin web/tablet console, MY/HK real market data, real broker trading,
+  live streaming market data, margin/options/news/community/admin extras outside the documented admin scope.
+
+## Phase Status Matrix
+
+| Phase | Original Goal | Current Status | Evidence From Code | Remaining Work | Recommended Next Action |
+|---|---|---|---|---|---|
+| Foundation | Route shell, API core, providers, theme, placeholders | Completed | `frontend/app`, providers, API client, theme/util files | Maintain only | Keep as baseline; avoid rewrites |
+| Auth / Onboarding / Profile | Login/register/bootstrap/onboarding/profile | Completed | auth routes, onboarding screens, profile screen, `auth-routing.ts` | Manual regression only | Include in final regression pass |
+| Stock learning | Watchlist, Stocks, Search, detail, delayed data, AI explanation | Completed with polish still possible | `dashboard-screen.tsx`, stock list/detail/search screens, stock API/types | Manual HCI polish as needed | Treat as implemented; do not schedule as full phase |
+| Interactive charts | Real line/candle charts and `5D` support | Completed with performance/HCI sensitivity | `stock-history-view.tsx`, chart deps in `package.json` | Device performance verification | Keep as regression-polish item |
+| Watchlist edit | Reorder and batch remove support | Completed with HCI sensitivity | nested `/watchlist/edit`, `watchlist-edit-screen.tsx`, watchlist API | Device drag/drop verification | Keep as regression-polish item |
+| Paper trading / Portfolio | Portfolio, buy/sell, reset, history, transactions | Completed with manual polish possible | paper-trading screens/API/types | Device regression and edge cases | Treat as implemented; do not schedule as full phase |
+| Stock list portfolio card | Net Assets tier card and reset entry | Completed with visual polish possible | `stock-list-screen.tsx`, reset card sheet | Screenshot-driven HCI polish | Keep as optional correction pass only |
+| AI Suggestions UI | Suggestions list, refresh, cooldown, dismiss/watchlist actions | Partially completed | `suggestions/index` route exists; full API/UI flow not implemented | Implement full US006 UI | Recommended next feature phase |
+| Admin console | Web/tablet admin dashboard, users, AI monitoring, stock maintenance | Not started beyond shell/placeholders | admin docs/routes only | Implement admin web/tablet screens | Do after AI Suggestions or as separate phase |
+| Final integration | Expo/device regression, accessibility, demo polish | Not started as a final pass | checklist docs only | Full end-to-end verification | Run after AI Suggestions/Admin |
+
+## Reorganized Future Phase Prompts
+
+The old phase order is no longer accurate. Use the prompts below for future work.
+
+### Phase A Prompt: Documentation Sync And Commit Prep
 
 ```text
-Use `building-native-ui`, `native-data-fetching`, and `frontend-design`.
+Use superpowers: writing-plans, executing-plans, requesting-code-review.
+This is documentation-only, so test-driven-development should normally not be used.
+@ponytail full
+After documentation diff, run @ponytail-review.
+Work in the current StockMentor repo. Do not create a branch/worktree. Do not stage or commit unless I explicitly ask.
 
-For the listed skills, read the relevant local `.agents/skills/<skill>/SKILL.md` files and any directly relevant
-reference files. Use them as guidance only; do not modify, stage, or commit `.agents/` or `skills-lock.json`.
+Goal:
+- Inspect the current uncommitted diff.
+- Verify docs match the current code.
+- Update only stale docs.
+- Suggest a commit message for the whole current diff.
 
-Task: Implement StockMentor frontend foundation, route shell, and API core only.
-
-Suggested branch/worktree name: `frontend-foundation-shell`. Do not create a branch or worktree unless I
-explicitly ask. Do not stage or commit.
-
-Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
-propose the implementation plan. Wait for my approval before editing files unless I explicitly tell you to implement
-immediately.
-
-Before editing, inspect the current codebase because frontend files may differ from the plan. Read:
+Read first:
 - AGENTS.md
-- docs/frontend/frontend-implementation-master-plan.md
 - docs/frontend/frontend-phase-prompts.md
-- docs/frontend/frontend-skill-usage-guide.md
-- docs/frontend/frontend-design-blueprint.md
 - docs/frontend/backend-api-screen-map.md
-- docs/frontend/api-integration-guide.md
-- docs/frontend/design-system.md
-- docs/frontend/interaction-guardrails.md
-- docs/frontend/frontend-environment-guide.md
-- frontend/package.json
-- frontend/app and existing frontend scaffold files
-- relevant backend auth DTO/controller files for `/api/auth/login` and `/api/auth/me`
-
-Before implementing API calls, verify that the relevant backend endpoints and DTOs actually exist in the current
-codebase. If code differs from docs, do not invent frontend calls; implement only the verified surface or ask for
-confirmation.
-
-Implementation style:
-- Make the smallest coherent changes needed for this phase.
-- Follow existing frontend file naming, import style, component style, and TypeScript conventions.
-- Keep route files thin; put reusable components, API functions, hooks, utilities, and types outside `frontend/app`.
-- Do not silently introduce mock data into real app flows.
-- Prefer clear beginner-friendly copy over trading-terminal wording.
-- Temporary local `console.log` debugging is acceptable while diagnosing, but do not leave noisy logs in final code and
-  never log credentials, `Authorization`, `X-Admin-Token`, passwords, API keys, or secrets.
-
-Scope:
-- Replace starter route structure with StockMentor route groups and placeholder screens.
-- Add root providers, theme tokens, base layout components, auth/session provider, route guards, and API client core.
-- Add typed DTO foundations and error normalization.
-- Use `EXPO_PUBLIC_API_BASE_URL`.
-- Keep components, API, hooks, utilities, and types outside `frontend/app`.
-
-Non-scope:
-- Do not implement full auth/onboarding screens, stock screens, paper trading, AI suggestions, or admin tables.
-- Do not modify backend files, frontend package files, lock files, `.agents/`, `skills-lock.json`, or unrelated docs.
-- Do not call OpenAI, Twelve Data, scheduler/backfill internals, or paper-trading internals.
-- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
-
-Dependency policy:
-- Default: do not install dependencies.
-- You may recommend React Query for server state if it clearly benefits this phase.
-- Do not install React Query or mutate package/lock files in this phase. If it is needed, report it as a specific
-  recommendation for a separate user-approved dependency task.
-
-Verification:
-- Run `git diff --check`.
-- Run frontend lint/type checks available in the repo, such as `npm run lint` from `frontend`, if dependencies are
-  already installed.
-- Smoke-check Expo Go or Expo Web only if practical and non-destructive.
-- Run `git status --short`.
-
-Final handoff must report files changed, features completed, known limitations, manual test results, verification
-commands run, skipped verification and why if any, backend endpoint/DTO mismatches found if any, next-phase notes,
-whether any dependency was added or recommended, and confirmation nothing was staged or committed.
-```
-
-## Phase 2 Prompt: Auth, Role Routing, Onboarding, And Profile
-
-```text
-Use `building-native-ui`, `native-data-fetching`, `frontend-design`, and `accessibility`.
-
-For the listed skills, read the relevant local `.agents/skills/<skill>/SKILL.md` files and any directly relevant
-reference files. Use them as guidance only; do not modify, stage, or commit `.agents/` or `skills-lock.json`.
-
-Task: Implement StockMentor auth, role routing, onboarding, and profile screens.
-
-Suggested branch/worktree name: `frontend-auth-onboarding-profile`. Do not create a branch or worktree unless I
-explicitly ask. Do not stage or commit.
-
-Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
-propose the implementation plan. Wait for my approval before editing files unless I explicitly tell you to implement
-immediately.
-
-Before editing, inspect the current codebase because frontend files may differ from the plan. Read:
-- AGENTS.md
-- docs/frontend/frontend-implementation-master-plan.md
-- docs/frontend/frontend-phase-prompts.md
-- docs/frontend/frontend-skill-usage-guide.md
-- docs/frontend/frontend-design-blueprint.md
 - docs/frontend/mobile-user-flow.md
-- docs/frontend/backend-api-screen-map.md
-- docs/frontend/api-integration-guide.md
 - docs/frontend/design-system.md
-- docs/frontend/interaction-guardrails.md
-- frontend/app and existing auth/session/API files from Phase 1
-- backend auth and user profile controller/DTO files
-
-Before implementing API calls, verify that the relevant backend endpoints and DTOs actually exist in the current
-codebase. If code differs from docs, do not invent frontend calls; implement only the verified surface or ask for
-confirmation.
-
-Implementation style:
-- Make the smallest coherent changes needed for this phase.
-- Follow existing frontend file naming, import style, component style, and TypeScript conventions.
-- Keep route files thin; put reusable components, API functions, hooks, utilities, and types outside `frontend/app`.
-- Do not silently introduce mock data into real app flows.
-- Prefer clear beginner-friendly copy over trading-terminal wording.
-- Temporary local `console.log` debugging is acceptable while diagnosing, but do not leave noisy logs in final code and
-  never log credentials, `Authorization`, `X-Admin-Token`, passwords, API keys, or secrets.
-
-Scope:
-- Implement welcome, register, login, auth bootstrap through `GET /api/auth/me`, role routing, onboarding quiz,
-  onboarding result/profile, retake confirmation, and logout.
-- Use Basic Auth for MVP.
-- Route `ADMIN` users to the admin shell, beginners with `mustCompleteOnboarding=true` to onboarding, and completed
-  beginners to the dashboard.
-- Add loading, empty, validation, 401/403/409, backend unavailable, and duplicate-submit states.
-- Keep auth forms keyboard-aware, preserve failed-submit input, avoid route-level loading unmounts during submit, and
-  avoid unnecessary scroll/bounce when content fits.
-- Respect iOS safe-area and Dynamic Island insets; custom auth/onboarding page identity must not sit under system UI.
-- After a first invalid submit, live-validate account fields until all fields are valid, and make disabled submit
-  buttons visually disabled.
-- Onboarding should use a mobile-friendly one-question-at-a-time flow, validate every backend-returned question before
-  submit, and avoid displaying duplicated option label/description text.
-- Keep onboarding Back/Next/Finish controls fixed at the bottom safe area, use compact selected-state affordances that
-  cannot overflow, and show a clear processing state during final save.
-- If onboarding final submit times out or reports an account-state mismatch, offer a refresh-account recovery path and
-  route out of the quiz when `GET /api/auth/me` shows onboarding is complete.
-- Validate login/register field formats on the client before requests when backend rules are known.
-- Use beginner-proof recovery: preserve input, keep long-form page identity visible, and map backend-known duplicate or
-  validation errors to the exact field whenever possible.
-- Avoid user-facing implementation disclaimers in loading or processing states when they add cognitive load without
-  helping the user recover.
-- Do not enable forgot-password UI unless the backend has a verified reset-token or OTP contract; otherwise keep it
-  clearly future-scoped.
-
-Backend endpoints:
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-- `GET /api/user/onboarding/questions`
-- `POST /api/user/onboarding`
-- `POST /api/user/onboarding/retake`
-- `GET /api/user/profile`
-
-Non-scope:
-- Do not implement stock browsing, AI suggestions, paper trading, or admin console features beyond route placeholders.
-- Do not calculate risk scores, behavior profile, AI suggestions, or AI explanations in the frontend.
-- Do not modify backend files, frontend package files, lock files, `.agents/`, or `skills-lock.json`.
-- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
-
-Dependency policy:
-- Do not install dependencies.
-
-Verification:
-- Run register/login/bootstrap manual checks against the backend.
-- Test wrong credentials, inactive/forbidden style errors if available, onboarding gate, retake confirmation, and logout.
-- Run duplicate-submit checks on register/login/onboarding finish.
-- Run frontend lint/type checks available in the repo.
-- Run `git diff --check` and `git status --short`.
-
-Final handoff must report files changed, features completed, known limitations, manual test results, verification
-commands run, skipped verification and why if any, backend endpoint/DTO mismatches found if any, next-phase notes,
-whether any dependency was added or recommended, and confirmation nothing was staged or committed.
-```
-
-## Phase 3 Prompt: Beginner Stock Learning, Delayed Data, Chart, Watchlist, And AI Explanation
-
-```text
-Use `building-native-ui`, `native-data-fetching`, `frontend-design`, and `vercel-react-native-skills`.
-
-For the listed skills, read the relevant local `.agents/skills/<skill>/SKILL.md` files and any directly relevant
-reference files. Use them as guidance only; do not modify, stage, or commit `.agents/` or `skills-lock.json`.
-
-Task: Implement beginner stock learning screens with delayed educational market data, watchlist, chart, and AI
-explanation.
-
-Suggested branch/worktree name: `frontend-stock-learning`. Do not create a branch or worktree unless I explicitly
-ask. Do not stage or commit.
-
-Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
-propose the implementation plan. Wait for my approval before editing files unless I explicitly tell you to implement
-immediately.
-
-Before editing, inspect the current codebase because frontend files may differ from the plan. Read:
-- AGENTS.md
-- docs/frontend/frontend-implementation-master-plan.md
-- docs/frontend/frontend-phase-prompts.md
-- docs/frontend/frontend-skill-usage-guide.md
-- docs/frontend/mobile-user-flow.md
-- docs/frontend/backend-api-screen-map.md
-- docs/frontend/api-integration-guide.md
-- docs/frontend/design-system.md
-- docs/frontend/interaction-guardrails.md
 - docs/frontend/frontend-testing-checklist.md
-- frontend stock/home route and component areas from earlier phases
-- backend stock, history, watchlist, and AI explanation controller/DTO files
+- frontend/package.json
+- current changed files from `git status --short`
 
-Before implementing API calls, verify that the relevant backend endpoints and DTOs actually exist in the current
-codebase. If code differs from docs, do not invent frontend calls; implement only the verified surface or ask for
-confirmation.
-
-Implementation style:
-- Make the smallest coherent changes needed for this phase.
-- Follow existing frontend file naming, import style, component style, and TypeScript conventions.
-- Keep route files thin; put reusable components, API functions, hooks, utilities, and types outside `frontend/app`.
-- Do not silently introduce mock data into real app flows.
-- Prefer clear beginner-friendly copy over trading-terminal wording.
-- Temporary local `console.log` debugging is acceptable while diagnosing, but do not leave noisy logs in final code and
-  never log credentials, `Authorization`, `X-Admin-Token`, passwords, API keys, or secrets.
-
-Scope:
-- Preserve the current Phase 3B table-first stock UI standard.
-- Implement or extend Watchlist, Stocks, Search, stock detail, backend-returned history summary/list,
-  watchlist add/remove, and user-facing AI explanation drawer.
-- Use compact full-width tables instead of card-style stock rows.
-- Keep visible beginner tabs as `Watchlist`, `Stocks`, `Suggestions`, `Portfolio`, `Profile`, and `Search`.
-- Use hidden contextual search route `/stocks/search-context` and explicit return params for stock/detail/search/practice
-  navigation.
-- Prefer delayed fields: `displayedPrice`, `displayedPercentChange`, `displayedMarketTime`,
-  `targetDisplayMarketTime`, `priceFreshnessStatus`, `isPriceAvailable`, and `dataNote`.
-- Use `previousClose`, `displayedAbsoluteChange`, and `displayedVolume` only when the backend exposes them.
-- Treat legacy stock fields as compatibility/fallback only.
-- Use backend history points exactly as returned; do not fill or invent missing 1-minute candles.
-- Show "15-minute delayed educational market data" wording and educational AI disclaimers.
-- Do not show raw backend source/status/time values in compact stock rows.
-- Market notice should be a compact marquee strip that preserves full copy with no string slicing or ellipsis.
-- AI explanation must fetch only when the drawer is opened, use `View AI Stock Explanation` / `Close AI Stock
-  Explanation`, and hide backend cache/generated status messages.
-- Use `safe-storage.ts` for search history/latest viewed stocks; AsyncStorage failure must not red-screen.
-
-Backend endpoints:
-- `GET /api/stocks`
-- `GET /api/stocks/{symbol}`
-- `GET /api/stocks/{symbol}/history?timeframe=1D|5D|7D|1M|3M|YTD|1Y`
-- `GET /api/stocks/{symbol}/ai-explanation?timeframe=1D|7D|1M|3M`
-- `GET /api/watchlist`
-- `POST /api/watchlist/{symbol}`
-- `DELETE /api/watchlist/{symbol}`
-
-Non-scope:
-- Do not implement AI suggestion refresh, paper-trading buy/sell, admin stock maintenance, or backend changes.
-- Do not call Twelve Data or OpenAI directly.
-- Do not modify backend files, frontend package files, lock files, `.agents/`, or `skills-lock.json`.
-- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
-
-Dependency policy:
-- Default: do not install dependencies.
-- Do not install chart dependencies by default.
-- For MVP, first use existing dependencies and backend-returned points.
-- If existing dependencies cannot support a simple educational chart, implement a safe history summary/list and report a
-  specific chart-library recommendation for a separate user-approved dependency task.
-- Do not install a chart library in Phase 3 unless I explicitly approve it in this chat.
+Rules:
+- Do not modify frontend runtime files, backend runtime files, package files, lock files, `.agents/`, `skills-lock.json`,
+  or `frontend/.gitignore`.
+- If docs and code conflict, treat current code as source of truth.
+- Do not claim unverified manual testing.
 
 Verification:
-- Test stock list/detail/history, empty history response, timeframe changes, delayed badge/note, unavailable price
-  states, watchlist add/remove duplicate-tap prevention, and AI explanation unavailable state.
-- Confirm no direct Twelve Data/OpenAI calls.
-- Run frontend lint/type checks available in the repo.
-- Run `git diff --check` and `git status --short`.
+- `git diff --check`
+- `git diff --cached --name-only`
+- `git status --short .agents skills-lock.json frontend/.gitignore package.json package-lock.json`
+- Run frontend lint/typecheck only if package state and dependencies are available.
 
-Final handoff must report files changed, features completed, known limitations, manual test results, verification
-commands run, skipped verification and why if any, backend endpoint/DTO mismatches found if any, next-phase notes,
-whether any dependency was added or recommended, and confirmation nothing was staged or committed.
+Final report:
+- files changed
+- docs/code conflicts found
+- verification results
+- protected-file status
+- suggested commit message
+- confirmation nothing staged/committed
 ```
 
-## Phase 4 Prompt: AI Stock Suggestions
+### Phase B Prompt: AI Stock Suggestions Completion
 
 ```text
+Use superpowers: writing-plans, executing-plans, requesting-code-review.
+Use test-driven-development only for pure helper/logic changes where an existing test pattern exists.
+@ponytail full
+After implementation diff, run @ponytail-review.
+
 Use `building-native-ui`, `native-data-fetching`, and `frontend-design`.
 
-For the listed skills, read the relevant local `.agents/skills/<skill>/SKILL.md` files and any directly relevant
-reference files. Use them as guidance only; do not modify, stage, or commit `.agents/` or `skills-lock.json`.
+Task:
+Implement the full beginner AI Suggestions UI using the existing backend US006 endpoints. This is the recommended next
+feature phase from the current state.
 
-Task: Implement StockMentor AI stock suggestions screens and actions.
-
-Suggested branch/worktree name: `frontend-ai-suggestions`. Do not create a branch or worktree unless I explicitly
-ask. Do not stage or commit.
-
-Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
-propose the implementation plan. Wait for my approval before editing files unless I explicitly tell you to implement
-immediately.
-
-Before editing, inspect the current codebase because frontend files may differ from the plan. Read:
+Start by inspecting:
 - AGENTS.md
-- docs/frontend/frontend-implementation-master-plan.md
 - docs/frontend/frontend-phase-prompts.md
-- docs/frontend/frontend-skill-usage-guide.md
 - docs/frontend/backend-api-screen-map.md
 - docs/frontend/api-integration-guide.md
-- docs/frontend/design-system.md
-- docs/frontend/interaction-guardrails.md
 - docs/frontend/mobile-user-flow.md
-- frontend suggestions/component/API areas from earlier phases
-- backend stock AI suggestion controller/DTO files
+- docs/frontend/design-system.md
+- frontend/app/(user)/suggestions/index.tsx
+- frontend/api, frontend/types, frontend/screens, frontend/components
+- backend `StockAiSuggestionController` and AI suggestion DTO records
 
-Before implementing API calls, verify that the relevant backend endpoints and DTOs actually exist in the current
-codebase. If code differs from docs, do not invent frontend calls; implement only the verified surface or ask for
-confirmation.
-
-Implementation style:
-- Make the smallest coherent changes needed for this phase.
-- Follow existing frontend file naming, import style, component style, and TypeScript conventions.
-- Keep route files thin; put reusable components, API functions, hooks, utilities, and types outside `frontend/app`.
-- Do not silently introduce mock data into real app flows.
-- Prefer clear beginner-friendly copy over trading-terminal wording.
-- Temporary local `console.log` debugging is acceptable while diagnosing, but do not leave noisy logs in final code and
-  never log credentials, `Authorization`, `X-Admin-Token`, passwords, API keys, or secrets.
-
-Scope:
-- Implement suggestion list, remaining stocks, fallback/unavailable messaging, refresh action, cooldown display,
-  dismiss action, and watchlist suggestion action.
-- Respect `refreshAllowed` and `nextRefreshAllowedAt`.
-- Keep GET suggestions read-only/cache-only from the frontend perspective.
-- Use educational wording only.
-
-Backend endpoints:
+Verified endpoints:
 - `GET /api/stocks/ai-suggestions`
 - `POST /api/stocks/ai-suggestions/refresh`
 - `PATCH /api/stocks/ai-suggestions/items/{itemId}/dismiss`
 - `PATCH /api/stocks/ai-suggestions/items/{itemId}/watchlist`
 
-Non-scope:
-- Do not generate AI suggestions in the frontend.
-- Do not call OpenAI directly.
-- Do not calculate behavior profile in the frontend.
-- Do not modify backend files, frontend package files, lock files, `.agents/`, or `skills-lock.json`.
-- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
-
-Dependency policy:
-- Do not install dependencies.
-
-Verification:
-- Test cached suggestions, empty suggestions, refresh allowed, cooldown disabled, next refresh time, fallback copy,
-  dismiss/watchlist actions, and rapid-tap prevention.
-- Run frontend lint/type checks available in the repo.
-- Run `git diff --check` and `git status --short`.
-
-Final handoff must report files changed, features completed, known limitations, manual test results, verification
-commands run, skipped verification and why if any, backend endpoint/DTO mismatches found if any, next-phase notes,
-whether any dependency was added or recommended, and confirmation nothing was staged or committed.
-```
-
-## Phase 5 Prompt: Paper Trading Practice
-
-```text
-Use `building-native-ui`, `native-data-fetching`, `frontend-design`, and `vercel-react-native-skills`.
-
-For the listed skills, read the relevant local `.agents/skills/<skill>/SKILL.md` files and any directly relevant
-reference files. Use them as guidance only; do not modify, stage, or commit `.agents/` or `skills-lock.json`.
-
-Task: Implement StockMentor paper-trading account, portfolio, buy/sell, reset, and transactions.
-
-Suggested branch/worktree name: `frontend-paper-trading`. Do not create a branch or worktree unless I explicitly
-ask. Do not stage or commit.
-
-Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
-propose the implementation plan. Wait for my approval before editing files unless I explicitly tell you to implement
-immediately.
-
-Before editing, inspect the current codebase because frontend files may differ from the plan. Read:
-- AGENTS.md
-- docs/frontend/frontend-implementation-master-plan.md
-- docs/frontend/frontend-phase-prompts.md
-- docs/frontend/frontend-skill-usage-guide.md
-- docs/frontend/mobile-user-flow.md
-- docs/frontend/backend-api-screen-map.md
-- docs/frontend/api-integration-guide.md
-- docs/frontend/design-system.md
-- docs/frontend/interaction-guardrails.md
-- frontend paper-trading/API/component areas from earlier phases
-- backend paper-trading controller/DTO files
-
-Before implementing API calls, verify that the relevant backend endpoints and DTOs actually exist in the current
-codebase. If code differs from docs, do not invent frontend calls; implement only the verified surface or ask for
-confirmation.
-
-Implementation style:
-- Make the smallest coherent changes needed for this phase.
-- Follow existing frontend file naming, import style, component style, and TypeScript conventions.
-- Keep route files thin; put reusable components, API functions, hooks, utilities, and types outside `frontend/app`.
-- Do not silently introduce mock data into real app flows.
-- Prefer clear beginner-friendly copy over trading-terminal wording.
-- Temporary local `console.log` debugging is acceptable while diagnosing, but do not leave noisy logs in final code and
-  never log credentials, `Authorization`, `X-Admin-Token`, passwords, API keys, or secrets.
-
-- Implement paper account, Portfolio Assets/History, positions, stock-scoped buy/sell ticket, reset bottom sheet,
-  transaction history, and transaction detail.
-- Validate whole-share positive quantities on the frontend, while keeping backend validation authoritative.
-- Show delayed execution metadata when backend returns it.
-- Confirm buy, sell, and reset.
-- Ensure buy/sell payloads send only `symbol` and numeric `quantity`; do not send price, amount, fee, or max quantity.
-- Keep buy/sell ticket stock-scoped. Do not add an internal all-stock picker or generic holdings selector.
-- Portfolio bottom-tab entry opens Assets; `/paper-trading?tab=history` and `/paper-trading/transactions` open History.
-
-Backend endpoints:
-- `GET /api/paper-trading/account`
-- `GET /api/paper-trading/portfolio`
-- `POST /api/paper-trading/portfolio/reset`
-- `POST /api/paper-trading/buy`
-- `POST /api/paper-trading/sell`
-- `GET /api/paper-trading/transactions`
-- `GET /api/paper-trading/transactions/{transactionId}`
+Scope:
+- Replace placeholder Suggestions tab with a real list.
+- Render cached/read-only suggestions from GET without triggering OpenAI.
+- Add refresh action with backend cooldown handling.
+- Add dismiss and add-to-watchlist actions with duplicate-submit protection.
+- Use backend delayed display fields on suggestion items.
+- Show fallback/unavailable state and educational no-advice copy.
+- Keep behavior beginner-friendly and compact.
 
 Non-scope:
-- Do not send price from the frontend.
-- Do not calculate trusted Today P/L in the frontend; hide it until backend fields with that exact meaning exist.
-- Do not implement advanced orders, brokerage integration, frontend behavior profile calculation, or backend changes.
-- Do not modify backend files, frontend package files, lock files, `.agents/`, or `skills-lock.json`.
-- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
-
-Dependency policy:
-- Do not install dependencies.
+- Do not call OpenAI or Twelve Data from the frontend.
+- Do not implement admin AI monitoring.
+- Do not change backend behavior unless a verified contract bug blocks the UI and I approve it.
+- Do not add dependencies unless approved.
 
 Verification:
-- Test account/portfolio, buy success, insufficient cash, sell success, sell exceeds holding, reset confirmation,
-  transaction filters/detail, fractional quantity rejection, and rapid-tap prevention.
-- Inspect request payloads to confirm no paper-trading price is sent.
-- Run frontend lint/type checks available in the repo.
-- Run `git diff --check` and `git status --short`.
+- frontend lint/typecheck/expo config
+- manual flow: no cached suggestions, cached suggestions, refresh allowed, refresh cooldown, dismiss, add to watchlist,
+  backend unavailable
+- repo checks and protected-file checks
 
-Final handoff must report files changed, features completed, known limitations, manual test results, verification
-commands run, skipped verification and why if any, backend endpoint/DTO mismatches found if any, next-phase notes,
-whether any dependency was added or recommended, and confirmation nothing was staged or committed.
+Final report:
+- files changed
+- endpoint/DTO assumptions
+- manual testing status
+- verification results
+- confirmation nothing staged/committed
 ```
-
-## Phase 6 Prompt: Admin Web/Tablet Console
+### Phase C Prompt: Admin Web/Tablet Console
 
 ```text
-Use `building-native-ui`, `native-data-fetching`, `web-design-guidelines`, and `frontend-design`.
+Use superpowers: writing-plans, executing-plans, requesting-code-review.
+Use test-driven-development only for pure helper/logic changes where an existing test pattern exists.
+@ponytail full
+After implementation diff, run @ponytail-review.
 
-For the listed skills, read the relevant local `.agents/skills/<skill>/SKILL.md` files and any directly relevant
-reference files. Use them as guidance only; do not modify, stage, or commit `.agents/` or `skills-lock.json`.
+Use `building-native-ui`, `native-data-fetching`, `frontend-design`, `web-design-guidelines`, and `accessibility`.
 
-Task: Implement the StockMentor admin web/tablet console in the same Expo codebase.
+Task:
+Implement the StockMentor admin web/tablet console inside the existing Expo app.
 
-Suggested branch/worktree name: `frontend-admin-console`. Do not create a branch or worktree unless I explicitly
-ask. Do not stage or commit.
-
-Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
-propose the implementation plan. Wait for my approval before editing files unless I explicitly tell you to implement
-immediately.
-
-Before editing, inspect the current codebase because frontend files may differ from the plan. Read:
+Start by inspecting:
 - AGENTS.md
-- docs/frontend/frontend-implementation-master-plan.md
-- docs/frontend/frontend-phase-prompts.md
-- docs/frontend/frontend-skill-usage-guide.md
 - docs/frontend/admin-web-flow.md
 - docs/frontend/backend-api-screen-map.md
 - docs/frontend/api-integration-guide.md
 - docs/frontend/design-system.md
-- docs/frontend/interaction-guardrails.md
-- docs/frontend/frontend-environment-guide.md
-- frontend admin/auth/API/layout areas from earlier phases
-- backend admin users, admin AI suggestions, and admin stock controller/DTO files
-
-Before implementing API calls, verify that the relevant backend endpoints and DTOs actually exist in the current
-codebase. Do not assume admin AI/user/stock endpoints exist only from the docs. If an endpoint is missing or differs
-from docs, do not invent frontend calls; report the mismatch and implement only the verified available surface, or ask
-for confirmation.
-
-Implementation style:
-- Make the smallest coherent changes needed for this phase.
-- Follow existing frontend file naming, import style, component style, and TypeScript conventions.
-- Keep route files thin; put reusable components, API functions, hooks, utilities, and types outside `frontend/app`.
-- Do not silently introduce mock data into real app flows.
-- Prefer clear beginner-friendly copy over trading-terminal wording.
-- Temporary local `console.log` debugging is acceptable while diagnosing, but do not leave noisy logs in final code and
-  never log credentials, `Authorization`, `X-Admin-Token`, passwords, API keys, or secrets.
+- backend admin controllers/DTOs
+- existing admin route shell
 
 Scope:
-- Implement admin login/token UX, admin dashboard, users list/detail, disable/re-enable confirmation, AI suggestion
-  monitoring, refresh job monitoring/detail, manual scheduled refresh, and stock maintenance form/results.
-- Use Expo Web / React Native Web friendly layouts on web/tablet widths.
-- On phone-sized screens, show "Admin console is best viewed on tablet or web", allow logout, and avoid full tables or
-  destructive maintenance actions.
-- Include `Authorization` and `X-Admin-Token` on admin API calls.
+- Admin login/token entry and token re-entry states.
+- Admin dashboard.
+- Users list and user detail.
+- Disable/re-enable user with confirmation.
+- AI suggestion monitoring pages: batches, batch detail, failures, usage summary, refresh jobs, job detail.
+- Manual scheduled refresh action with confirmation.
+- Stock maintenance/backfill form with confirmation.
+- Phone-sized fallback: "Admin console is best viewed on tablet or web" plus logout.
 
-Backend endpoints:
-- `GET /api/admin/users`
-- `GET /api/admin/users/{userId}`
-- `PATCH /api/admin/users/{userId}/status`
-- `GET /api/admin/ai-suggestions/batches`
-- `GET /api/admin/ai-suggestions/batches/{batchId}`
-- `GET /api/admin/ai-suggestions/failures`
-- `GET /api/admin/ai-suggestions/usage-summary`
-- `POST /api/admin/ai-suggestions/scheduled-refresh/run`
-- `GET /api/admin/ai-suggestions/refresh-jobs`
-- `GET /api/admin/ai-suggestions/refresh-jobs/{jobId}`
-- `POST /api/admin/stocks/backfill`
-
-Non-scope:
-- Do not create a separate Vite/Next admin app.
-- Do not implement admin AI explanation maintenance screens unless backend endpoints exist.
-- Do not implement backend CORS.
-- Do not modify backend files, frontend package files, lock files, `.agents/`, or `skills-lock.json`.
-- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
-
-Dependency policy:
-- Do not install dependencies.
+Rules:
+- Admin API calls require Basic Auth plus `X-Admin-Token`.
+- Admin token is session-only and must not be stored in `EXPO_PUBLIC_`, AsyncStorage, logs, or diagnostics.
+- Monitoring pages are read-only unless the endpoint is an explicit POST/PATCH action.
+- Do not expose prompts, secrets, auth headers, or admin token values.
+- Do not add a separate web project.
 
 Verification:
-- Test admin login/token entry, normal-user rejection, missing/wrong token re-entry, user list/detail, disable/re-enable
-  conflicts, AI monitoring tables, scheduled refresh confirmation, stock maintenance confirmation, and phone fallback.
-- Expo Web admin browser testing may require backend CORS follow-up.
-- Run frontend lint/type checks available in the repo.
-- Run `git diff --check` and `git status --short`.
-
-Final handoff must report files changed, features completed, known limitations, manual test results, verification
-commands run, skipped verification and why if any, backend endpoint/DTO mismatches found if any, next-phase notes,
-whether any dependency was added or recommended, and confirmation nothing was staged or committed.
+- Expo Web admin smoke tests if practical.
+- normal user rejected from admin shell
+- missing/wrong admin token recovery
+- users list/detail/status update
+- AI monitoring pages
+- stock maintenance form validation
+- lint/typecheck/expo config and repo checks
 ```
 
-## Phase 7 Prompt: Final Integration, Demo, Testing, Design, And Accessibility Polish
+### Phase D Prompt: Final Integration, Demo, Accessibility, And Regression Polish
 
 ```text
-Use `webapp-testing`, `accessibility`, `web-design-guidelines`, `frontend-design`, and `native-data-fetching`.
+Use superpowers: writing-plans, executing-plans, requesting-code-review.
+Use test-driven-development only for pure helper/logic changes where an existing test pattern exists.
+@ponytail full
+After implementation diff, run @ponytail-review.
 
-For the listed skills, read the relevant local `.agents/skills/<skill>/SKILL.md` files and any directly relevant
-reference files. Use them as guidance only; do not modify, stage, or commit `.agents/` or `skills-lock.json`.
+Use `accessibility`, `web-design-guidelines`, `webapp-testing`, and `frontend-design`.
 
-Task: Run final frontend integration, demo, testing, design, and accessibility polish for StockMentor.
-
-Suggested branch/worktree name: `frontend-integration-polish`. Do not create a branch or worktree unless I
-explicitly ask. Do not stage or commit.
-
-Start in plan mode first. Read the required files, inspect the current implementation, summarize what you found, and
-propose the implementation plan. Wait for my approval before editing files unless I explicitly tell you to implement
-immediately.
-
-Before editing, inspect the current codebase because frontend files may differ from the plan. Read:
-- AGENTS.md
-- docs/frontend/frontend-implementation-master-plan.md
-- docs/frontend/frontend-phase-prompts.md
-- docs/frontend/frontend-skill-usage-guide.md
-- docs/frontend/frontend-testing-checklist.md
-- docs/frontend/frontend-design-blueprint.md
-- docs/frontend/design-system.md
-- docs/frontend/interaction-guardrails.md
-- docs/frontend/api-integration-guide.md
-- all implemented frontend routes/components/API areas
-
-Before changing API behavior or test assumptions, verify that the relevant backend endpoints and DTOs actually exist in
-the current codebase. If code differs from docs, do not invent frontend calls; implement only the verified surface or
-ask for confirmation.
-
-Implementation style:
-- Make the smallest coherent changes needed for this phase.
-- Follow existing frontend file naming, import style, component style, and TypeScript conventions.
-- Keep route files thin; put reusable components, API functions, hooks, utilities, and types outside `frontend/app`.
-- Do not silently introduce mock data into real app flows.
-- Prefer clear beginner-friendly copy over trading-terminal wording.
-- Temporary local `console.log` debugging is acceptable while diagnosing, but do not leave noisy logs in final code and
-  never log credentials, `Authorization`, `X-Admin-Token`, passwords, API keys, or secrets.
+Task:
+Run final StockMentor frontend integration and demo polish after AI Suggestions and Admin Console are implemented.
 
 Scope:
-- Run the frontend testing checklist and FYP demo story.
-- Polish loading, empty, error, cooldown, confirmation, and unavailable states.
-- Review mobile HCI, web/tablet admin UI, keyboard behavior, touch targets, contrast, and AI disclaimer wording.
-- Confirm fit-to-screen pages do not casually scroll/bounce, mobile forms keep focused inputs visible above the
-  keyboard, recoverable errors preserve input, password visibility controls are accessible, and diagnostics do not
-  expose secrets.
-- Confirm mobile quiz actions stay fixed, question transitions are subtle, selected option UI does not overflow, and
-  final-submit processing copy does not imply an exact backend analysis percentage.
-- Verify delayed market data display correctness and paper-trading no-price payload rule.
-- Use Playwright/web testing for Expo Web where practical.
+- Execute `docs/frontend/frontend-testing-checklist.md`.
+- Verify Expo mobile and Expo Web where available.
+- Review auth/onboarding, Watchlist, Stocks, chart, AI explanation, Suggestions, Portfolio, paper trade tickets,
+  History, Profile, and Admin.
+- Fix only verified regressions.
+- Improve accessibility, contrast, touch targets, modal behavior, keyboard behavior, and loading/error states.
+- Prepare demo notes if requested.
 
-Non-scope:
-- Do not add new product features.
-- Do not perform a large redesign.
-- Do not implement backend CORS or backend changes.
-- Do not modify backend files, `.agents/`, or `skills-lock.json`.
-- Do not modify frontend package files or lock files unless I explicitly approve a testing dependency.
-- Do not create .gitignore at frontend folder, if really want to add certain file, then update the root directory's .gitignore
-
-Dependency policy:
-- Do not install dependencies by default.
+Rules:
+- Do not add features.
+- Do not call OpenAI/Twelve Data directly from frontend.
+- Do not change backend unless a blocking integration bug is verified and approved.
+- Report manual testing gaps honestly.
 
 Verification:
-- Run frontend lint/type checks available in the repo.
-- Run Expo Go mobile smoke checks.
-- Run Expo Web admin checks after CORS is available.
-- Use Playwright checks where practical.
-- Run manual accessibility checks for keyboard navigation, focus visibility, target size, contrast, and modal escape.
-- Run `git diff --check` and `git status --short`.
+- frontend lint/typecheck/expo config
+- repo protected-file checks
+- device/simulator/browser manual notes
+```
 
-Final handoff must report files changed, features completed, known limitations, manual test results, verification
-commands run, skipped verification and why if any, backend endpoint/DTO mismatches found if any, next-phase notes,
-whether any dependency was added or recommended, and confirmation nothing was staged or committed.
+### Phase E Prompt: Optional UI/HCI Correction Pass
+
+```text
+Use superpowers: writing-plans, executing-plans, requesting-code-review.
+Use test-driven-development only for pure helper/logic changes where an existing test pattern exists.
+@ponytail full
+After implementation diff, run @ponytail-review.
+
+Use ponytail mode and `frontend-design`.
+
+Task:
+Fix only the listed manual UI/HCI regressions from screenshots/device testing.
+
+Rules:
+- Start by inspecting the dirty diff and relevant current files.
+- Patch minimally.
+- Do not redesign broad flows unless the issue requires it.
+- Do not add dependencies without approval.
+- Do not stage or commit.
+- Do not modify backend unless the prompt explicitly allows a narrowly scoped backend fix.
+- Do not claim manual verification unless it was actually run.
+
+Verification:
+- frontend lint/typecheck/expo config
+- `git diff --check`
+- protected-file checks
+- targeted manual checklist from the prompt
+```
+
+## Recommended Next Phase From Current State
+
+Do **AI Stock Suggestions Completion** next.
+
+Why:
+
+- The current frontend already has the beginner shell, stock list/detail/search, interactive charts, watchlist edit,
+  portfolio, paper-trading tickets, reset card, and transaction history.
+- The Suggestions tab is visible but the full US006 frontend experience is still not implemented.
+- Backend suggestion endpoints already exist, and GET is cache-only/read-only, so this is the next coherent feature gap.
+- Admin console should follow after the beginner-facing app is feature-complete.
+
+Prompt to paste into a fresh Codex chat:
+
+```text
+Use superpowers: writing-plans, executing-plans, requesting-code-review.
+Use test-driven-development only for pure helper/logic changes where an existing test pattern exists.
+@ponytail full
+After implementation diff, run @ponytail-review.
+
+Use `building-native-ui`, `native-data-fetching`, and `frontend-design`.
+
+Work in the current StockMentor repo. Start in plan mode first. Do not stage or commit.
+
+Goal:
+Implement the full beginner AI Suggestions UI using the verified backend endpoints:
+- GET /api/stocks/ai-suggestions
+- POST /api/stocks/ai-suggestions/refresh
+- PATCH /api/stocks/ai-suggestions/items/{itemId}/dismiss
+- PATCH /api/stocks/ai-suggestions/items/{itemId}/watchlist
+
+Read first:
+- AGENTS.md
+- docs/frontend/frontend-phase-prompts.md
+- docs/frontend/backend-api-screen-map.md
+- docs/frontend/api-integration-guide.md
+- docs/frontend/mobile-user-flow.md
+- docs/frontend/design-system.md
+- docs/frontend/interaction-guardrails.md
+- docs/frontend/frontend-testing-checklist.md
+- frontend/package.json
+- frontend/app/(user)/suggestions/index.tsx
+- frontend/api/*
+- frontend/types/*
+- backend AI suggestion controller and DTO records
+
+Rules:
+- Verify endpoints and DTOs from code before editing.
+- Do not rely on old chat memory.
+- Do not modify `.agents/`, `skills-lock.json`, protected package/lock files, or `frontend/.gitignore`.
+- Do not call OpenAI or Twelve Data from the frontend.
+- Do not implement admin console in this phase.
+- Do not stage or commit.
+- Report manual testing gaps honestly.
+
+Implementation:
+- Replace the Suggestions placeholder with real cached suggestion rendering.
+- Keep GET cache-only/read-only in UI behavior.
+- Add refresh with cooldown and duplicate-submit protection.
+- Add dismiss and add-to-watchlist item actions.
+- Use backend-delivered display fields from the suggestion DTOs when they exist. Verify exact field names from the current backend DTOs before editing. Do not invent delayed price fields if the suggestion DTO does not expose them.
+- Show educational no-advice copy and fallback/unavailable states.
+- Keep the UI compact and consistent with the existing StockMentor mobile style.
+
+Verification:
+- npm.cmd run lint
+- npx.cmd tsc --noEmit
+- npx.cmd expo config --type public
+- git diff --check
+- git diff --cached --name-only
+- protected-file checks
+- manual checks for empty/cache/refresh/cooldown/dismiss/watchlist/error states
+
+Final report:
+- files changed
+- endpoint/DTO assumptions
+- Suggestions behavior implemented
+- manual testing status
+- verification results
+- confirmation nothing staged/committed
 ```

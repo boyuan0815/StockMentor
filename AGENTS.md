@@ -3,9 +3,11 @@
 ## Project Scope
 
 - The Spring Boot backend lives under `backend/`.
-- The Expo / React Native frontend lives under `frontend/`. The current frontend has the Phase 1 route shell and API
-  core, the landed Phase 2B/2.5 account flows, and the Phase 3B stock-learning surfaces for Watchlist, Stocks, Search,
-  stock detail, delayed market metadata, watchlist actions, and the on-demand AI explanation drawer.
+- The Expo / React Native frontend lives under `frontend/`. The current frontend has the Phase 1 route shell/API core,
+  the landed Phase 2B/2.5 account flows, stock-learning surfaces for Watchlist, Stocks, Search, stock detail,
+  interactive charts, watchlist edit/reorder, paper-trading Portfolio/History/tickets, and the on-demand AI explanation
+  drawer. Full AI Suggestions UI and the admin web/tablet console are still pending unless current code proves
+  otherwise.
 - The frontend must call the Spring Boot backend only; it must not call OpenAI or Twelve Data directly.
 
 ## Frontend Planning Rules
@@ -19,12 +21,13 @@
 - AI wording must stay educational and never real financial advice.
 - Stock data UI should be described as delayed educational market data; do not imply immediate market quotes.
 - `AGENTS.md` is an index; detailed frontend design lives in `docs/frontend/`.
-- Preserve the Phase 3B stock UI standard in future frontend work: compact full-width tables, minimal page titles,
-  centered dark-navy toast feedback, market notice marquee strips, brand navy `#052344`, and movement colors where
-  green means increase and red means decrease.
+- Preserve the current compact stock UI standard in future frontend work: compact full-width tables, minimal page
+  titles, centered lightweight toast feedback, market notice marquee strips, brand navy `#052344`, and movement colors
+  where green means increase and red means decrease.
 - The beginner tabs are `Watchlist`, `Stocks`, `Suggestions`, `Portfolio`, `Profile`, and `Search`. The Portfolio tab
-  keeps the internal `/paper-trading` route, and Search remains a real tab visually separated at the right. Hidden routes such
-  as stock detail, contextual search, practice trade tickets, and transaction detail should use `href: null`.
+  keeps the internal `/paper-trading` route, and Search remains a real tab visually separated at the right. Hidden routes
+  such as stock detail, contextual search, watchlist edit, practice trade tickets, and transaction detail should use
+  `href: null` or a nested stack screen that does not create a visible tab item.
 - Top-level beginner tabs except Search use fixed StockMentor-logo headers; Search keeps its search-row header.
 - For tab/context routes, do not rely on `router.canGoBack()` alone. Pass explicit return params such as
   `returnTo=stocks|watchlist|search-context|search-tab` so back actions return to the real origin.

@@ -60,9 +60,10 @@ Every confirmation modal must:
 
 ## Toast Feedback
 
-- Toast/snackbar feedback should be centralized, centered, lightweight, non-blocking, auto-dismissed, and English-only.
-- Current stock UI toasts use dark navy `#052344`, white text, and visible shadow/elevation so they read as a separate
-  layer without blocking the screen.
+- Toast/snackbar feedback should be centralized, centered relative to the full screen, lightweight, non-blocking,
+  auto-dismissed, and English-only.
+- Current stock UI toasts use a small soft dark/danger box with white text, minimal padding, and subtle elevation so
+  they read as feedback without blocking the screen.
 - Use toast feedback for watchlist success, watchlist failure, refresh cooldown, and unavailable placeholder actions.
 - Retry after a failed AI explanation load may repeat the same on-demand request, but it must not be labeled as refresh
   or regenerate unless a backend refresh endpoint exists.
