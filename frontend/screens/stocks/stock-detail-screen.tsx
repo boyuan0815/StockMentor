@@ -273,6 +273,11 @@ export function StockDetailScreen({
       return;
     }
 
+    if (returnTo === 'suggestions') {
+      router.replace('/suggestions' as Href);
+      return;
+    }
+
     if (returnTo === 'search-context') {
       router.replace({
         pathname: '/stocks/search-context',

@@ -114,6 +114,11 @@ export type StockExplanationResponse = {
   symbol: string;
   timeframe: string;
   explanation: string | null;
+  explanationHighlights?: {
+    startIndex: number;
+    endIndex: number;
+    style: 'positive' | 'negative' | 'emphasis' | string;
+  }[] | null;
   cached: boolean;
   available: boolean;
   analysisSnapshotId: number | null;

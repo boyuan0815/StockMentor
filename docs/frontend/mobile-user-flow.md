@@ -176,7 +176,9 @@ depending on tab history.
 
 ### AI Suggestions
 
-- Backend: `GET /api/stocks/ai-suggestions`, `POST /api/stocks/ai-suggestions/refresh`.
+- Backend: `GET /api/stocks/ai-suggestions`, `POST /api/stocks/ai-suggestions/refresh`,
+  `PATCH /api/stocks/ai-suggestions/items/{itemId}/dismiss`, and
+  `PATCH /api/stocks/ai-suggestions/items/{itemId}/watchlist`.
 - Sections: batch summary, cooldown, suggestion cards, remaining stocks, fallback note.
 - Empty: no cached suggestions, show refresh if allowed.
 - Guardrail: disable refresh when `refreshAllowed=false`; show `nextRefreshAllowedAt`.

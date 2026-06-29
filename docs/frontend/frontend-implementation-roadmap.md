@@ -56,13 +56,14 @@ This roadmap is a high-level view of the current StockMentor frontend state. Det
 - Reset-card bottom sheet.
 - Paged transaction History using `GET /api/paper-trading/transactions/page` with default `size=20`.
 
-## Partially Completed
+## Completed
 
 ### AI Suggestions
 
-- Suggestions tab exists.
-- Full cached suggestions list, refresh cooldown UI, dismiss, and add-to-watchlist actions are still pending.
-- Next recommended feature phase: complete AI Suggestions.
+- Suggestions tab renders cached backend suggestions.
+- Manual refresh honors backend cooldown and duplicate-submit guardrails.
+- Suggested items support dismiss and add-to-watchlist actions; remaining stocks stay read-only.
+- Keep as a regression-polish item.
 
 ## Pending
 

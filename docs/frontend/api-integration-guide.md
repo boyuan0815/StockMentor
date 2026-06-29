@@ -19,8 +19,8 @@ The frontend must not:
 
 The frontend foundation includes a typed API client core, backend base URL helper, Basic Auth header support, admin token
 header support, request timeout/cancellation handling, JSON parsing, normalized `ApiError`, sanitized auth diagnostics,
-and landed auth/profile/stock/watchlist/paper-trading API modules. AI Suggestions and admin API modules should follow
-the same thin-client pattern when those UI phases are completed.
+and landed auth/profile/stock/watchlist/paper-trading/AI Suggestions API modules. Admin API modules should follow the
+same thin-client pattern when that UI phase is completed.
 
 Use `fetch` or Expo-compatible fetch. Avoid Axios unless a later implementation task gives a strong reason.
 

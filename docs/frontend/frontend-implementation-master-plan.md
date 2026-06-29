@@ -4,8 +4,8 @@ This document is the current master plan for future StockMentor frontend work. I
 `docs/frontend/frontend-phase-prompts.md`, which contains copy-paste prompts for fresh Codex sessions.
 
 The original phase order is no longer the actual implementation order. Stock learning, interactive charts, watchlist
-edit, paper trading, portfolio history pagination, and the Stocks portfolio card were implemented before the full AI
-Suggestions UI and admin console.
+edit, paper trading, portfolio history pagination, the Stocks portfolio card, and the beginner AI Suggestions UI were
+implemented before the admin console.
 
 ## Current Baseline
 
@@ -23,7 +23,8 @@ Suggestions UI and admin console.
 - Stock detail is implemented with delayed quote metadata, interactive line/candle charts, and on-demand AI explanation.
 - Portfolio/Paper Trading is implemented with `Assets`/`History`, backend P/L fields, stock-scoped buy/sell tickets,
   reset bottom sheet, paged transactions, and transaction detail.
-- Full AI Suggestions UI is still pending.
+- AI Suggestions is implemented with cached backend suggestions, explicit refresh, cooldown handling, dismiss,
+  add-to-watchlist actions, fallback states, and read-only remaining-stock context.
 - Admin web/tablet console is still pending beyond shell/placeholders.
 
 ## Cross-Phase Rules

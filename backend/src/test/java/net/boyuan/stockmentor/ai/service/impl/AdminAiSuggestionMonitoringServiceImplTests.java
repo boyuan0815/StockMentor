@@ -52,12 +52,15 @@ class AdminAiSuggestionMonitoringServiceImplTests {
     @Test
     @SuppressWarnings("unchecked")
     void usageSummaryCountsStatusesTriggersAndNullTokensAsZero() {
-        StockAiSuggestionBatch success = batch(1L, StockAiSuggestionBatchStatus.SUCCESS, StockAiSuggestionTriggerReason.MANUAL_REFRESH);
+        StockAiSuggestionBatch success = batch(1L, StockAiSuggestionBatchStatus.SUCCESS,
+                StockAiSuggestionTriggerReason.MANUAL_REFRESH);
         success.setPromptTokens(10);
         success.setCompletionTokens(null);
         success.setTotalTokens(30);
-        StockAiSuggestionBatch failed = batch(2L, StockAiSuggestionBatchStatus.FAILED, StockAiSuggestionTriggerReason.SCHEDULED_REFRESH);
-        StockAiSuggestionBatch fallback = batch(3L, StockAiSuggestionBatchStatus.FALLBACK_CACHED, StockAiSuggestionTriggerReason.SCHEDULED_REFRESH);
+        StockAiSuggestionBatch failed = batch(2L, StockAiSuggestionBatchStatus.FAILED,
+                StockAiSuggestionTriggerReason.SCHEDULED_REFRESH);
+        StockAiSuggestionBatch fallback = batch(3L, StockAiSuggestionBatchStatus.FALLBACK_CACHED,
+                StockAiSuggestionTriggerReason.SCHEDULED_REFRESH);
         fallback.setPromptTokens(5);
         fallback.setCompletionTokens(7);
         fallback.setTotalTokens(null);
@@ -74,13 +77,16 @@ class AdminAiSuggestionMonitoringServiceImplTests {
         assertEquals(15L, response.totalPromptTokens());
         assertEquals(7L, response.totalCompletionTokens());
         assertEquals(30L, response.totalTokens());
-        assertTrue(response.groupedByTriggerReason().stream().anyMatch(row -> row.key().equals("SCHEDULED_REFRESH") && row.count() == 2L));
-        assertTrue(response.groupedByStatus().stream().anyMatch(row -> row.key().equals("SUCCESS") && row.count() == 1L));
+        assertTrue(response.groupedByTriggerReason().stream()
+                .anyMatch(row -> row.key().equals("SCHEDULED_REFRESH") && row.count() == 2L));
+        assertTrue(
+                response.groupedByStatus().stream().anyMatch(row -> row.key().equals("SUCCESS") && row.count() == 1L));
     }
 
     @Test
     void batchDetailReturnsItemsAndAdminFields() {
-        StockAiSuggestionBatch batch = batch(10L, StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED, StockAiSuggestionTriggerReason.MANUAL_REFRESH);
+        StockAiSuggestionBatch batch = batch(10L, StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED,
+                StockAiSuggestionTriggerReason.MANUAL_REFRESH);
         batch.setInputHash("abc123");
         batch.setProfileVersion(4);
         StockAiSuggestionItem item = item(batch, 20L, "MSFT", 99L);
@@ -103,8 +109,7 @@ class AdminAiSuggestionMonitoringServiceImplTests {
     void invalidBatchStatusFilterReturnsBadRequest() {
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
-                () -> service.listBatches(null, null, "not-real", null, null, null, 0, 20)
-        );
+                () -> service.listBatches(null, null, "not-real", null, null, null, 0, 20));
 
         assertEquals(400, exception.getStatusCode().value());
     }
@@ -139,15 +144,14 @@ class AdminAiSuggestionMonitoringServiceImplTests {
     private StockAiSuggestionBatch batch(
             Long batchId,
             StockAiSuggestionBatchStatus status,
-            StockAiSuggestionTriggerReason triggerReason
-    ) {
+            StockAiSuggestionTriggerReason triggerReason) {
         StockAiSuggestionBatch batch = new StockAiSuggestionBatch();
         batch.setSuggestionBatchId(batchId);
         batch.setUser(user());
         batch.setStatus(status);
         batch.setTriggerReason(triggerReason);
         batch.setAnalysisTimeframe("7D");
-        batch.setModel("gpt-4o-mini");
+        batch.setModel("gpt-5-mini");
         batch.setPromptVersion("stock-suggestion-v3");
         batch.setBatchSummary("fallback");
         batch.setFinishReason("stop");

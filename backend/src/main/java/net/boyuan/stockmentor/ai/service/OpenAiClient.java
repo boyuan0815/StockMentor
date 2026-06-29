@@ -24,7 +24,7 @@ public class OpenAiClient {
     @Value("${openai.api.key:}")
     private String apiKey;
 
-    @Value("${openai.model:gpt-4o-mini}")
+    @Value("${openai.model:gpt-5-mini}")
     private String model;
 
     private static final Logger log = LoggerFactory.getLogger(OpenAiClient.class);
@@ -47,49 +47,76 @@ public class OpenAiClient {
         }
 
         try {
-            Map<String, Object> request = Map.of(
-                    "model", model,
-                    "temperature", 0.4,
-                    "messages", List.of(
-                            Map.of("role", "system", "content", systemContent),
-                            Map.of("role", "user", "content", userContent)
-                    )
-            );
-
-            String responseBody = webClient.post()
-                    .uri("/v1/chat/completions")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .header("Content-Type", "application/json")
-                    .bodyValue(request)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-            JsonNode response = objectMapper.readTree(responseBody);
-
-            if (response == null || !response.has("choices") || response.get("choices").isEmpty()) {
-                return OpenAiExplanationResult.failure("OpenAI returned no choices");
-            }
-
-            JsonNode firstChoice = response.get("choices").get(0);
-            String content = firstChoice.path("message").path("content").asText(null);
-            if (content == null || content.isBlank()) {
-                return OpenAiExplanationResult.failure("OpenAI returned an empty explanation");
-            }
-
-            JsonNode usage = response.path("usage");
-            return new OpenAiExplanationResult(
-                    true,
-                    content,
-                    usage.path("prompt_tokens").isMissingNode() ? null : usage.path("prompt_tokens").asInt(),
-                    usage.path("completion_tokens").isMissingNode() ? null : usage.path("completion_tokens").asInt(),
-                    usage.path("total_tokens").isMissingNode() ? null : usage.path("total_tokens").asInt(),
-                    firstChoice.path("finish_reason").asText(null),
-                    null
-            );
+            return executeExplanationRequest(systemContent, userContent, true);
         } catch (Exception e) {
+            if (isSchemaRelatedFailure(e)) {
+                log.warn("OpenAI explanation schema request failed; retrying without response_format: {}", e.getMessage());
+                try {
+                    return executeExplanationRequest(systemContent, userContent, false);
+                } catch (Exception fallbackException) {
+                    log.error("OpenAI explanation generation failed after schema fallback", fallbackException);
+                    return OpenAiExplanationResult.failure(fallbackException.getMessage());
+                }
+            }
             log.error("OpenAI explanation generation failed", e);
             return OpenAiExplanationResult.failure(e.getMessage());
         }
+    }
+
+    private OpenAiExplanationResult executeExplanationRequest(String systemContent, String userContent, boolean useJsonSchema) throws Exception {
+        Map<String, Object> request = explanationRequest(systemContent, userContent, useJsonSchema);
+
+        String responseBody = webClient.post()
+                .uri("/v1/chat/completions")
+                .header("Authorization", "Bearer " + apiKey)
+                .header("Content-Type", "application/json")
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+        JsonNode response = objectMapper.readTree(responseBody);
+
+        if (response == null || !response.has("choices") || response.get("choices").isEmpty()) {
+            return OpenAiExplanationResult.failure("OpenAI returned no choices");
+        }
+
+        JsonNode firstChoice = response.get("choices").get(0);
+        String content = firstChoice.path("message").path("content").asText(null);
+        if (content == null || content.isBlank()) {
+            return OpenAiExplanationResult.failure("OpenAI returned an empty explanation");
+        }
+
+        JsonNode usage = response.path("usage");
+        return new OpenAiExplanationResult(
+                true,
+                content,
+                usage.path("prompt_tokens").isMissingNode() ? null : usage.path("prompt_tokens").asInt(),
+                usage.path("completion_tokens").isMissingNode() ? null : usage.path("completion_tokens").asInt(),
+                usage.path("total_tokens").isMissingNode() ? null : usage.path("total_tokens").asInt(),
+                firstChoice.path("finish_reason").asText(null),
+                null
+        );
+    }
+
+    private Map<String, Object> explanationRequest(String systemContent, String userContent, boolean useJsonSchema) {
+        Map<String, Object> baseRequest = Map.of(
+                "model", model,
+                // "temperature", 0.4,
+                "messages", List.of(
+                        Map.of("role", "system", "content", systemContent),
+                        Map.of("role", "user", "content", userContent)
+                )
+        );
+        if (!useJsonSchema) {
+            return baseRequest;
+        }
+
+        return Map.of(
+                "model", model,
+                // "temperature", 0.4,
+                "messages", baseRequest.get("messages"),
+                "response_format", explanationResponseFormat()
+        );
     }
 
     public OpenAiSuggestionResult generateSuggestion(String systemContent, String userContent) {
@@ -159,7 +186,7 @@ public class OpenAiClient {
     private Map<String, Object> suggestionRequest(String systemContent, String userContent, boolean useJsonSchema) {
         Map<String, Object> baseRequest = Map.of(
                 "model", model,
-                "temperature", 0.1,
+                // "temperature", 0.1,
                 "messages", List.of(
                         Map.of("role", "system", "content", systemContent),
                         Map.of("role", "user", "content", userContent)
@@ -171,13 +198,14 @@ public class OpenAiClient {
 
         return Map.of(
                 "model", model,
-                "temperature", 0.1,
+                // "temperature", 0.1,
                 "messages", baseRequest.get("messages"),
                 "response_format", suggestionResponseFormat()
         );
     }
 
     private Map<String, Object> suggestionResponseFormat() {
+        Map<String, Object> highlightSchema = highlightPhraseSchema();
         Map<String, Object> suggestionItemSchema = Map.of(
                 "type", "object",
                 "properties", Map.of(
@@ -208,6 +236,18 @@ public class OpenAiClient {
                         "detailReason", Map.of(
                                 "type", "string",
                                 "description", "A 40 to 70 word beginner-friendly explanation grounded in at least two provided factors such as risk, volatility, trend, price consistency, behavior confidence, volume, or data quality."
+                        ),
+                        "shortReasonHighlights", Map.of(
+                                "type", "array",
+                                "description", "Up to three exact phrases from shortReason to highlight for beginner readability.",
+                                "items", highlightSchema,
+                                "maxItems", 3
+                        ),
+                        "detailReasonHighlights", Map.of(
+                                "type", "array",
+                                "description", "Up to three exact phrases from detailReason to highlight for beginner readability.",
+                                "items", highlightSchema,
+                                "maxItems", 3
                         )
                 ),
                 "required", List.of(
@@ -217,7 +257,9 @@ public class OpenAiClient {
                         "riskLevel",
                         "suggestionLabel",
                         "shortReason",
-                        "detailReason"
+                        "detailReason",
+                        "shortReasonHighlights",
+                        "detailReasonHighlights"
                 ),
                 "additionalProperties", false
         );
@@ -244,6 +286,53 @@ public class OpenAiClient {
                         "strict", true,
                         "schema", schema
                 )
+        );
+    }
+
+    private Map<String, Object> explanationResponseFormat() {
+        Map<String, Object> schema = Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "explanation", Map.of(
+                                "type", "string",
+                                "description", "The complete beginner-friendly explanation, exactly two short paragraphs."
+                        ),
+                        "highlights", Map.of(
+                                "type", "array",
+                                "description", "Up to three exact phrases from explanation to highlight.",
+                                "items", highlightPhraseSchema(),
+                                "maxItems", 3
+                        )
+                ),
+                "required", List.of("explanation", "highlights"),
+                "additionalProperties", false
+        );
+
+        return Map.of(
+                "type", "json_schema",
+                "json_schema", Map.of(
+                        "name", "stock_explanation_response",
+                        "strict", true,
+                        "schema", schema
+                )
+        );
+    }
+
+    private Map<String, Object> highlightPhraseSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "phrase", Map.of(
+                                "type", "string",
+                                "description", "Exact phrase copied from the final text."
+                        ),
+                        "style", Map.of(
+                                "type", "string",
+                                "enum", List.of("positive", "negative", "emphasis")
+                        )
+                ),
+                "required", List.of("phrase", "style"),
+                "additionalProperties", false
         );
     }
 

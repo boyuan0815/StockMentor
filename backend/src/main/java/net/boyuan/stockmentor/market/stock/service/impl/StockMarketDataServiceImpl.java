@@ -77,8 +77,8 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
     private final StockAiExplanationRepository explanationRepository;
     private final DelayedMarketPriceService delayedMarketPriceService;
 
-    @Value("${openai.model:gpt-4o-mini}")
-    private String openAiModel = "gpt-4o-mini";
+    @Value("${openai.model:gpt-5-mini}")
+    private String openAiModel = "gpt-5-mini";
 
     @Override
     @Transactional(readOnly = true)
@@ -95,8 +95,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                         stockBySymbol.get(symbol),
                         snapshotBySymbol.get(symbol),
                         watchlistedSymbols.contains(symbol),
-                        delayedPriceBySymbol.get(symbol)
-                ))
+                        delayedPriceBySymbol.get(symbol)))
                 .toList();
 
         return new StockListResponse(user.getUserId(), stocks, "Stocks returned successfully");
@@ -109,7 +108,8 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
         String normalizedSymbol = validateSupportedSymbol(symbol);
         Stock stock = stockRepository.findBySymbol(normalizedSymbol).orElse(null);
         StockAnalysisSnapshot snapshot = snapshotRepository
-                .findTopBySymbolAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc(normalizedSymbol, ANALYSIS_TIMEFRAME)
+                .findTopBySymbolAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc(normalizedSymbol,
+                        ANALYSIS_TIMEFRAME)
                 .orElse(null);
         boolean watchlisted = watchlistRepository.existsByUserUserIdAndSymbol(user.getUserId(), normalizedSymbol);
         boolean explanationAvailable = isAiExplanationAvailable(snapshot);
@@ -129,12 +129,15 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
             return getIntradayHistory(normalizedSymbol);
         }
         if (FIVE_DAY_INTRADAY_TIMEFRAME.equals(normalizedTimeframe)) {
-            return getFiveDayIntradayHistory(normalizedSymbol, delayedMarketPriceService.resolveForDisplay(normalizedSymbol));
+            return getFiveDayIntradayHistory(normalizedSymbol,
+                    delayedMarketPriceService.resolveForDisplay(normalizedSymbol));
         }
         if (DAILY_TIMEFRAME.equals(normalizedTimeframe)) {
-            return getLatestDailyHistory(normalizedSymbol, delayedMarketPriceService.resolveForDisplay(normalizedSymbol));
+            return getLatestDailyHistory(normalizedSymbol,
+                    delayedMarketPriceService.resolveForDisplay(normalizedSymbol));
         }
-        return getDailyRangeHistory(normalizedSymbol, normalizedTimeframe, delayedMarketPriceService.resolveForDisplay(normalizedSymbol));
+        return getDailyRangeHistory(normalizedSymbol, normalizedTimeframe,
+                delayedMarketPriceService.resolveForDisplay(normalizedSymbol));
     }
 
     private StockHistoryResponse getIntradayHistory(String symbol) {
@@ -157,22 +160,22 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 selection.metadata(),
                 includedTradingDays(points),
                 1,
-                intradayExpectedPointCount(expectedTradingDates(selection.metadata(), points), selection.metadata(), 1)
-        );
+                intradayExpectedPointCount(expectedTradingDates(selection.metadata(), points), selection.metadata(),
+                        1));
     }
 
     private StockHistoryResponse getFiveDayIntradayHistory(String symbol, DelayedMarketPrice delayedPrice) {
         List<LocalDate> latestDates = new ArrayList<>(
-                historyRepository.findLatestTradingDates(symbol, "1min", PageRequest.of(0, 5))
-        );
+                historyRepository.findLatestTradingDates(symbol, "1min", PageRequest.of(0, 5)));
         Collections.reverse(latestDates);
         List<StockHistoryPointResponse> points = latestDates.isEmpty()
                 ? List.of()
-                : historyRepository.findBySymbolAndTradingDateInAndTimeIntervalOrderByTimestampAsc(symbol, latestDates, "1min")
-                .stream()
-                .filter(this::isRegularSessionHistory)
-                .map(this::toHistoryPoint)
-                .toList();
+                : historyRepository
+                        .findBySymbolAndTradingDateInAndTimeIntervalOrderByTimestampAsc(symbol, latestDates, "1min")
+                        .stream()
+                        .filter(this::isRegularSessionHistory)
+                        .map(this::toHistoryPoint)
+                        .toList();
 
         String message = points.isEmpty()
                 ? "No stored 5D intraday history is available for " + symbol
@@ -186,14 +189,12 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 delayedPrice,
                 latestDates.size(),
                 5,
-                intradayExpectedPointCount(latestDates, delayedPrice, 5)
-        );
+                intradayExpectedPointCount(latestDates, delayedPrice, 5));
     }
 
     private StockHistoryResponse getLatestDailyHistory(String symbol, DelayedMarketPrice delayedPrice) {
         List<StockPriceDaily> dailyRows = new ArrayList<>(
-                dailyRepository.findBySymbolOrderByTradingDateDesc(symbol, PageRequest.of(0, 7))
-        );
+                dailyRepository.findBySymbolOrderByTradingDateDesc(symbol, PageRequest.of(0, 7)));
         Collections.reverse(dailyRows);
 
         List<StockHistoryPointResponse> points = dailyRows.stream()
@@ -206,7 +207,8 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
         return stockHistoryResponse(symbol, DAILY_TIMEFRAME, "stock_price_daily", points, message, delayedPrice);
     }
 
-    private StockHistoryResponse getDailyRangeHistory(String symbol, String timeframe, DelayedMarketPrice delayedPrice) {
+    private StockHistoryResponse getDailyRangeHistory(String symbol, String timeframe,
+            DelayedMarketPrice delayedPrice) {
         Optional<StockPriceDaily> latestDaily = dailyRepository.findTopBySymbolOrderByTradingDateDesc(symbol);
         if (latestDaily.isEmpty()) {
             return stockHistoryResponse(
@@ -215,8 +217,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                     "stock_price_daily",
                     List.of(),
                     "No stored daily history is available for " + symbol,
-                    delayedPrice
-            );
+                    delayedPrice);
         }
 
         LocalDate latestDate = latestDaily.get().getTradingDate();
@@ -248,8 +249,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
             Stock stock,
             StockAnalysisSnapshot snapshot,
             boolean isWatchlisted,
-            DelayedMarketPrice delayedPrice
-    ) {
+            DelayedMarketPrice delayedPrice) {
         return new StockListItemResponse(
                 stock == null ? null : stock.getStockId(),
                 symbol,
@@ -284,8 +284,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 delayedPrice == null ? null : delayedPrice.dataNote(),
                 delayedPrice == null ? null : delayedPrice.priceSource(),
                 delayedPrice == null ? null : delayedPrice.marketTimeZone(),
-                delayedPrice == null ? null : delayedPrice.lastBackendUpdatedAt()
-        );
+                delayedPrice == null ? null : delayedPrice.lastBackendUpdatedAt());
     }
 
     private StockDetailResponse toDetail(
@@ -294,8 +293,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
             StockAnalysisSnapshot snapshot,
             boolean isWatchlisted,
             boolean aiExplanationAvailable,
-            DelayedMarketPrice delayedPrice
-    ) {
+            DelayedMarketPrice delayedPrice) {
         DayRange dayRange = displayedDayRange(symbol, delayedPrice);
         DisplayedQuoteContext quoteContext = displayedQuoteContext(symbol, delayedPrice);
 
@@ -345,8 +343,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 delayedPrice == null ? null : delayedPrice.lastBackendUpdatedAt(),
                 snapshot == null ? null : snapshot.getHighPrice(),
                 snapshot == null ? null : snapshot.getLowPrice(),
-                snapshot == null ? null : snapshot.getTimeframe()
-        );
+                snapshot == null ? null : snapshot.getTimeframe());
     }
 
     private DayRange displayedDayRange(String symbol, DelayedMarketPrice delayedPrice) {
@@ -369,8 +366,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                     symbol,
                     delayedPrice.tradingDate(),
                     "1min",
-                    cutoff
-            );
+                    cutoff);
             if (range == null || range.getHighPrice() == null || range.getLowPrice() == null) {
                 return DayRange.empty();
             }
@@ -387,8 +383,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
         return new DisplayedQuoteContext(
                 delayedPrice.previousClose(),
                 delayedPrice.displayedAbsoluteChange(),
-                displayedVolume(symbol, delayedPrice)
-        );
+                displayedVolume(symbol, delayedPrice));
     }
 
     private Long displayedVolume(String symbol, DelayedMarketPrice delayedPrice) {
@@ -401,8 +396,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                         symbol,
                         delayedPrice.tradingDate(),
                         "1min",
-                        cutoff
-                );
+                        cutoff);
                 if (intradayVolume != null && intradayVolume > 0) {
                     return intradayVolume;
                 }
@@ -424,20 +418,21 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
             String source,
             List<StockHistoryPointResponse> points,
             String message,
-            DelayedMarketPrice delayedPrice
-    ) {
+            DelayedMarketPrice delayedPrice) {
         int requestedTradingDays = switch (timeframe) {
             case INTRADAY_TIMEFRAME -> 1;
             case FIVE_DAY_INTRADAY_TIMEFRAME -> 5;
             case DAILY_TIMEFRAME -> 7;
             default -> points == null ? 0 : points.size();
         };
-        int includedTradingDays = (int) (points == null ? 0 : points.stream()
-                .map(StockHistoryPointResponse::tradingDate)
-                .filter(Objects::nonNull)
-                .distinct()
-                .count());
-        return stockHistoryResponse(symbol, timeframe, source, points, message, delayedPrice, includedTradingDays, requestedTradingDays);
+        int includedTradingDays = (int) (points == null ? 0
+                : points.stream()
+                        .map(StockHistoryPointResponse::tradingDate)
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .count());
+        return stockHistoryResponse(symbol, timeframe, source, points, message, delayedPrice, includedTradingDays,
+                requestedTradingDays);
     }
 
     private StockHistoryResponse stockHistoryResponse(
@@ -448,11 +443,11 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
             String message,
             DelayedMarketPrice delayedPrice,
             int includedTradingDays,
-            int requestedTradingDays
-    ) {
+            int requestedTradingDays) {
         boolean intraday = DelayedMarketPriceService.INTRADAY_PRICE_SOURCE.equals(source);
         int actualPointCount = points == null ? 0 : points.size();
-        int expectedPointCount = intraday ? Math.max(0, requestedTradingDays) * REGULAR_SESSION_POINT_COUNT : Math.max(0, requestedTradingDays);
+        int expectedPointCount = intraday ? Math.max(0, requestedTradingDays) * REGULAR_SESSION_POINT_COUNT
+                : Math.max(0, requestedTradingDays);
         return stockHistoryResponse(
                 symbol,
                 timeframe,
@@ -462,8 +457,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 delayedPrice,
                 includedTradingDays,
                 requestedTradingDays,
-                expectedPointCount
-        );
+                expectedPointCount);
     }
 
     private StockHistoryResponse stockHistoryResponse(
@@ -475,17 +469,15 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
             DelayedMarketPrice delayedPrice,
             int includedTradingDays,
             int requestedTradingDays,
-            int expectedPointCount
-    ) {
+            int expectedPointCount) {
         boolean intraday = DelayedMarketPriceService.INTRADAY_PRICE_SOURCE.equals(source);
         int actualPointCount = points == null ? 0 : points.size();
         int missingDataCount = Math.max(0, expectedPointCount - actualPointCount);
-        boolean candlestickSupported = points != null && !points.isEmpty() && points.stream().allMatch(point ->
-                point.openPrice() != null
+        boolean candlestickSupported = points != null && !points.isEmpty()
+                && points.stream().allMatch(point -> point.openPrice() != null
                         && point.highPrice() != null
                         && point.lowPrice() != null
-                        && point.closePrice() != null
-        );
+                        && point.closePrice() != null);
         String completenessNote = missingDataCount == 0
                 ? "Stored history is complete for the expected regular-session point count."
                 : "Stored history is incomplete; missing points were not synthesized.";
@@ -520,8 +512,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 "America/New_York",
                 source,
                 false,
-                completenessNote
-        );
+                completenessNote);
     }
 
     private boolean isRegularSessionHistory(StockPriceHistory history) {
@@ -533,25 +524,29 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
     }
 
     private int includedTradingDays(List<StockHistoryPointResponse> points) {
-        return (int) (points == null ? 0 : points.stream()
-                .map(StockHistoryPointResponse::tradingDate)
-                .filter(Objects::nonNull)
-                .distinct()
-                .count());
+        return (int) (points == null ? 0
+                : points.stream()
+                        .map(StockHistoryPointResponse::tradingDate)
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .count());
     }
 
-    private List<LocalDate> expectedTradingDates(DelayedMarketPrice delayedPrice, List<StockHistoryPointResponse> points) {
+    private List<LocalDate> expectedTradingDates(DelayedMarketPrice delayedPrice,
+            List<StockHistoryPointResponse> points) {
         if (delayedPrice != null && delayedPrice.tradingDate() != null) {
             return List.of(delayedPrice.tradingDate());
         }
-        return points == null ? List.of() : points.stream()
-                .map(StockHistoryPointResponse::tradingDate)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
+        return points == null ? List.of()
+                : points.stream()
+                        .map(StockHistoryPointResponse::tradingDate)
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .toList();
     }
 
-    private int intradayExpectedPointCount(List<LocalDate> selectedTradingDates, DelayedMarketPrice delayedPrice, int requestedTradingDays) {
+    private int intradayExpectedPointCount(List<LocalDate> selectedTradingDates, DelayedMarketPrice delayedPrice,
+            int requestedTradingDays) {
         int requested = Math.max(0, requestedTradingDays);
         if (requested == 0) {
             return 0;
@@ -563,7 +558,8 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 || !selectedTradingDates.contains(delayedPrice.tradingDate())) {
             return requested * REGULAR_SESSION_POINT_COUNT;
         }
-        int partialCurrentDayCount = regularSessionExpectedRowsThrough(delayedPrice.targetDisplayMarketTime().toLocalTime());
+        int partialCurrentDayCount = regularSessionExpectedRowsThrough(
+                delayedPrice.targetDisplayMarketTime().toLocalTime());
         return Math.max(0, requested - 1) * REGULAR_SESSION_POINT_COUNT + partialCurrentDayCount;
     }
 
@@ -583,8 +579,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
         return snapshot != null && explanationRepository.existsByAnalysisSnapshotAndModelAndPromptVersion(
                 snapshot,
                 openAiModel,
-                AI_EXPLANATION_PROMPT_VERSION
-        );
+                AI_EXPLANATION_PROMPT_VERSION);
     }
 
     private StockHistoryPointResponse toHistoryPoint(StockPriceHistory history) {
@@ -596,8 +591,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 history.getLowPrice(),
                 history.getClosePrice(),
                 history.getVolume(),
-                history.getSource()
-        );
+                history.getSource());
     }
 
     private StockHistoryPointResponse toHistoryPoint(StockPriceDaily daily) {
@@ -609,8 +603,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 daily.getLowPrice(),
                 daily.getClosePrice(),
                 daily.getVolume(),
-                daily.getSource()
-        );
+                daily.getSource());
     }
 
     private Map<String, Stock> loadStocks(Collection<String> symbols) {
@@ -620,7 +613,8 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
 
     private Map<String, StockAnalysisSnapshot> loadLatestSnapshots(Collection<String> symbols) {
         Map<String, StockAnalysisSnapshot> snapshotBySymbol = new LinkedHashMap<>();
-        snapshotRepository.findBySymbolInAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc(symbols, ANALYSIS_TIMEFRAME)
+        snapshotRepository
+                .findBySymbolInAndTimeframeOrderByCreatedAtDescAnalysisSnapshotIdDesc(symbols, ANALYSIS_TIMEFRAME)
                 .forEach(snapshot -> snapshotBySymbol.putIfAbsent(snapshot.getSymbol(), snapshot));
         return snapshotBySymbol;
     }
@@ -637,8 +631,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                         Function.identity(),
                         delayedMarketPriceService::resolveForDisplay,
                         (first, second) -> first,
-                        LinkedHashMap::new
-                ));
+                        LinkedHashMap::new));
     }
 
     private String validateSupportedSymbol(String symbol) {
@@ -691,8 +684,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
     private record DisplayedQuoteContext(
             BigDecimal previousClose,
             BigDecimal displayedAbsoluteChange,
-            Long displayedVolume
-    ) {
+            Long displayedVolume) {
         static DisplayedQuoteContext empty() {
             return new DisplayedQuoteContext(null, null, null);
         }

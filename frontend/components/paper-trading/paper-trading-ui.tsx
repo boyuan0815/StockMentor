@@ -35,6 +35,8 @@ type PaperHeaderProps = {
   iconName?: Parameters<typeof IconSymbol>[0]['name'];
   onBack?: () => void;
   onRefresh?: () => void;
+  refreshAccessibilityLabel?: string;
+  refreshDisabled?: boolean;
   title: string;
 };
 
@@ -52,7 +54,15 @@ type TransactionRowProps = {
   transaction: PaperTradeTransactionResponse;
 };
 
-export function PaperHeader({ brandIcon = false, iconName, onBack, onRefresh, title }: PaperHeaderProps) {
+export function PaperHeader({
+  brandIcon = false,
+  iconName,
+  onBack,
+  onRefresh,
+  refreshAccessibilityLabel = 'Refresh data',
+  refreshDisabled = false,
+  title,
+}: PaperHeaderProps) {
   return (
     <View style={styles.header}>
       {onBack ? (
@@ -79,10 +89,15 @@ export function PaperHeader({ brandIcon = false, iconName, onBack, onRefresh, ti
       </Text>
       {onRefresh ? (
         <Pressable
-          accessibilityLabel="Refresh portfolio data"
           accessibilityRole="button"
+          disabled={refreshDisabled}
           onPress={onRefresh}
-          style={({ pressed }) => [styles.headerIcon, pressed ? styles.pressed : undefined]}>
+          accessibilityLabel={refreshAccessibilityLabel}
+          style={({ pressed }) => [
+            styles.headerIcon,
+            pressed && !refreshDisabled ? styles.pressed : undefined,
+            refreshDisabled ? styles.disabled : undefined,
+          ]}>
           <IconSymbol color={Colors.light.text} name="arrow.clockwise" size={21} />
         </Pressable>
       ) : null}
@@ -940,6 +955,9 @@ const styles = StyleSheet.create({
   confirmPrimaryButton: {
     backgroundColor: BRAND_NAVY,
     borderColor: BRAND_NAVY,
+  },
+  disabled: {
+    opacity: 0.46,
   },
   pressed: {
     opacity: 0.82,

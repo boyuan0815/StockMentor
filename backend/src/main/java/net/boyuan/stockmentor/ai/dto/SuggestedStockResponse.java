@@ -2,6 +2,7 @@ package net.boyuan.stockmentor.ai.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import net.boyuan.stockmentor.market.stock.dto.DelayedPriceMetadataResponse;
 
@@ -16,6 +17,8 @@ public record SuggestedStockResponse(
         String suggestionLabel,
         String shortReason,
         String detailReason,
+        List<TextHighlightSegmentResponse> shortReasonHighlights,
+        List<TextHighlightSegmentResponse> detailReasonHighlights,
         String status,
         Long snapshotId,
         BigDecimal currentPrice,

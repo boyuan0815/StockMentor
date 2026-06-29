@@ -1,5 +1,7 @@
 package net.boyuan.stockmentor.ai.dto;
 
+import java.util.List;
+
 public record AiSuggestedStockDto(
         String symbol,
         Integer rankNo,
@@ -7,6 +9,8 @@ public record AiSuggestedStockDto(
         String riskLevel,
         String suggestionLabel,
         String shortReason,
-        String detailReason
+        String detailReason,
+        List<AiHighlightPhraseDto> shortReasonHighlights,
+        List<AiHighlightPhraseDto> detailReasonHighlights
 ) {
 }

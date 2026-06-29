@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+</style>
+</helmet>
+<div style="width: 390px; margin: 0 auto; background: #fff; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #0F2540; -webkit-font-smoothing: antialiased; min-height: 100%; padding-bottom: 4px;">
+
+  <!-- cards -->
+  <div style="padding: 0 14px; display:flex; flex-direction:column; gap:16px;">
+
+    <!-- ============ CARD 1 — GOLD ============ -->
+    <sc-if value="{{ nvdaVisible }}" hint-placeholder-val="{{ true }}">
+    <div style="background:#fff; border:1px solid #ECEDF0; border-radius:{{ cardRadius }}; overflow:hidden; box-shadow:0 2px 10px rgba(15,37,64,.06);">
+      <!-- themed header -->
+      <div style="background:#fff; padding:15px 18px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:14px;">
+          <div style="display:flex; align-items:center; gap:{{ headerGap }}; min-width:0;">
+            <div style="display:flex; align-items:center; gap:13px; min-width:0;">
+            <sc-if value="{{ showRankBadge }}" hint-placeholder-val="{{ true }}">
+            <div style="flex-shrink:0; width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg,#EBCF74,#C39A28); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:800; color:#5C4300; box-shadow:0 2px 5px rgba(150,110,10,.35), inset 0 1px 1px rgba(255,255,255,.5);">1</div>
+            </sc-if>
+            <div style="min-width:0;">
+              <div style="font-size:19px; font-weight:800; letter-spacing:-0.3px; line-height:1.1; color:#0F2540;">NVDA</div>
+              <div style="font-size:12px; font-weight:500; color:#8A7A45;">Nvidia</div>
+            </div>
+            </div>
+            <div style="display:flex; align-items:baseline; gap:7px; flex-shrink:0;">
+              <span style="font-size:15px; font-weight:600; color:#128A4F;">$1,043.20</span>
+              <span style="font-size:15px; font-weight:600; color:#128A4F;">+4.12%</span>
+            </div>
+          </div>
+          <div style="flex-shrink:0; display:flex; flex-direction:column; align-items:center; gap:4px;">
+            <div style="padding:7px 14px; border-radius:12px; background:linear-gradient(135deg,#D9B441,#B5860F); box-shadow:0 2px 6px rgba(150,110,10,.4), inset 0 1px 1px rgba(255,255,255,.45);">
+              <span style="font-size:18px; font-weight:800; color:#fff; line-height:1;">94%</span>
+            </div>
+            <span style="font-size:9.5px; font-weight:800; letter-spacing:.1em; color:#9A7414; text-transform:uppercase;">Match</span>
+          </div>
+        </div>
+      </div>
+      <sc-if value="{{ showDivider }}" hint-placeholder-val="{{ true }}">
+      <div style="height:1px; background:#E4C977;"></div>
+      </sc-if>
+      <!-- body -->
+      <div style="padding:16px 18px 18px;">
+        <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;">
+          <span style="font-size:12px; font-weight:600; color:#2C5BA8; background:#EDF3FC; padding:6px 12px; border-radius:999px;">Momentum breakout</span>
+          <span style="font-size:12px; font-weight:600; color:#2F66B5; background:#EAF1FB; padding:6px 12px; border-radius:999px;">Moderate risk</span>
+          <span style="font-size:12px; font-weight:600; color:#6B4FB0; background:#F2EDFB; padding:6px 12px; border-radius:999px;">Market close</span>
+          <sc-if value="{{ nvdaWatched }}" hint-placeholder-val="{{ false }}">
+          <span style="display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:#1F8A4C; background:#E7F5EC; padding:6px 12px; border-radius:999px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.2 3.2L13 5" stroke="#1F8A4C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Watchlisted</span>
+          </sc-if>
+        </div>
+        <div style="font-size:16px; font-weight:700; line-height:1.32; color:#0F2540; letter-spacing:-0.2px;">Strong momentum breakout on rising volume that matches your growth-tilted watch behavior.</div>
+        <div style="margin-top:14px;">
+          <div style="font-size:10.5px; font-weight:700; letter-spacing:.09em; color:#A0894A; margin-bottom:6px;">WHY IT FITS</div>
+          <div style="font-size:14px; line-height:1.55; color:#5B6573;">Price is trending up with expanding volume and a clean break above recent resistance. Your activity leans toward high-momentum names, which is why this ranks first — a good example to study trend continuation.</div>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:18px;">
+          <button onClick="{{ dismissNvda }}" style="display:inline-flex; align-items:center; gap:6px; font-family:inherit; font-size:14px; font-weight:600; color:#5B6573; background:#fff; border:1.5px solid #DDE3EA; border-radius:999px; padding:12px 18px; cursor:pointer;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="#8A93A0" stroke-width="2" stroke-linecap="round"/></svg>Dismiss</button>
+          <sc-if value="{{ nvdaNotWatched }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ toggleNvda }}" style="flex:1; display:inline-flex; align-items:center; justify-content:center; gap:7px; font-family:inherit; font-size:14px; font-weight:700; color:#fff; background:linear-gradient(135deg,#D7B23F,#B5860F); border:none; border-radius:999px; padding:12px; cursor:pointer; box-shadow:0 3px 9px rgba(150,110,10,.32);"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>Add to watchlist</button>
+          </sc-if>
+          <sc-if value="{{ nvdaWatched }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ toggleNvda }}" style="flex:1; display:inline-flex; align-items:center; justify-content:center; gap:7px; font-family:inherit; font-size:14px; font-weight:700; color:#8A6A12; background:#FBF2D2; border:1.5px solid #E4C977; border-radius:999px; padding:12px; cursor:pointer;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.2 3.2L13 5" stroke="#8A6A12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Watchlisted</button>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ============ CARD 2 — SILVER ============ -->
+    <sc-if value="{{ amdVisible }}" hint-placeholder-val="{{ true }}">
+    <div style="background:#fff; border:1px solid #ECEDF0; border-radius:{{ cardRadius }}; overflow:hidden; box-shadow:0 2px 10px rgba(15,37,64,.06);">
+      <div style="background:#fff; padding:15px 18px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:14px;">
+          <div style="display:flex; align-items:center; gap:{{ headerGap }}; min-width:0;">
+            <div style="display:flex; align-items:center; gap:13px; min-width:0;">
+            <sc-if value="{{ showRankBadge }}" hint-placeholder-val="{{ true }}">
+            <div style="flex-shrink:0; width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg,#D2D8E2,#9AA6B6); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:800; color:#3C4452; box-shadow:0 2px 5px rgba(90,105,125,.32), inset 0 1px 1px rgba(255,255,255,.6);">2</div>
+            </sc-if>
+            <div style="min-width:0;">
+              <div style="font-size:19px; font-weight:800; letter-spacing:-0.3px; line-height:1.1; color:#0F2540;">AMD</div>
+              <div style="font-size:12px; font-weight:500; color:#737E8C;">AMD</div>
+            </div>
+            </div>
+            <div style="display:flex; align-items:baseline; gap:7px; flex-shrink:0;">
+              <span style="font-size:15px; font-weight:600; color:#C53434;">$521.58</span>
+              <span style="font-size:15px; font-weight:600; color:#C53434;">-2.07%</span>
+            </div>
+          </div>
+          <div style="flex-shrink:0; display:flex; flex-direction:column; align-items:center; gap:4px;">
+            <div style="padding:7px 14px; border-radius:12px; background:linear-gradient(135deg,#B9C2CF,#8C97A8); box-shadow:0 2px 6px rgba(90,105,125,.35), inset 0 1px 1px rgba(255,255,255,.5);">
+              <span style="font-size:18px; font-weight:800; color:#fff; line-height:1;">88%</span>
+            </div>
+            <span style="font-size:9.5px; font-weight:800; letter-spacing:.1em; color:#6B7686; text-transform:uppercase;">Match</span>
+          </div>
+        </div>
+      </div>
+      <sc-if value="{{ showDivider }}" hint-placeholder-val="{{ true }}">
+      <div style="height:1px; background:#CBD2DE;"></div>
+      </sc-if>
+      <div style="padding:16px 18px 18px;">
+        <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;">
+          <span style="font-size:12px; font-weight:600; color:#2C5BA8; background:#EDF3FC; padding:6px 12px; border-radius:999px;">Choppy movement</span>
+          <span style="font-size:12px; font-weight:600; color:#B5651D; background:#FBF0E3; padding:6px 12px; border-radius:999px;">Aggressive risk</span>
+          <sc-if value="{{ amdWatched }}" hint-placeholder-val="{{ false }}">
+          <span style="display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:#1F8A4C; background:#E7F5EC; padding:6px 12px; border-radius:999px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.2 3.2L13 5" stroke="#1F8A4C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Watchlisted</span>
+          </sc-if>
+        </div>
+        <div style="font-size:16px; font-weight:700; line-height:1.32; color:#0F2540; letter-spacing:-0.2px;">Choppy downtrend on increasing volume — an aggressive-style example to observe.</div>
+        <div style="margin-top:14px;">
+          <div style="font-size:10.5px; font-weight:700; letter-spacing:.09em; color:#8A93A0; margin-bottom:6px;">WHY IT FITS</div>
+          <div style="font-size:14px; line-height:1.55; color:#5B6573;">Moderate volatility with a volatile downtrend and choppy price action while volume increases. Recent paper-trading behavior favors aggressive names, so it surfaces here as a study in reading choppy movement.</div>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:18px;">
+          <button onClick="{{ dismissAmd }}" style="display:inline-flex; align-items:center; gap:6px; font-family:inherit; font-size:14px; font-weight:600; color:#5B6573; background:#fff; border:1.5px solid #DDE3EA; border-radius:999px; padding:12px 18px; cursor:pointer;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="#8A93A0" stroke-width="2" stroke-linecap="round"/></svg>Dismiss</button>
+          <sc-if value="{{ amdNotWatched }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ toggleAmd }}" style="flex:1; display:inline-flex; align-items:center; justify-content:center; gap:7px; font-family:inherit; font-size:14px; font-weight:700; color:#fff; background:linear-gradient(135deg,#9CA7B7,#717E90); border:none; border-radius:999px; padding:12px; cursor:pointer; box-shadow:0 3px 9px rgba(90,105,125,.3);"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>Add to watchlist</button>
+          </sc-if>
+          <sc-if value="{{ amdWatched }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ toggleAmd }}" style="flex:1; display:inline-flex; align-items:center; justify-content:center; gap:7px; font-family:inherit; font-size:14px; font-weight:700; color:#5A6573; background:#EEF1F5; border:1.5px solid #CBD2DE; border-radius:999px; padding:12px; cursor:pointer;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.2 3.2L13 5" stroke="#5A6573" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Watchlisted</button>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ============ CARD 3 — BRONZE ============ -->
+    <sc-if value="{{ tslaVisible }}" hint-placeholder-val="{{ true }}">
+    <div style="background:#fff; border:1px solid #ECEDF0; border-radius:{{ cardRadius }}; overflow:hidden; box-shadow:0 2px 10px rgba(15,37,64,.06);">
+      <div style="background:#fff; padding:15px 18px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:14px;">
+          <div style="display:flex; align-items:center; gap:{{ headerGap }}; min-width:0;">
+            <div style="display:flex; align-items:center; gap:13px; min-width:0;">
+            <sc-if value="{{ showRankBadge }}" hint-placeholder-val="{{ true }}">
+            <div style="flex-shrink:0; width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg,#DBA871,#B27B43); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:800; color:#5E3814; box-shadow:0 2px 5px rgba(140,90,40,.35), inset 0 1px 1px rgba(255,255,255,.5);">3</div>
+            </sc-if>
+            <div style="min-width:0;">
+              <div style="font-size:19px; font-weight:800; letter-spacing:-0.3px; line-height:1.1; color:#0F2540;">TSLA</div>
+              <div style="font-size:12px; font-weight:500; color:#9A7350;">Tesla</div>
+            </div>
+            </div>
+            <div style="display:flex; align-items:baseline; gap:7px; flex-shrink:0;">
+              <span style="font-size:15px; font-weight:600; color:#128A4F;">$379.71</span>
+              <span style="font-size:15px; font-weight:600; color:#128A4F;">+1.22%</span>
+            </div>
+          </div>
+          <div style="flex-shrink:0; display:flex; flex-direction:column; align-items:center; gap:4px;">
+            <div style="padding:7px 14px; border-radius:12px; background:linear-gradient(135deg,#CD8E55,#A4682F); box-shadow:0 2px 6px rgba(140,90,40,.4), inset 0 1px 1px rgba(255,255,255,.4);">
+              <span style="font-size:18px; font-weight:800; color:#fff; line-height:1;">87%</span>
+            </div>
+            <span style="font-size:9.5px; font-weight:800; letter-spacing:.1em; color:#9A6234; text-transform:uppercase;">Match</span>
+          </div>
+        </div>
+      </div>
+      <sc-if value="{{ showDivider }}" hint-placeholder-val="{{ true }}">
+      <div style="height:1px; background:#E1C09A;"></div>
+      </sc-if>
+      <div style="padding:16px 18px 18px;">
+        <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;">
+          <span style="font-size:12px; font-weight:600; color:#2C5BA8; background:#EDF3FC; padding:6px 12px; border-radius:999px;">Volume fade</span>
+          <span style="font-size:12px; font-weight:600; color:#B5651D; background:#FBF0E3; padding:6px 12px; border-radius:999px;">Aggressive risk</span>
+          <sc-if value="{{ tslaWatched }}" hint-placeholder-val="{{ true }}">
+          <span style="display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:#1F8A4C; background:#E7F5EC; padding:6px 12px; border-radius:999px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.2 3.2L13 5" stroke="#1F8A4C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Watchlisted</span>
+          </sc-if>
+        </div>
+        <div style="font-size:16px; font-weight:700; line-height:1.32; color:#0F2540; letter-spacing:-0.2px;">Choppy movement with fading volume — useful for watching weakening trends.</div>
+        <div style="margin-top:14px;">
+          <div style="font-size:10.5px; font-weight:700; letter-spacing:.09em; color:#A6794D; margin-bottom:6px;">WHY IT FITS</div>
+          <div style="font-size:14px; line-height:1.55; color:#5B6573;">A volatile downtrend with choppy price action while volume decreases. Helpful for spotting momentum loss; kept in view since you already added it to your watchlist.</div>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:18px;">
+          <button onClick="{{ dismissTsla }}" style="display:inline-flex; align-items:center; gap:6px; font-family:inherit; font-size:14px; font-weight:600; color:#5B6573; background:#fff; border:1.5px solid #DDE3EA; border-radius:999px; padding:12px 18px; cursor:pointer;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="#8A93A0" stroke-width="2" stroke-linecap="round"/></svg>Dismiss</button>
+          <sc-if value="{{ tslaNotWatched }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ toggleTsla }}" style="flex:1; display:inline-flex; align-items:center; justify-content:center; gap:7px; font-family:inherit; font-size:14px; font-weight:700; color:#fff; background:linear-gradient(135deg,#C2854C,#9C5F2C); border:none; border-radius:999px; padding:12px; cursor:pointer; box-shadow:0 3px 9px rgba(140,90,40,.32);"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>Add to watchlist</button>
+          </sc-if>
+          <sc-if value="{{ tslaWatched }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ toggleTsla }}" style="flex:1; display:inline-flex; align-items:center; justify-content:center; gap:7px; font-family:inherit; font-size:14px; font-weight:700; color:#8A5526; background:#FAEEE0; border:1.5px solid #E1C09A; border-radius:999px; padding:12px; cursor:pointer;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.2 3.2L13 5" stroke="#8A5526" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Watchlisted</button>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+  </div>
+
+  <!-- bottom tab bar -->
+  <div style="display:flex; align-items:flex-end; justify-content:space-around; background:#fff; border-top:1px solid #E8ECF1; padding:12px 8px 18px; margin-top:18px;">
+    <div style="display:flex; flex-direction:column; align-items:center; gap:5px; color:#5A6573;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="#5A6573"><path d="M12 20s-7-4.4-9.3-8.6C1.3 8.6 3 5.5 6.2 5.5c2 0 3.3 1.2 4 2.3.7-1.1 2-2.3 4-2.3 3.2 0 4.9 3.1 3.5 5.9C19 15.6 12 20 12 20z"/></svg>
+      <span style="font-size:10.5px; font-weight:600;">Watchlist</span>
+    </div>
+    <div style="display:flex; flex-direction:column; align-items:center; gap:5px; color:#5A6573;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 16l4-4 3 2 6-7" stroke="#5A6573" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 7h3v3" stroke="#5A6573" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span style="font-size:10.5px; font-weight:600;">Stocks</span>
+    </div>
+    <div style="display:flex; flex-direction:column; align-items:center; gap:5px; color:#2A6FDB;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="#2A6FDB"><path d="M9 18h6v1.5a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 9 19.5V18zM12 2a7 7 0 0 0-4 12.7V16h8v-1.3A7 7 0 0 0 12 2z"/></svg>
+      <span style="font-size:10.5px; font-weight:700;">Suggestions</span>
+    </div>
+    <div style="display:flex; flex-direction:column; align-items:center; gap:5px; color:#5A6573;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="7" width="18" height="13" rx="2" stroke="#5A6573" stroke-width="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="#5A6573" stroke-width="2"/></svg>
+      <span style="font-size:10.5px; font-weight:600;">Portfolio</span>
+    </div>
+    <div style="display:flex; flex-direction:column; align-items:center; gap:5px; color:#5A6573;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.5" stroke="#5A6573" stroke-width="2"/><path d="M5 20c0-3.3 3.1-5 7-5s7 1.7 7 5" stroke="#5A6573" stroke-width="2" stroke-linecap="round"/></svg>
+      <span style="font-size:10.5px; font-weight:600;">Profile</span>
+    </div>
+    <div style="display:flex; flex-direction:column; align-items:center; gap:5px; color:#5A6573;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6" stroke="#5A6573" stroke-width="2"/><path d="M16 16l4 4" stroke="#5A6573" stroke-width="2" stroke-linecap="round"/></svg>
+      <span style="font-size:10.5px; font-weight:600;">Search</span>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: { &quot;width&quot;: 390, &quot;height&quot;: 1500 },
+  &quot;cardRadius&quot;: { &quot;editor&quot;: &quot;range&quot;, &quot;default&quot;: 18, &quot;min&quot;: 8, &quot;max&quot;: 28, &quot;step&quot;: 1, &quot;unit&quot;: &quot;px&quot;, &quot;tsType&quot;: &quot;number&quot;, &quot;section&quot;: &quot;Card&quot; },
+  &quot;comfortableSpacing&quot;: { &quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Card&quot; },
+  &quot;showDivider&quot;: { &quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Header&quot; },
+  &quot;showRankBadge&quot;: { &quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Header&quot; }
+}">
+class Component extends DCLogic {
+  state = {
+    visible: { nvda: true, amd: true, tsla: true },
+    watched: { nvda: false, amd: false, tsla: true },
+  };
+  toggle(id) {
+    this.setState(s => ({ watched: { ...s.watched, [id]: !s.watched[id] } }));
+  }
+  dismiss(id) {
+    this.setState(s => ({ visible: { ...s.visible, [id]: false } }));
+  }
+  renderVals() {
+    const p = this.props;
+    const w = this.state.watched, v = this.state.visible;
+    return {
+      cardRadius: (p.cardRadius ?? 18) + 'px',
+      headerGap: (p.comfortableSpacing ?? true) ? '22px' : '14px',
+      showDivider: p.showDivider ?? true,
+      showRankBadge: p.showRankBadge ?? true,
+
+      nvdaVisible: v.nvda, amdVisible: v.amd, tslaVisible: v.tsla,
+      nvdaWatched: w.nvda, amdWatched: w.amd, tslaWatched: w.tsla,
+      nvdaNotWatched: !w.nvda, amdNotWatched: !w.amd, tslaNotWatched: !w.tsla,
+
+      dismissNvda: () => this.dismiss('nvda'),
+      dismissAmd: () => this.dismiss('amd'),
+      dismissTsla: () => this.dismiss('tsla'),
+      toggleNvda: () => this.toggle('nvda'),
+      toggleAmd: () => this.toggle('amd'),
+      toggleTsla: () => this.toggle('tsla'),
+    };
+  }
+}
+</script>
+</body>
+</html>

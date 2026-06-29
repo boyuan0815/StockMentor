@@ -60,6 +60,14 @@ public class StockAiSuggestionItem {
     @Column(name = "detail_reason", length = 2000)
     private String detailReason;
 
+    @Lob
+    @Column(name = "short_reason_highlights", columnDefinition = "TEXT")
+    private String shortReasonHighlights;
+
+    @Lob
+    @Column(name = "detail_reason_highlights", columnDefinition = "TEXT")
+    private String detailReasonHighlights;
+
     @ManyToOne
     @JoinColumn(name = "analysis_snapshot_id", nullable = false)
     private StockAnalysisSnapshot analysisSnapshot;

@@ -24,6 +24,10 @@ import net.boyuan.stockmentor.market.stock.entity.Stock;
 import net.boyuan.stockmentor.market.stock.model.DelayedMarketPrice;
 import net.boyuan.stockmentor.market.stock.repository.StockRepository;
 import net.boyuan.stockmentor.market.stock.service.DelayedMarketPriceService;
+import net.boyuan.stockmentor.papertrading.entity.PaperPosition;
+import net.boyuan.stockmentor.papertrading.entity.PaperTradingAccount;
+import net.boyuan.stockmentor.papertrading.repository.PaperPositionRepository;
+import net.boyuan.stockmentor.papertrading.repository.PaperTradingAccountRepository;
 import net.boyuan.stockmentor.userprofile.entity.UserInvestmentProfile;
 import net.boyuan.stockmentor.userprofile.model.BehaviorConfidence;
 import net.boyuan.stockmentor.userprofile.model.PreferredVolatility;
@@ -40,6 +44,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -64,9 +70,11 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
     private final OpenAiClient openAiClient;
     private final UserBehaviorProfileService behaviorProfileService;
     private final DelayedMarketPriceService delayedMarketPriceService;
+    private final PaperPositionRepository positionRepository;
+    private final PaperTradingAccountRepository accountRepository;
     private final ObjectMapper objectMapper;
 
-    private static final String PROMPT_VERSION = "stock-suggestion-v3";
+    private static final String PROMPT_VERSION = "stock-suggestion-v4";
     private static final String ANALYSIS_TIMEFRAME = "7D";
     private static final int MAX_SUGGESTIONS = 3;
     private static final int MANUAL_REFRESH_COOLDOWN_HOURS = 1;
@@ -97,6 +105,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             
             * one beginner investor profile
             * one virtual trading behavior summary
+            * one current paper portfolio exposure summary
             * structured analysis snapshots for exactly 8 supported stocks
             * explicit personalization weights that control how declared onboarding preferences and observed paper-trading behavior should be blended
             
@@ -127,6 +136,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             * Rank stocks by suitability for the given user profile and behavior summary.
             * Treat the onboarding profile as the user's declared preference from the onboarding quiz.
             * Treat the behavior profile as observed behavior from simulated paper trading only.
+            * Treat currentPortfolioExposure as the current open paper holdings signal; if it conflicts with behavior history, explain the conflict without treating it as real-money advice.
             * Use personalizationWeight.onboardingWeight and personalizationWeight.behaviorWeight to decide how strongly each signal should influence ranking.
             * If behavior confidence is LOW or no behavior profile exists, behavior is informational only and must not override onboarding.
             * If behavior confidence is MEDIUM, behavior may meaningfully adjust close rankings.
@@ -136,6 +146,8 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             * Use the behavior summary as a secondary adjustment, not as the only decision factor.
             * If behaviorConfidence is LOW or MEDIUM, do not let behavior summary override the user's main risk tolerance, experience level, and preferred volatility.
             * If behaviorConfidence is HIGH, behavior summary may have stronger influence, but the explanation must clearly state why.
+            * If currentPortfolioExposure shows a very concentrated lower-risk holding, do not rank only aggressive stocks unless onboarding and behavior both strongly justify it.
+            * If currentPortfolioExposure has no open positions after a reset, do not invent current holdings.
             * When two stocks have similar risk and volatility fit, rank the stock with better-supported movement evidence and less erratic price consistency higher.
             * For growth-oriented users, an uptrend can be preferred over sideways movement when risk and volatility are still suitable.
             * If the user has moderate risk tolerance, avoid ranking highly aggressive stocks too high unless behavior data strongly supports it.
@@ -221,6 +233,14 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             * Do not expose backend field names in user-facing explanations. Avoid raw terms such as riskCategory, volatilityLabel, priceConsistency, volumeTrend, dataQualityLabel, behaviorCompatibility, behaviorFitScore, combinedFitScore, MATCH, PARTIAL_MATCH, COMPLETE, or LOW/HIGH as technical labels.
             * Convert backend fields into natural beginner wording. For example, write "conservative risk level" instead of "riskCategory is conservative", "low volatility" instead of "volatilityLabel is low", and "complete data" instead of "dataQuality is COMPLETE".
             * You may mention behavior confidence naturally, such as "recent paper-trading behavior is strong enough to influence this suggestion", but do not write raw backend terms like behaviorConfidence HIGH.
+
+            Highlight rules:
+
+            * Return up to 3 exact phrases from shortReason and up to 3 exact phrases from detailReason for beginner-friendly highlighting.
+            * Use style "positive" for supportive data, "negative" for caution/risk data, and "emphasis" for neutral important concepts.
+            * Highlight phrases must be copied exactly from the final reason text.
+            * Do not put visible tags, markdown, brackets, or HTML in the reason text.
+            * It is okay to return empty highlight arrays.
             
             Output format rules:
             
@@ -241,7 +261,13 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                   "riskLevel": "moderate",
                   "suggestionLabel": "Risk-aligned paper-trading practice",
                   "shortReason": "One sentence reason.",
-                  "detailReason": "Beginner-friendly explanation using at least three provided factors."
+                  "detailReason": "Beginner-friendly explanation using at least three provided factors.",
+                  "shortReasonHighlights": [
+                    {"phrase": "exact phrase from shortReason", "style": "positive"}
+                  ],
+                  "detailReasonHighlights": [
+                    {"phrase": "exact phrase from detailReason", "style": "emphasis"}
+                  ]
                 }
               ]
             }
@@ -336,11 +362,19 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             return buildEmptyResponse(user, null, "No usable stock analysis data is available for suggestions yet.");
         }
 
-        BehaviorSummaryForSuggestion behaviorSummary = behaviorSummaryOrLowNoData(
-                behaviorProfileService.getBehaviorSummaryForSuggestion(user.getUserId())
+        BehaviorSummaryForSuggestion behaviorSummary = behaviorSummaryAfterResetBoundary(
+                user.getUserId(),
+                behaviorSummaryOrLowNoData(behaviorProfileService.getBehaviorSummaryForSuggestion(user.getUserId()))
         );
         PersonalizationWeight personalizationWeight = personalizationWeight(behaviorSummary);
-        List<CandidateFitSignal> candidateFitSignals = buildCandidateFitSignals(profile, behaviorSummary, personalizationWeight, snapshots);
+        PortfolioExposure portfolioExposure = currentPortfolioExposure(user.getUserId(), snapshots);
+        List<CandidateFitSignal> candidateFitSignals = buildCandidateFitSignals(
+                profile,
+                behaviorSummary,
+                personalizationWeight,
+                portfolioExposure,
+                snapshots
+        );
         log.info("AI suggestion generation promptVersion={} behaviorConfidence={} behaviorRiskScore={} onboardingWeight={} behaviorWeight={} candidateFitSignals={} userId={} triggerReason={}",
                 PROMPT_VERSION,
                 behaviorSummary.behaviorConfidence(),
@@ -352,7 +386,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 triggerReason);
 
         String model = openAiClient.getModel();
-        String inputHash = hashInput(user, profile, behaviorSummary, personalizationWeight, snapshots, candidateFitSignals, model);
+        String inputHash = hashInput(user, profile, behaviorSummary, personalizationWeight, portfolioExposure, snapshots, candidateFitSignals, model);
         Optional<StockAiSuggestionBatch> existingInputBatch = batchRepository
                 .findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(
                         user.getUserId(),
@@ -369,7 +403,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             return buildResponse(user, reusableBatch, "Returned existing suggestions because your profile and stock data are unchanged.", false);
         }
 
-        GenerationResult generationResult = generateWithOpenAi(profile, behaviorSummary, personalizationWeight, snapshots, candidateFitSignals);
+        GenerationResult generationResult = generateWithOpenAi(profile, behaviorSummary, personalizationWeight, portfolioExposure, snapshots, candidateFitSignals);
         if (generationResult.success()) {
             StockAiSuggestionBatch saved = saveOrUpdateSuccessBatch(
                     user,
@@ -388,7 +422,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
 
         log.info("AI suggestion OpenAI generation failed for userId={} triggerReason={} error={}",
                 user.getUserId(), triggerReason, generationResult.errorMessage());
-        AiSuggestionContentDto fallback = buildRuleBasedFallback(profile, behaviorSummary, personalizationWeight, snapshots, candidateFitSignals);
+        AiSuggestionContentDto fallback = buildRuleBasedFallback(profile, behaviorSummary, personalizationWeight, portfolioExposure, snapshots, candidateFitSignals);
         StockAiSuggestionBatch fallbackBatch = saveOrUpdateRuleBasedFallbackBatch(
                 user,
                 profile,
@@ -476,10 +510,11 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             UserInvestmentProfile profile,
             BehaviorSummaryForSuggestion behaviorSummary,
             PersonalizationWeight personalizationWeight,
+            PortfolioExposure portfolioExposure,
             List<StockAnalysisSnapshot> snapshots,
             List<CandidateFitSignal> candidateFitSignals
     ) {
-        String userContent = buildPromptInput(profile, behaviorSummary, personalizationWeight, snapshots, candidateFitSignals, null);
+        String userContent = buildPromptInput(profile, behaviorSummary, personalizationWeight, portfolioExposure, snapshots, candidateFitSignals, null);
         OpenAiSuggestionResult firstResult = openAiClient.generateSuggestion(SYSTEM_PROMPT, userContent);
         GenerationResult firstParsed = parseAndValidate(firstResult, profile, behaviorSummary, snapshots);
         if (firstParsed.success()) {
@@ -487,7 +522,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         }
 
         log.info("AI suggestion validation failed before retry: {}", firstParsed.errorMessage());
-        String retryContent = buildPromptInput(profile, behaviorSummary, personalizationWeight, snapshots, candidateFitSignals, firstParsed.errorMessage());
+        String retryContent = buildPromptInput(profile, behaviorSummary, personalizationWeight, portfolioExposure, snapshots, candidateFitSignals, firstParsed.errorMessage());
         OpenAiSuggestionResult retryResult = openAiClient.generateSuggestion(SYSTEM_PROMPT, retryContent);
         return parseAndValidate(retryResult, profile, behaviorSummary, snapshots);
     }
@@ -686,7 +721,9 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 stock.riskLevel(),
                 suggestionLabel,
                 shortReason,
-                detailReason
+                detailReason,
+                stock.shortReasonHighlights(),
+                stock.detailReasonHighlights()
         );
     }
 
@@ -695,7 +732,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             return null;
         }
 
-        String cleaned = value.replaceAll("\\s+", " ").trim();
+        String cleaned = AiHighlightSupport.stripRawHighlightMarkup(value).replaceAll("\\s+", " ").trim();
 
         cleaned = cleaned.replaceAll("(?i)\\bvolatile downtrend trend\\b", "volatile downtrend");
         cleaned = cleaned.replaceAll("(?i)\\bvolatile uptrend trend\\b", "volatile uptrend");
@@ -1065,6 +1102,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             UserInvestmentProfile profile,
             BehaviorSummaryForSuggestion behaviorSummary,
             PersonalizationWeight personalizationWeight,
+            PortfolioExposure portfolioExposure,
             List<StockAnalysisSnapshot> snapshots,
             List<CandidateFitSignal> candidateFitSignals
     ) {
@@ -1084,6 +1122,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                     profile,
                     behaviorSummary,
                     personalizationWeight,
+                    portfolioExposure,
                     signalBySymbol.get(ranked.snapshot().getSymbol()),
                     ranked.snapshot(),
                     displayScore
@@ -1100,12 +1139,14 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                     suggestion.riskLevel(),
                     suggestion.suggestionLabel(),
                     suggestion.shortReason(),
-                    suggestion.detailReason()
+                    suggestion.detailReason(),
+                    List.of(),
+                    List.of()
             ));
         }
 
         return new AiSuggestionContentDto(
-                "These paper-trading suggestions are ranked using declared onboarding preferences, observed behavior confidence, and current stored stock data quality.",
+                "These paper-trading suggestions are ranked using declared onboarding preferences, observed behavior confidence, current paper holdings, and stored stock data quality.",
                 rankedSuggestions
         );
     }
@@ -1118,6 +1159,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             UserInvestmentProfile profile,
             BehaviorSummaryForSuggestion behaviorSummary,
             PersonalizationWeight personalizationWeight,
+            PortfolioExposure portfolioExposure,
             CandidateFitSignal signal,
             StockAnalysisSnapshot snapshot,
             int score
@@ -1132,6 +1174,9 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 ? conflictExplanation(profile, behaviorSummary)
                 : "";
         String dataQuality = signal == null ? dataQuality(snapshot) : signal.dataQualityLabel();
+        String portfolioSentence = portfolioExposure.hasOpenPositions()
+                ? " Current open paper holdings are included as a separate observed signal."
+                : " No open paper holdings are currently available, so holdings do not affect this fallback ranking.";
         return new AiSuggestedStockDto(
                 snapshot.getSymbol(),
                 1,
@@ -1147,7 +1192,9 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                         + ", and data quality " + dataQuality.toLowerCase(Locale.ROOT)
                         + ". The fallback ranking uses onboarding weight " + personalizationWeight.onboardingWeight()
                         + " and behavior weight " + personalizationWeight.behaviorWeight()
-                        + " for educational paper-trading practice. " + behaviorSentence + conflictSentence
+                        + " for educational paper-trading practice. " + behaviorSentence + portfolioSentence + conflictSentence,
+                List.of(),
+                List.of()
         );
     }
 
@@ -1196,7 +1243,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         batch.setStatus(status);
         batch.setTriggerReason(triggerReason);
         batch.setInputHash(inputHash);
-        batch.setBatchSummary(content.batchSummary());
+        batch.setBatchSummary(limitText(content.batchSummary(), 1000));
         batch.setAnalysisTimeframe(ANALYSIS_TIMEFRAME);
         batch.setPromptTokens(openAiResult == null ? null : openAiResult.promptTokens());
         batch.setCompletionTokens(openAiResult == null ? null : openAiResult.completionTokens());
@@ -1263,7 +1310,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         existingBatch.setStatus(StockAiSuggestionBatchStatus.SUCCESS);
         existingBatch.setTriggerReason(triggerReason);
         existingBatch.setInputHash(inputHash);
-        existingBatch.setBatchSummary(content.batchSummary());
+        existingBatch.setBatchSummary(limitText(content.batchSummary(), 1000));
         existingBatch.setAnalysisTimeframe(ANALYSIS_TIMEFRAME);
         existingBatch.setPromptTokens(openAiResult == null ? null : openAiResult.promptTokens());
         existingBatch.setCompletionTokens(openAiResult == null ? null : openAiResult.completionTokens());
@@ -1329,7 +1376,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         existingBatch.setStatus(StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED);
         existingBatch.setTriggerReason(triggerReason);
         existingBatch.setInputHash(inputHash);
-        existingBatch.setBatchSummary(content.batchSummary());
+        existingBatch.setBatchSummary(limitText(content.batchSummary(), 1000));
         existingBatch.setAnalysisTimeframe(ANALYSIS_TIMEFRAME);
         existingBatch.setPromptTokens(null);
         existingBatch.setCompletionTokens(null);
@@ -1500,10 +1547,18 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             item.setSymbol(symbol);
             item.setRankNo(suggestedStock.rankNo());
             item.setMatchScore(suggestedStock.matchScore());
-            item.setRiskLevel(suggestedStock.riskLevel());
-            item.setSuggestionLabel(suggestedStock.suggestionLabel());
-            item.setShortReason(suggestedStock.shortReason());
-            item.setDetailReason(suggestedStock.detailReason());
+            item.setRiskLevel(limitText(suggestedStock.riskLevel(), 30));
+            item.setSuggestionLabel(limitText(suggestedStock.suggestionLabel(), 100));
+            item.setShortReason(limitText(suggestedStock.shortReason(), 500));
+            item.setDetailReason(limitText(suggestedStock.detailReason(), 2000));
+            item.setShortReasonHighlights(AiHighlightSupport.serialize(
+                    objectMapper,
+                    AiHighlightSupport.validatedSegments(item.getShortReason(), suggestedStock.shortReasonHighlights())
+            ));
+            item.setDetailReasonHighlights(AiHighlightSupport.serialize(
+                    objectMapper,
+                    AiHighlightSupport.validatedSegments(item.getDetailReason(), suggestedStock.detailReasonHighlights())
+            ));
             item.setAnalysisSnapshot(snapshot);
             item.setUpdatedAt(now);
             itemRepository.save(item);
@@ -1672,6 +1727,8 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 item.getSuggestionLabel(),
                 item.getShortReason(),
                 item.getDetailReason(),
+                AiHighlightSupport.deserialize(objectMapper, item.getShortReasonHighlights(), item.getShortReason()),
+                AiHighlightSupport.deserialize(objectMapper, item.getDetailReasonHighlights(), item.getDetailReason()),
                 item.getStatus().name(),
                 snapshot == null ? null : snapshot.getAnalysisSnapshotId(),
                 snapshot == null ? (stock == null ? null : stock.getCurrentPrice()) : snapshot.getCurrentPrice(),
@@ -1749,6 +1806,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             UserInvestmentProfile profile,
             BehaviorSummaryForSuggestion behaviorSummary,
             PersonalizationWeight personalizationWeight,
+            PortfolioExposure portfolioExposure,
             List<StockAnalysisSnapshot> snapshots,
             List<CandidateFitSignal> candidateFitSignals,
             String validationError
@@ -1756,6 +1814,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("declaredOnboardingProfile", declaredOnboardingProfile(profile));
         input.put("observedPaperTradingBehavior", observedPaperTradingBehavior(behaviorSummary));
+        input.put("currentPortfolioExposure", portfolioExposureToMap(portfolioExposure));
         input.put("personalizationWeight", personalizationWeightToMap(personalizationWeight));
         input.put("analysisTimeframe", ANALYSIS_TIMEFRAME);
         input.put("maxSuggestions", Math.min(MAX_SUGGESTIONS, snapshots.size()));
@@ -1863,8 +1922,29 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         observed.put("volatilityExposureScore", valueOrBlank(behaviorSummary.volatilityExposureScore()));
         observed.put("favoriteRiskCategory", valueOrBlank(behaviorSummary.favoriteRiskCategory()));
         observed.put("mostTradedSymbols", valueOrBlank(behaviorSummary.mostTradedSymbols()));
+        observed.put("sourceNote", valueOrBlank(behaviorSummary.sourceNote()));
         observed.put("meaning", "Observed behavior from simulated paper trading only. LOW confidence is informational.");
         return observed;
+    }
+
+    private Map<String, Object> portfolioExposureToMap(PortfolioExposure exposure) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("hasOpenPositions", exposure.hasOpenPositions());
+        map.put("dominantSymbol", valueOrBlank(exposure.dominantSymbol()));
+        map.put("dominantRiskCategory", valueOrBlank(exposure.dominantRiskCategory()));
+        map.put("dominantPositionPercent", valueOrBlank(exposure.dominantPositionPercent()));
+        map.put("exposureRiskPreference", valueOrBlank(exposure.exposureRiskPreference()));
+        map.put("weightedRiskScore", valueOrBlank(exposure.weightedRiskScore()));
+        map.put("holdings", exposure.items().stream()
+                .map(item -> Map.of(
+                        "symbol", item.symbol(),
+                        "riskCategory", valueOrBlank(item.riskCategory()),
+                        "positionPercent", item.positionPercent(),
+                        "costBasis", item.costBasis()
+                ))
+                .toList());
+        map.put("meaning", "Current open paper holdings only. Use this as observed exposure, not advice and not a prediction.");
+        return map;
     }
 
     private Map<String, Object> personalizationWeightToMap(PersonalizationWeight personalizationWeight) {
@@ -1875,10 +1955,98 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         return weight;
     }
 
+    private PortfolioExposure currentPortfolioExposure(Long userId, List<StockAnalysisSnapshot> snapshots) {
+        List<PaperPosition> positions = positionRepository.findByUserUserIdOrderBySymbolAsc(userId).stream()
+                .filter(position -> position.getQuantity() != null && position.getQuantity() > 0)
+                .filter(position -> positionCostBasis(position).compareTo(BigDecimal.ZERO) > 0)
+                .toList();
+        if (positions.isEmpty()) {
+            return PortfolioExposure.empty();
+        }
+
+        Map<String, StockAnalysisSnapshot> snapshotBySymbol = snapshots.stream()
+                .collect(Collectors.toMap(
+                        snapshot -> normalizeSymbol(snapshot.getSymbol()),
+                        Function.identity(),
+                        (first, second) -> first
+                ));
+        BigDecimal totalCost = positions.stream()
+                .map(this::positionCostBasis)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (totalCost.compareTo(BigDecimal.ZERO) <= 0) {
+            return PortfolioExposure.empty();
+        }
+
+        List<PortfolioExposureItem> items = positions.stream()
+                .map(position -> portfolioExposureItem(position, snapshotBySymbol, totalCost))
+                .toList();
+        PortfolioExposureItem dominant = items.stream()
+                .max(Comparator.comparing(PortfolioExposureItem::costBasis))
+                .orElse(null);
+        Integer weightedRiskScore = portfolioWeightedRiskScore(items, totalCost);
+        return new PortfolioExposure(
+                true,
+                dominant == null ? null : dominant.symbol(),
+                dominant == null ? null : dominant.riskCategory(),
+                dominant == null ? null : dominant.positionPercent(),
+                scoreRiskPreference(weightedRiskScore),
+                weightedRiskScore,
+                items
+        );
+    }
+
+    private PortfolioExposureItem portfolioExposureItem(
+            PaperPosition position,
+            Map<String, StockAnalysisSnapshot> snapshotBySymbol,
+            BigDecimal totalCost
+    ) {
+        String symbol = normalizeSymbol(position.getSymbol());
+        String riskCategory = portfolioRiskCategory(symbol, snapshotBySymbol.get(symbol));
+        BigDecimal costBasis = positionCostBasis(position);
+        int percent = costBasis.multiply(BigDecimal.valueOf(100))
+                .divide(totalCost, 0, RoundingMode.HALF_UP)
+                .intValue();
+        return new PortfolioExposureItem(symbol, riskCategory, clampScore(percent), costBasis);
+    }
+
+    private Integer portfolioWeightedRiskScore(List<PortfolioExposureItem> items, BigDecimal totalCost) {
+        BigDecimal weightedRisk = BigDecimal.ZERO;
+        for (PortfolioExposureItem item : items) {
+            if (isBlank(item.riskCategory())) {
+                continue;
+            }
+            weightedRisk = weightedRisk.add(item.costBasis().multiply(BigDecimal.valueOf(riskWeight(item.riskCategory()))));
+        }
+        if (totalCost.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        return clampScore(weightedRisk.divide(totalCost, 0, RoundingMode.HALF_UP).intValue());
+    }
+
+    private BigDecimal positionCostBasis(PaperPosition position) {
+        if (position.getTotalCost() != null && position.getTotalCost().compareTo(BigDecimal.ZERO) > 0) {
+            return position.getTotalCost();
+        }
+        if (position.getAverageCost() == null || position.getQuantity() == null) {
+            return BigDecimal.ZERO;
+        }
+        return position.getAverageCost().multiply(BigDecimal.valueOf(position.getQuantity()));
+    }
+
+    private String portfolioRiskCategory(String symbol, StockAnalysisSnapshot snapshot) {
+        String snapshotRisk = snapshot == null ? null : normalizeRisk(snapshot.getRiskCategory());
+        if (isKnownRiskPreference(snapshotRisk)) {
+            return snapshotRisk;
+        }
+        String metadataRisk = normalizeRisk(StockMetadata.RISK_CATEGORY_MAP.get(symbol));
+        return isKnownRiskPreference(metadataRisk) ? metadataRisk : null;
+    }
+
     private List<CandidateFitSignal> buildCandidateFitSignals(
             UserInvestmentProfile profile,
             BehaviorSummaryForSuggestion behaviorSummary,
             PersonalizationWeight personalizationWeight,
+            PortfolioExposure portfolioExposure,
             List<StockAnalysisSnapshot> snapshots
     ) {
         return snapshots.stream()
@@ -1893,15 +2061,22 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                     int behaviorFitScore = behaviorFitScore(behaviorSummary, behaviorCompatibility, snapshot);
                     int trendScore = trendScore(snapshot);
                     int riskPenalty = riskPenalty(profile, behaviorSummary, snapshot);
+                    String portfolioCompatibility = portfolioCompatibility(portfolioExposure, snapshot);
+                    Integer portfolioFitScore = portfolioFitScore(portfolioExposure, portfolioCompatibility);
+                    int portfolioRiskPenalty = portfolioRiskPenalty(portfolioExposure, snapshot);
+                    int dominantHoldingPenalty = dominantHoldingPenalty(portfolioExposure, snapshot);
                     int combinedFitScore = combinedFitScore(
                             onboardingFitScore,
                             behaviorFitScore,
+                            portfolioFitScore,
                             dataQualityScore,
                             trendScore,
                             riskPenalty,
+                            portfolioRiskPenalty,
+                            dominantHoldingPenalty,
                             personalizationWeight
                     );
-                    List<String> warningSignals = warningSignals(profile, behaviorSummary, snapshot, dataQualityLabel);
+                    List<String> warningSignals = warningSignals(profile, behaviorSummary, portfolioExposure, snapshot, dataQualityLabel);
 
                     return new CandidateFitSignal(
                             snapshot.getSymbol(),
@@ -1912,12 +2087,14 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                             valueOrBlank(snapshot.getVolumeTrend()).toString(),
                             riskCompatibility,
                             behaviorCompatibility,
+                            portfolioCompatibility,
                             dataQualityLabel,
                             dataQualityPenalty,
                             dataQualityScore,
                             trendScore,
                             onboardingFitScore,
                             behaviorFitScore,
+                            portfolioFitScore,
                             combinedFitScore,
                             candidateFitNotes(riskCompatibility, behaviorSummary, personalizationWeight, dataQualityLabel),
                             warningSignals,
@@ -1986,6 +2163,54 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         return riskPreferenceAlignment(behaviorRiskPreference(behaviorSummary), snapshot);
     }
 
+    private String portfolioCompatibility(PortfolioExposure portfolioExposure, StockAnalysisSnapshot snapshot) {
+        if (portfolioExposure == null || !portfolioExposure.hasOpenPositions() || isBlank(portfolioExposure.exposureRiskPreference())) {
+            return "NO_OPEN_POSITIONS";
+        }
+        return riskPreferenceAlignment(portfolioExposure.exposureRiskPreference(), snapshot);
+    }
+
+    private Integer portfolioFitScore(PortfolioExposure portfolioExposure, String portfolioCompatibility) {
+        if (portfolioExposure == null || !portfolioExposure.hasOpenPositions()) {
+            return null;
+        }
+        return switch (portfolioCompatibility) {
+            case "MATCH" -> 84;
+            case "PARTIAL_MATCH" -> 68;
+            case "MISMATCH" -> 36;
+            default -> 50;
+        };
+    }
+
+    private int portfolioRiskPenalty(PortfolioExposure portfolioExposure, StockAnalysisSnapshot snapshot) {
+        if (portfolioExposure == null
+                || portfolioExposure.dominantPositionPercent() == null
+                || portfolioExposure.dominantPositionPercent() < 70
+                || isBlank(portfolioExposure.exposureRiskPreference())) {
+            return 0;
+        }
+
+        String exposurePreference = portfolioExposure.exposureRiskPreference();
+        String candidateRisk = normalizeRisk(snapshot.getRiskCategory());
+        if ("conservative".equals(exposurePreference) && "aggressive".equals(candidateRisk)) {
+            return 25;
+        }
+        if ("moderate".equals(exposurePreference) && "aggressive".equals(candidateRisk)) {
+            return 12;
+        }
+        return 0;
+    }
+
+    private int dominantHoldingPenalty(PortfolioExposure portfolioExposure, StockAnalysisSnapshot snapshot) {
+        if (portfolioExposure == null
+                || portfolioExposure.dominantPositionPercent() == null
+                || portfolioExposure.dominantPositionPercent() < 70
+                || !equalsIgnoreCase(portfolioExposure.dominantSymbol(), snapshot.getSymbol())) {
+            return 0;
+        }
+        return 8;
+    }
+
     private String behaviorRiskPreference(BehaviorSummaryForSuggestion behaviorSummary) {
         if (!isBlank(behaviorSummary.favoriteRiskCategory())) {
             String favoriteRiskCategory = normalizeRisk(behaviorSummary.favoriteRiskCategory());
@@ -2047,6 +2272,16 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             return "aggressive";
         }
         return "moderate";
+    }
+
+    private int riskWeight(String riskCategory) {
+        return switch (normalizeRisk(riskCategory)) {
+            case "conservative" -> 25;
+            case "moderate" -> 55;
+            case "moderate_aggressive" -> 70;
+            case "aggressive" -> 85;
+            default -> 55;
+        };
     }
 
     private boolean isKnownRiskPreference(String riskPreference) {
@@ -2221,22 +2456,32 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
     private int combinedFitScore(
             int onboardingFitScore,
             int behaviorFitScore,
+            Integer portfolioFitScore,
             int dataQualityScore,
             int trendScore,
             int riskPenalty,
+            int portfolioRiskPenalty,
+            int dominantHoldingPenalty,
             PersonalizationWeight personalizationWeight
     ) {
         int personalizationScore = Math.round((
                 onboardingFitScore * personalizationWeight.onboardingWeight()
                         + behaviorFitScore * personalizationWeight.behaviorWeight()
         ) / 100.0f);
-        int combined = Math.round(personalizationScore * 0.70f + dataQualityScore * 0.20f + trendScore * 0.10f) - riskPenalty;
+        int combined = portfolioFitScore == null
+                ? Math.round(personalizationScore * 0.70f + dataQualityScore * 0.20f + trendScore * 0.10f)
+                : Math.round(personalizationScore * 0.55f
+                        + portfolioFitScore * 0.20f
+                        + dataQualityScore * 0.15f
+                        + trendScore * 0.10f);
+        combined = combined - riskPenalty - portfolioRiskPenalty - dominantHoldingPenalty;
         return clampScore(combined);
     }
 
     private List<String> warningSignals(
             UserInvestmentProfile profile,
             BehaviorSummaryForSuggestion behaviorSummary,
+            PortfolioExposure portfolioExposure,
             StockAnalysisSnapshot snapshot,
             String dataQuality
     ) {
@@ -2251,6 +2496,12 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         }
         if (profile.getPreferredVolatility() == PreferredVolatility.LOW && isHighVolatility(snapshot)) {
             warnings.add("Volatility is higher than declared preference");
+        }
+        if (portfolioExposure != null
+                && portfolioExposure.dominantPositionPercent() != null
+                && portfolioExposure.dominantPositionPercent() >= 70
+                && "MISMATCH".equals(portfolioCompatibility(portfolioExposure, snapshot))) {
+            warnings.add("Current open paper holdings lean toward a different risk exposure");
         }
         return warnings;
     }
@@ -2292,8 +2543,10 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         map.put("dataQualityLabel", signal.dataQualityLabel());
         map.put("riskCompatibility", signal.riskCompatibility());
         map.put("behaviorCompatibility", signal.behaviorCompatibility());
+        map.put("portfolioCompatibility", signal.portfolioCompatibility());
         map.put("onboardingFitScore", signal.onboardingFitScore());
         map.put("behaviorFitScore", signal.behaviorFitScore());
+        map.put("portfolioFitScore", valueOrBlank(signal.portfolioFitScore()));
         map.put("combinedFitScore", signal.combinedFitScore());
         map.put("combinedFitScoreMeaning", "Backend educational fit score. Use as the main ranking anchor, but still explain using stockSnapshots.");
         map.put("dataQualityScore", signal.dataQualityScore());
@@ -2311,6 +2564,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 .map(signal -> signal.symbol()
                         + ":risk=" + signal.riskCompatibility()
                         + ",behavior=" + signal.behaviorCompatibility()
+                        + ",portfolio=" + signal.portfolioCompatibility()
                         + ",score=" + signal.combinedFitScore()
                         + ",data=" + signal.dataQualityLabel())
                 .toList();
@@ -2340,6 +2594,23 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         if (behaviorSummary != null) {
             return behaviorSummary;
         }
+        return lowBehaviorSummary("Behavior profile is unavailable; no paper-trading transaction source exists yet.");
+    }
+
+    private BehaviorSummaryForSuggestion behaviorSummaryAfterResetBoundary(Long userId, BehaviorSummaryForSuggestion behaviorSummary) {
+        if (behaviorSummary == null || behaviorSummary.updatedAt() == null) {
+            return behaviorSummary;
+        }
+        Optional<PaperTradingAccount> account = accountRepository.findByUserUserId(userId);
+        if (account.isEmpty()
+                || account.get().getLastResetAt() == null
+                || !account.get().getLastResetAt().isAfter(behaviorSummary.updatedAt())) {
+            return behaviorSummary;
+        }
+        return lowBehaviorSummary("Portfolio was reset after the last behavior profile update; behavior will rebuild after new paper trades.");
+    }
+
+    private BehaviorSummaryForSuggestion lowBehaviorSummary(String sourceNote) {
         return new BehaviorSummaryForSuggestion(
                 null,
                 null,
@@ -2360,7 +2631,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 null,
                 "No paper-trading behavior profile has been calculated yet.",
                 null,
-                "Behavior profile is unavailable; no paper-trading transaction source exists yet."
+                sourceNote
         );
     }
 
@@ -2433,11 +2704,19 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         return value == null ? "" : value;
     }
 
+    private String limitText(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, Math.max(0, maxLength - 3)).trim() + "...";
+    }
+
     private String hashInput(
             AppUser user,
             UserInvestmentProfile profile,
             BehaviorSummaryForSuggestion behaviorSummary,
             PersonalizationWeight personalizationWeight,
+            PortfolioExposure portfolioExposure,
             List<StockAnalysisSnapshot> snapshots,
             List<CandidateFitSignal> candidateFitSignals,
             String model
@@ -2457,18 +2736,37 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                         signal.volumeTrendLabel(),
                         signal.riskCompatibility(),
                         signal.behaviorCompatibility(),
+                        signal.portfolioCompatibility(),
                         signal.dataQualityLabel(),
                         String.valueOf(signal.dataQualityPenalty()),
                         String.valueOf(signal.dataQualityScore()),
                         String.valueOf(signal.trendScore()),
                         String.valueOf(signal.onboardingFitScore()),
                         String.valueOf(signal.behaviorFitScore()),
+                        String.valueOf(signal.portfolioFitScore()),
                         String.valueOf(signal.combinedFitScore()),
                         String.join(",", signal.warningSignals()),
                         signal.snapshotHash(),
                         String.join(",", signal.fitNotes())
                 ))
                 .collect(Collectors.joining("|"));
+        String portfolioPart = portfolioExposure == null
+                ? "no-portfolio"
+                : String.join(":",
+                String.valueOf(portfolioExposure.hasOpenPositions()),
+                String.valueOf(portfolioExposure.dominantSymbol()),
+                String.valueOf(portfolioExposure.dominantRiskCategory()),
+                String.valueOf(portfolioExposure.dominantPositionPercent()),
+                String.valueOf(portfolioExposure.exposureRiskPreference()),
+                String.valueOf(portfolioExposure.weightedRiskScore()),
+                portfolioExposure.items().stream()
+                        .sorted(Comparator.comparing(PortfolioExposureItem::symbol))
+                        .map(item -> item.symbol()
+                                + "=" + item.riskCategory()
+                                + "," + item.positionPercent()
+                                + "," + item.costBasis())
+                        .collect(Collectors.joining(";"))
+        );
         String raw = String.join("|",
                 String.valueOf(user.getUserId()),
                 String.valueOf(profile.getProfileVersion()),
@@ -2498,6 +2796,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 String.valueOf(behaviorSummary.volatilityExposureScore()),
                 String.valueOf(behaviorSummary.favoriteRiskCategory()),
                 String.valueOf(behaviorSummary.mostTradedSymbols()),
+                portfolioPart,
                 candidateFitPart,
                 snapshotHashPart,
                 model,
@@ -2552,16 +2851,40 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             String volumeTrendLabel,
             String riskCompatibility,
             String behaviorCompatibility,
+            String portfolioCompatibility,
             String dataQualityLabel,
             int dataQualityPenalty,
             int dataQualityScore,
             int trendScore,
             int onboardingFitScore,
             int behaviorFitScore,
+            Integer portfolioFitScore,
             int combinedFitScore,
             List<String> fitNotes,
             List<String> warningSignals,
             String snapshotHash
+    ) {
+    }
+
+    private record PortfolioExposure(
+            boolean hasOpenPositions,
+            String dominantSymbol,
+            String dominantRiskCategory,
+            Integer dominantPositionPercent,
+            String exposureRiskPreference,
+            Integer weightedRiskScore,
+            List<PortfolioExposureItem> items
+    ) {
+        static PortfolioExposure empty() {
+            return new PortfolioExposure(false, null, null, null, null, null, List.of());
+        }
+    }
+
+    private record PortfolioExposureItem(
+            String symbol,
+            String riskCategory,
+            int positionPercent,
+            BigDecimal costBasis
     ) {
     }
 

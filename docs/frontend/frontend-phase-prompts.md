@@ -54,8 +54,9 @@ Based on the current codebase after the backend contract commit and the uncommit
 - Chart rules: `1D` and `5D` are line-only; daily timeframes can show candle mode only when backend
   `candlestickSupported=true`; the frontend uses backend points exactly and never fakes OHLC.
 - AI explanation: implemented as on-demand drawer for `1D`, `5D`, `1M`, and `3M`; `YTD` and `1Y` show unsupported copy.
-- AI suggestions: bottom tab/placeholder exists, but full suggestions list, refresh, dismiss, and add-to-watchlist flow
-  are still pending.
+- AI suggestions: beginner Suggestions tab is implemented with cached suggestion rendering, explicit manual refresh
+  with cooldown handling, dismiss, add-to-watchlist actions, fallback/unavailable states, and read-only remaining-stock
+  context.
 - Portfolio/paper trading: implemented with `Assets`/`History`, backend P/L fields, stock-scoped buy/sell tickets,
   reset-card bottom sheet, transaction detail, paged history with `size=20`, side filter, and exact-symbol backend
   filter.
@@ -63,8 +64,8 @@ Based on the current codebase after the backend contract commit and the uncommit
 - Major frontend dependencies now present: `react-native-wagmi-charts`, `react-native-svg`,
   `react-native-draggable-flatlist`, `react-native-reanimated`, `react-native-gesture-handler`, and
   `react-native-worklets`.
-- Intentionally deferred: full AI Suggestions UI, admin web/tablet console, MY/HK real market data, real broker trading,
-  live streaming market data, margin/options/news/community/admin extras outside the documented admin scope.
+- Intentionally deferred: admin web/tablet console, MY/HK real market data, real broker trading, live streaming market
+  data, margin/options/news/community/admin extras outside the documented admin scope.
 
 ## Phase Status Matrix
 
@@ -77,7 +78,7 @@ Based on the current codebase after the backend contract commit and the uncommit
 | Watchlist edit | Reorder and batch remove support | Completed with HCI sensitivity | nested `/watchlist/edit`, `watchlist-edit-screen.tsx`, watchlist API | Device drag/drop verification | Keep as regression-polish item |
 | Paper trading / Portfolio | Portfolio, buy/sell, reset, history, transactions | Completed with manual polish possible | paper-trading screens/API/types | Device regression and edge cases | Treat as implemented; do not schedule as full phase |
 | Stock list portfolio card | Net Assets tier card and reset entry | Completed with visual polish possible | `stock-list-screen.tsx`, reset card sheet | Screenshot-driven HCI polish | Keep as optional correction pass only |
-| AI Suggestions UI | Suggestions list, refresh, cooldown, dismiss/watchlist actions | Partially completed | `suggestions/index` route exists; full API/UI flow not implemented | Implement full US006 UI | Recommended next feature phase |
+| AI Suggestions UI | Suggestions list, refresh, cooldown, dismiss/watchlist actions | Completed | `frontend/screens/suggestions/ai-suggestions-screen.tsx`, `frontend/api/ai-suggestions.ts`, `frontend/types/ai-suggestions.ts` | Manual device/API-state verification | Keep as regression-polish item |
 | Admin console | Web/tablet admin dashboard, users, AI monitoring, stock maintenance | Not started beyond shell/placeholders | admin docs/routes only | Implement admin web/tablet screens | Do after AI Suggestions or as separate phase |
 | Final integration | Expo/device regression, accessibility, demo polish | Not started as a final pass | checklist docs only | Full end-to-end verification | Run after AI Suggestions/Admin |
 
@@ -131,7 +132,7 @@ Final report:
 - confirmation nothing staged/committed
 ```
 
-### Phase B Prompt: AI Stock Suggestions Completion
+### Completed Phase B Reference: AI Stock Suggestions Completion
 
 ```text
 Use superpowers: writing-plans, executing-plans, requesting-code-review.
@@ -142,8 +143,8 @@ After implementation diff, run @ponytail-review.
 Use `building-native-ui`, `native-data-fetching`, and `frontend-design`.
 
 Task:
-Implement the full beginner AI Suggestions UI using the existing backend US006 endpoints. This is the recommended next
-feature phase from the current state.
+Implement the full beginner AI Suggestions UI using the existing backend US006 endpoints. This phase is implemented;
+keep this prompt only as a regression/reference handoff if the Suggestions UI needs targeted follow-up work.
 
 Start by inspecting:
 - AGENTS.md
@@ -304,15 +305,14 @@ Verification:
 
 ## Recommended Next Phase From Current State
 
-Do **AI Stock Suggestions Completion** next.
+Do **Admin Web/Tablet Console** next.
 
 Why:
 
 - The current frontend already has the beginner shell, stock list/detail/search, interactive charts, watchlist edit,
-  portfolio, paper-trading tickets, reset card, and transaction history.
-- The Suggestions tab is visible but the full US006 frontend experience is still not implemented.
-- Backend suggestion endpoints already exist, and GET is cache-only/read-only, so this is the next coherent feature gap.
-- Admin console should follow after the beginner-facing app is feature-complete.
+  portfolio, paper-trading tickets, reset card, transaction history, and beginner AI Suggestions UI.
+- Backend admin monitoring, user management, and stock maintenance endpoints already exist.
+- Admin console remains the largest documented frontend feature gap.
 
 Prompt to paste into a fresh Codex chat:
 
@@ -322,49 +322,42 @@ Use test-driven-development only for pure helper/logic changes where an existing
 @ponytail full
 After implementation diff, run @ponytail-review.
 
-Use `building-native-ui`, `native-data-fetching`, and `frontend-design`.
+Use `building-native-ui`, `native-data-fetching`, `frontend-design`, `web-design-guidelines`, and `accessibility`.
 
 Work in the current StockMentor repo. Start in plan mode first. Do not stage or commit.
 
-Goal:
-Implement the full beginner AI Suggestions UI using the verified backend endpoints:
-- GET /api/stocks/ai-suggestions
-- POST /api/stocks/ai-suggestions/refresh
-- PATCH /api/stocks/ai-suggestions/items/{itemId}/dismiss
-- PATCH /api/stocks/ai-suggestions/items/{itemId}/watchlist
+Task:
+Implement the StockMentor admin web/tablet console inside the existing Expo app.
 
 Read first:
 - AGENTS.md
+- docs/frontend/admin-web-flow.md
 - docs/frontend/frontend-phase-prompts.md
 - docs/frontend/backend-api-screen-map.md
 - docs/frontend/api-integration-guide.md
-- docs/frontend/mobile-user-flow.md
 - docs/frontend/design-system.md
-- docs/frontend/interaction-guardrails.md
-- docs/frontend/frontend-testing-checklist.md
-- frontend/package.json
-- frontend/app/(user)/suggestions/index.tsx
-- frontend/api/*
-- frontend/types/*
-- backend AI suggestion controller and DTO records
+- backend admin controllers/DTOs
+- existing admin route shell
 
 Rules:
-- Verify endpoints and DTOs from code before editing.
-- Do not rely on old chat memory.
 - Do not modify `.agents/`, `skills-lock.json`, protected package/lock files, or `frontend/.gitignore`.
-- Do not call OpenAI or Twelve Data from the frontend.
-- Do not implement admin console in this phase.
+- Admin API calls require Basic Auth plus `X-Admin-Token`.
+- Admin token is session-only and must not be stored in `EXPO_PUBLIC_`, AsyncStorage, logs, or diagnostics.
+- Monitoring pages are read-only unless the endpoint is an explicit POST/PATCH action.
+- Do not expose prompts, secrets, auth headers, or admin token values.
+- Do not add a separate web project.
 - Do not stage or commit.
 - Report manual testing gaps honestly.
 
 Implementation:
-- Replace the Suggestions placeholder with real cached suggestion rendering.
-- Keep GET cache-only/read-only in UI behavior.
-- Add refresh with cooldown and duplicate-submit protection.
-- Add dismiss and add-to-watchlist item actions.
-- Use backend-delivered display fields from the suggestion DTOs when they exist. Verify exact field names from the current backend DTOs before editing. Do not invent delayed price fields if the suggestion DTO does not expose them.
-- Show educational no-advice copy and fallback/unavailable states.
-- Keep the UI compact and consistent with the existing StockMentor mobile style.
+- Admin login/token entry and token re-entry states.
+- Admin dashboard.
+- Users list and user detail.
+- Disable/re-enable user with confirmation.
+- AI suggestion monitoring pages.
+- Manual scheduled refresh action with confirmation.
+- Stock maintenance/backfill form with confirmation.
+- Phone-sized fallback for admin console.
 
 Verification:
 - npm.cmd run lint
@@ -373,12 +366,11 @@ Verification:
 - git diff --check
 - git diff --cached --name-only
 - protected-file checks
-- manual checks for empty/cache/refresh/cooldown/dismiss/watchlist/error states
+- admin manual checks for auth/token recovery, users, AI monitoring, scheduled refresh, and stock maintenance
 
 Final report:
 - files changed
 - endpoint/DTO assumptions
-- Suggestions behavior implemented
 - manual testing status
 - verification results
 - confirmation nothing staged/committed

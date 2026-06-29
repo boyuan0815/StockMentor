@@ -53,6 +53,10 @@ public class StockAiExplanation {
     @Column(name = "explanation", length = 2000)
     private String explanation;
 
+    @Lob
+    @Column(name = "explanation_highlights", columnDefinition = "TEXT")
+    private String explanationHighlights;
+
     @Column(name = "prompt_tokens")
     private Integer promptTokens;
 
