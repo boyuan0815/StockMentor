@@ -1,11 +1,5 @@
-import { PlaceholderScreen } from '@/components/foundation/placeholder-screen';
+import { AdminAiBatchDetailScreen } from '@/screens/admin/admin-ai-batch-detail-screen';
 
 export default function AdminAiBatchDetailRoute() {
-  return (
-    <PlaceholderScreen
-      eyebrow="Admin placeholder"
-      title="AI batch detail"
-      description="Phase 6 will add batch detail using verified admin monitoring DTOs."
-    />
-  );
+  return <AdminAiBatchDetailScreen />;
 }

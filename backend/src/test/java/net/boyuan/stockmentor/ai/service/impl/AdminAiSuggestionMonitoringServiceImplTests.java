@@ -151,7 +151,7 @@ class AdminAiSuggestionMonitoringServiceImplTests {
         batch.setStatus(status);
         batch.setTriggerReason(triggerReason);
         batch.setAnalysisTimeframe("7D");
-        batch.setModel("gpt-5-mini");
+        batch.setModel("gpt-4o-mini");
         batch.setPromptVersion("stock-suggestion-v3");
         batch.setBatchSummary("fallback");
         batch.setFinishReason("stop");

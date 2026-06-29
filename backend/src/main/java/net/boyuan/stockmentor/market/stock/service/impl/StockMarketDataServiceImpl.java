@@ -77,8 +77,8 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
     private final StockAiExplanationRepository explanationRepository;
     private final DelayedMarketPriceService delayedMarketPriceService;
 
-    @Value("${openai.model:gpt-5-mini}")
-    private String openAiModel = "gpt-5-mini";
+    @Value("${openai.model:gpt-4o-mini}")
+    private String openAiModel = "gpt-4o-mini";
 
     @Override
     @Transactional(readOnly = true)

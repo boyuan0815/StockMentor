@@ -19,7 +19,7 @@ twelvedata:
 openai:
   api:
     key: test-openai-key
-  model: gpt-5-mini
+  model: gpt-4o-mini
 
 stockmentor:
   admin:

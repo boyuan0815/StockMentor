@@ -106,6 +106,8 @@ Use this checklist after frontend implementation begins. This documentation task
 
 ## Admin Web Flow
 
+Use `docs/frontend/admin-portal-testing-guide.md` for the detailed admin web/tablet checklist and local SQL checks.
+
 - Login with admin Basic Auth credentials.
 - Enter admin token.
 - Reject normal user from admin shell.
@@ -124,6 +126,7 @@ Use this checklist after frontend implementation begins. This documentation task
 - View refresh jobs and job detail.
 - Run scheduled refresh with confirmation.
 - Run stock maintenance/backfill with confirmation.
+- Confirm phone-sized screens show the admin fallback instead of full admin tables.
 - Logout clears admin token.
 
 ## API Smoke Tests By Screen

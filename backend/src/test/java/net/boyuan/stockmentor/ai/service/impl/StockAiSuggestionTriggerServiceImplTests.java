@@ -188,7 +188,7 @@ class StockAiSuggestionTriggerServiceImplTests {
                                 String.valueOf(result.triggerReason())).toString();
                 assertFalse(serializedShape.contains("prompt"));
                 assertFalse(serializedShape.contains("token"));
-                assertFalse(serializedShape.contains("gpt-5-mini"));
+                assertFalse(serializedShape.contains("gpt-4o-mini"));
                 assertFalse(serializedShape.contains("raw"));
         }
 

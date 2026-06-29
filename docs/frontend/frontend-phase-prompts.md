@@ -60,12 +60,12 @@ Based on the current codebase after the backend contract commit and the uncommit
 - Portfolio/paper trading: implemented with `Assets`/`History`, backend P/L fields, stock-scoped buy/sell tickets,
   reset-card bottom sheet, transaction detail, paged history with `size=20`, side filter, and exact-symbol backend
   filter.
-- Admin console: route shell/placeholders exist, but tablet/web admin screens are still pending.
+- Admin console: implemented inside the existing Expo Router app for web/tablet, with phone-sized fallback.
 - Major frontend dependencies now present: `react-native-wagmi-charts`, `react-native-svg`,
   `react-native-draggable-flatlist`, `react-native-reanimated`, `react-native-gesture-handler`, and
   `react-native-worklets`.
-- Intentionally deferred: admin web/tablet console, MY/HK real market data, real broker trading, live streaming market
-  data, margin/options/news/community/admin extras outside the documented admin scope.
+- Intentionally deferred: MY/HK real market data, real broker trading, live streaming market data,
+  margin/options/news/community/admin extras outside the documented admin scope.
 
 ## Phase Status Matrix
 
@@ -79,8 +79,8 @@ Based on the current codebase after the backend contract commit and the uncommit
 | Paper trading / Portfolio | Portfolio, buy/sell, reset, history, transactions | Completed with manual polish possible | paper-trading screens/API/types | Device regression and edge cases | Treat as implemented; do not schedule as full phase |
 | Stock list portfolio card | Net Assets tier card and reset entry | Completed with visual polish possible | `stock-list-screen.tsx`, reset card sheet | Screenshot-driven HCI polish | Keep as optional correction pass only |
 | AI Suggestions UI | Suggestions list, refresh, cooldown, dismiss/watchlist actions | Completed | `frontend/screens/suggestions/ai-suggestions-screen.tsx`, `frontend/api/ai-suggestions.ts`, `frontend/types/ai-suggestions.ts` | Manual device/API-state verification | Keep as regression-polish item |
-| Admin console | Web/tablet admin dashboard, users, AI monitoring, stock maintenance | Not started beyond shell/placeholders | admin docs/routes only | Implement admin web/tablet screens | Do after AI Suggestions or as separate phase |
-| Final integration | Expo/device regression, accessibility, demo polish | Not started as a final pass | checklist docs only | Full end-to-end verification | Run after AI Suggestions/Admin |
+| Admin console | Web/tablet admin dashboard, users, AI monitoring, stock maintenance | Completed pending manual smoke | existing `(admin)` routes, `screens/admin`, admin API/types/components, admin testing guide | Manual Expo Web/backend verification | Include in final regression |
+| Final integration | Expo/device regression, accessibility, demo polish | Not started as a final pass | checklist docs and admin testing guide | Full end-to-end verification | Run after current frontend features |
 
 ## Reorganized Future Phase Prompts
 
@@ -305,14 +305,14 @@ Verification:
 
 ## Recommended Next Phase From Current State
 
-Do **Admin Web/Tablet Console** next.
+Do **Final Integration And Regression** next.
 
 Why:
 
-- The current frontend already has the beginner shell, stock list/detail/search, interactive charts, watchlist edit,
-  portfolio, paper-trading tickets, reset card, transaction history, and beginner AI Suggestions UI.
-- Backend admin monitoring, user management, and stock maintenance endpoints already exist.
-- Admin console remains the largest documented frontend feature gap.
+- The current frontend has the beginner shell, stock list/detail/search, interactive charts, watchlist edit,
+  portfolio, paper-trading tickets, reset card, transaction history, beginner AI Suggestions UI, and admin console.
+- The remaining work is cross-feature Expo Web/device verification, accessibility review, demo polish, and bug fixes from
+  real backend smoke testing.
 
 Prompt to paste into a fresh Codex chat:
 
@@ -327,7 +327,7 @@ Use `building-native-ui`, `native-data-fetching`, `frontend-design`, `web-design
 Work in the current StockMentor repo. Start in plan mode first. Do not stage or commit.
 
 Task:
-Implement the StockMentor admin web/tablet console inside the existing Expo app.
+Run final integration and regression for the existing Expo app.
 
 Read first:
 - AGENTS.md
@@ -336,28 +336,22 @@ Read first:
 - docs/frontend/backend-api-screen-map.md
 - docs/frontend/api-integration-guide.md
 - docs/frontend/design-system.md
-- backend admin controllers/DTOs
-- existing admin route shell
+- docs/frontend/frontend-testing-checklist.md
+- docs/frontend/admin-portal-testing-guide.md
 
 Rules:
 - Do not modify `.agents/`, `skills-lock.json`, protected package/lock files, or `frontend/.gitignore`.
-- Admin API calls require Basic Auth plus `X-Admin-Token`.
-- Admin token is session-only and must not be stored in `EXPO_PUBLIC_`, AsyncStorage, logs, or diagnostics.
-- Monitoring pages are read-only unless the endpoint is an explicit POST/PATCH action.
-- Do not expose prompts, secrets, auth headers, or admin token values.
-- Do not add a separate web project.
+- Do not add dependencies or separate projects.
+- Do not change backend runtime behavior unless a verified frontend bug requires an explicitly approved backend fix.
+- Do not expose prompts, secrets, auth headers, admin token values, passwords, API keys, or request bodies.
 - Do not stage or commit.
 - Report manual testing gaps honestly.
 
 Implementation:
-- Admin login/token entry and token re-entry states.
-- Admin dashboard.
-- Users list and user detail.
-- Disable/re-enable user with confirmation.
-- AI suggestion monitoring pages.
-- Manual scheduled refresh action with confirmation.
-- Stock maintenance/backfill form with confirmation.
-- Phone-sized fallback for admin console.
+- Run the documented beginner and admin manual checklists.
+- Fix confirmed frontend bugs with scoped patches.
+- Preserve existing route/API contracts.
+- Keep admin token session-only and phone fallback intact.
 
 Verification:
 - npm.cmd run lint
@@ -366,7 +360,7 @@ Verification:
 - git diff --check
 - git diff --cached --name-only
 - protected-file checks
-- admin manual checks for auth/token recovery, users, AI monitoring, scheduled refresh, and stock maintenance
+- admin manual checks from `docs/frontend/admin-portal-testing-guide.md`
 
 Final report:
 - files changed

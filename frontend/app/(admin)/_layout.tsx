@@ -1,11 +1,11 @@
 import { Stack } from 'expo-router';
 
-import { ProtectedRoute } from '@/utils/route-guards';
+import { AdminGate } from '@/components/admin/admin-ui';
 
 export default function AdminLayout() {
   return (
-    <ProtectedRoute allowedRoles={['ADMIN']}>
-      <Stack>
+    <AdminGate>
+      <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="admin" options={{ title: 'Admin dashboard' }} />
         <Stack.Screen name="admin/users/index" options={{ title: 'Users' }} />
         <Stack.Screen name="admin/users/[userId]" options={{ title: 'User detail' }} />
@@ -20,6 +20,6 @@ export default function AdminLayout() {
           options={{ title: 'Refresh job detail' }}
         />
       </Stack>
-    </ProtectedRoute>
+    </AdminGate>
   );
 }

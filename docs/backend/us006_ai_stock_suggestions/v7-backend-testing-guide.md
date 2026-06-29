@@ -9,7 +9,7 @@ US006 now uses:
 - Declared onboarding preference from the latest `UserInvestmentProfile`.
 - Observed paper-trading behavior from read-only `BehaviorSummaryForSuggestion`.
 - Stored stock analysis snapshots and deterministic candidate-fit signals.
-- GPT `gpt-5-mini` when available.
+- GPT `gpt-4o-mini` when available.
 - Safe deterministic fallback when AI generation is unavailable.
 
 US006 must not create, insert, or recalculate `user_behavior_profile`.

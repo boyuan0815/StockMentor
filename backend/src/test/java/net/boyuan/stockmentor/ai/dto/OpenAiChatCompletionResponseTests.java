@@ -15,7 +15,7 @@ class OpenAiChatCompletionResponseTests {
           "id": "chatcmpl-test",
           "object": "chat.completion",
           "created": 1710000000,
-          "model": "gpt-5-mini",
+          "model": "gpt-4o-mini",
           "choices": [
             {
               "index": 0,
@@ -46,7 +46,7 @@ class OpenAiChatCompletionResponseTests {
 
     OpenAiChatCompletionResponse response = objectMapper.readValue(responseBody, OpenAiChatCompletionResponse.class);
 
-    assertEquals("gpt-5-mini", response.model());
+    assertEquals("gpt-4o-mini", response.model());
     assertEquals("stop", response.choices().get(0).finishReason());
     assertEquals(100, response.usage().promptTokens());
     assertEquals(50, response.usage().completionTokens());

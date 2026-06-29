@@ -257,7 +257,7 @@ class StockMarketDataServiceImplTests {
                 when(watchlistRepository.existsByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(true);
                 when(explanationRepository.existsByAnalysisSnapshotAndModelAndPromptVersion(
                                 snapshot,
-                                "gpt-5-mini",
+                                "gpt-4o-mini",
                                 "stock-explanation-v1")).thenReturn(true);
 
                 StockDetailResponse response = service.getStockDetailForCurrentUser("msft");
@@ -401,7 +401,7 @@ class StockMarketDataServiceImplTests {
                                 .thenReturn(Optional.of(latestSnapshot));
                 when(explanationRepository.existsByAnalysisSnapshotAndModelAndPromptVersion(
                                 latestSnapshot,
-                                "gpt-5-mini",
+                                "gpt-4o-mini",
                                 "stock-explanation-v1")).thenReturn(false);
 
                 StockDetailResponse response = service.getStockDetailForCurrentUser("MSFT");
@@ -419,7 +419,7 @@ class StockMarketDataServiceImplTests {
                                 .thenReturn(Optional.of(latestSnapshot));
                 when(explanationRepository.existsByAnalysisSnapshotAndModelAndPromptVersion(
                                 latestSnapshot,
-                                "gpt-5-mini",
+                                "gpt-4o-mini",
                                 "stock-explanation-v1")).thenReturn(true);
 
                 StockDetailResponse response = service.getStockDetailForCurrentUser("MSFT");

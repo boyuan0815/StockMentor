@@ -114,24 +114,25 @@ class OpenAiClientTests {
   @Test
   void explanationRequestUsesJsonSchemaResponseFormat() throws Exception {
     try (StubOpenAiServer server = new StubOpenAiServer()) {
-      server.enqueue(200, """
-          {
-            "choices": [
+      server.enqueue(200,
+          """
               {
-                "message": {
-                  "role": "assistant",
-                  "content": "{\\"explanation\\":\\"Educational explanation\\",\\"highlights\\":[{\\"phrase\\":\\"Educational\\",\\"style\\":\\"emphasis\\"}]}"
-                },
-                "finish_reason": "stop"
+                "choices": [
+                  {
+                    "message": {
+                      "role": "assistant",
+                      "content": "{\\"explanation\\":\\"Educational explanation\\",\\"highlights\\":[{\\"phrase\\":\\"Educational\\",\\"style\\":\\"emphasis\\"}]}"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 5,
+                  "completion_tokens": 6,
+                  "total_tokens": 11
+                }
               }
-            ],
-            "usage": {
-              "prompt_tokens": 5,
-              "completion_tokens": 6,
-              "total_tokens": 11
-            }
-          }
-          """);
+              """);
       OpenAiClient client = client(server);
 
       OpenAiExplanationResult result = client.generateExplanation("system", "user");
@@ -148,7 +149,7 @@ class OpenAiClientTests {
         WebClient.builder().baseUrl(server.baseUrl()).build(),
         objectMapper);
     ReflectionTestUtils.setField(client, "apiKey", "test-key");
-    ReflectionTestUtils.setField(client, "model", "gpt-5-mini");
+    ReflectionTestUtils.setField(client, "model", "gpt-4o-mini");
     return client;
   }
 
