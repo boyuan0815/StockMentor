@@ -1,7 +1,10 @@
-import { Link, Redirect, type Href, usePathname } from 'expo-router';
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { Image } from 'expo-image';
+import { Redirect, type Href, usePathname, useRouter } from 'expo-router';
+import { createElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,7 +18,6 @@ import {
 } from 'react-native';
 
 import { ApiError, normalizeUnknownApiError } from '@/api/errors';
-import { ActionButton } from '@/components/foundation/action-button';
 import { EmptyState } from '@/components/foundation/empty-state';
 import { ErrorBanner } from '@/components/foundation/error-banner';
 import { SkeletonRows } from '@/components/foundation/skeleton-block';
@@ -23,7 +25,21 @@ import { Colors, Radius, Spacing } from '@/constants/theme';
 import { useAuthSession } from '@/providers/auth-session-provider';
 
 const BRAND_NAVY = '#052344';
-export const ADMIN_TABLET_MIN_WIDTH = 768;
+const ADMIN_HOVER = '#F1F5F9';
+const INPUT_BACKGROUND = '#F8FAFC';
+const WEB_TRANSITION =
+  Platform.OS === 'web'
+    ? ({
+        transitionDuration: '160ms',
+        transitionProperty: 'background-color, border-color, box-shadow, opacity, transform',
+        transitionTimingFunction: 'ease',
+      } as unknown as ViewStyle)
+    : {};
+const ADMIN_TABLET_MIN_WIDTH = 768;
+const ADMIN_PAGE_SIZE_OPTIONS = [10, 15, 20, 25, 30, 40, 50, 100];
+
+const ADMIN_NAV_ITEM_HEIGHT = 60;
+const ADMIN_NAV_ITEM_GAP = 12;
 
 type AdminGateProps = {
   children: ReactNode;
@@ -43,19 +59,31 @@ type AdminPageProps = {
 type AdminSectionProps = {
   action?: ReactNode;
   children: ReactNode;
+  description?: string;
+  tone?: 'default' | 'highlight' | 'success';
   title: string;
 };
 
 type AdminMetricProps = {
+  description?: string;
   label: string;
   tone?: 'danger' | 'neutral' | 'success' | 'warn';
   value: string;
+};
+
+type AdminButtonProps = {
+  disabled?: boolean;
+  label: string;
+  onPress: () => void;
+  style?: StyleProp<ViewStyle>;
+  variant?: 'danger' | 'ghost' | 'primary' | 'secondary';
 };
 
 type AdminDataColumn<T> = {
   align?: 'left' | 'right';
   key: string;
   render: (item: T) => ReactNode;
+  sortValue?: (item: T) => number | string | null | undefined;
   title: string;
   width?: number;
 };
@@ -70,10 +98,27 @@ type AdminDataTableProps<T> = {
   rows: T[];
 };
 
+type AdminPaginationProps = {
+  itemLabel: string;
+  onPageChange: (page: number) => void;
+  onSizeChange?: (size: number) => void;
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+};
+
+type AdminSearchInputProps = {
+  accessibilityLabel: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+  value: string;
+};
+
 type AdminConfirmModalProps = {
   confirmLabel: string;
   danger?: boolean;
-  message: string;
+  message?: string;
   onCancel: () => void;
   onConfirm: () => void;
   pending: boolean;
@@ -81,6 +126,8 @@ type AdminConfirmModalProps = {
   title: string;
   visible: boolean;
 };
+
+type SortDirection = 'asc' | 'desc';
 
 const adminNavItems: { href: Href; label: string }[] = [
   { href: '/admin' as Href, label: 'Dashboard' },
@@ -113,7 +160,7 @@ export function AdminGate({ children }: AdminGateProps) {
 }
 
 export function AdminShell({ children }: AdminShellProps) {
-  const { adminToken, clearSession, setAdminToken, user } = useAuthSession();
+  const { adminToken, clearSession, setAdminToken } = useAuthSession();
   const { width } = useWindowDimensions();
   const isPhone = width < ADMIN_TABLET_MIN_WIDTH;
 
@@ -121,7 +168,6 @@ export function AdminShell({ children }: AdminShellProps) {
     return (
       <AdminPhoneFallback
         adminToken={adminToken}
-        onClearToken={() => setAdminToken(null)}
         onLogout={clearSession}
         onSetToken={setAdminToken}
       />
@@ -131,7 +177,6 @@ export function AdminShell({ children }: AdminShellProps) {
   if (!adminToken) {
     return (
       <AdminTokenPrompt
-        accountLabel={user?.email ?? user?.username ?? 'admin account'}
         onLogout={clearSession}
         onSaveToken={setAdminToken}
       />
@@ -140,7 +185,7 @@ export function AdminShell({ children }: AdminShellProps) {
 
   return (
     <View style={styles.shell}>
-      <AdminSideNav onClearToken={() => setAdminToken(null)} onLogout={clearSession} />
+      <AdminSideNav onLogout={clearSession} />
       <View style={styles.shellContent}>{children}</View>
     </View>
   );
@@ -190,13 +235,25 @@ export function AdminPage({ actions, children, eyebrow = 'Admin console', title 
   );
 }
 
-export function AdminSection({ action, children, title }: AdminSectionProps) {
+export function AdminSection({ action, children, description, title, tone = 'default' }: AdminSectionProps) {
   return (
-    <View style={styles.section}>
+    <View
+      style={[
+        styles.section,
+        tone === 'highlight' ? styles.sectionHighlight : undefined,
+        tone === 'success' ? styles.sectionSuccess : undefined,
+      ]}>
       <View style={styles.sectionHeader}>
-        <Text selectable style={styles.sectionTitle}>
-          {title}
-        </Text>
+        <View style={styles.sectionHeaderText}>
+          <Text selectable style={styles.sectionTitle}>
+            {title}
+          </Text>
+          {description ? (
+            <Text selectable style={styles.sectionDescription}>
+              {description}
+            </Text>
+          ) : null}
+        </View>
         {action}
       </View>
       {children}
@@ -204,7 +261,7 @@ export function AdminSection({ action, children, title }: AdminSectionProps) {
   );
 }
 
-export function AdminMetric({ label, tone = 'neutral', value }: AdminMetricProps) {
+export function AdminMetric({ description, label, tone = 'neutral', value }: AdminMetricProps) {
   return (
     <View style={styles.metric}>
       <Text selectable style={styles.metricLabel}>
@@ -213,7 +270,40 @@ export function AdminMetric({ label, tone = 'neutral', value }: AdminMetricProps
       <Text selectable numberOfLines={1} style={[styles.metricValue, getToneTextStyle(tone)]}>
         {value}
       </Text>
+      {description ? (
+        <Text selectable style={styles.metricDescription}>
+          {description}
+        </Text>
+      ) : null}
     </View>
+  );
+}
+
+export function AdminButton({
+  disabled = false,
+  label,
+  onPress,
+  style,
+  variant = 'primary',
+}: AdminButtonProps) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={(state) => [
+        styles.adminButton,
+        getAdminButtonVariantStyle(variant),
+        isHovered(state) ? getAdminButtonHoverStyle(variant) : undefined,
+        state.pressed ? styles.adminButtonPressed : undefined,
+        disabled ? styles.adminButtonDisabled : undefined,
+        style,
+      ]}>
+      <Text style={[styles.adminButtonText, getAdminButtonTextStyle(variant), disabled ? styles.adminButtonTextDisabled : undefined]}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -250,10 +340,11 @@ export function AdminTabs<T extends string>({
             accessibilityState={{ selected: active }}
             key={tab.value}
             onPress={() => onSelect(tab.value)}
-            style={({ pressed }) => [
+            style={(state) => [
               styles.tab,
               active ? styles.tabActive : undefined,
-              pressed ? styles.pressed : undefined,
+              !active && isHovered(state) ? styles.tabHovered : undefined,
+              state.pressed ? styles.pressed : undefined,
             ]}>
             <Text style={[styles.tabText, active ? styles.tabTextActive : undefined]}>{tab.label}</Text>
           </Pressable>
@@ -272,6 +363,20 @@ export function AdminDataTable<T>({
   onRowPress,
   rows,
 }: AdminDataTableProps<T>) {
+  const [sortState, setSortState] = useState<{ direction: SortDirection; key: string } | null>(null);
+  const sortedRows = useMemo(() => {
+    if (!sortState) {
+      return rows;
+    }
+
+    const column = columns.find((item) => item.key === sortState.key);
+    if (!column) {
+      return rows;
+    }
+
+    return [...rows].sort((left, right) => compareAdminSortValues(getSortValue(column, left), getSortValue(column, right), sortState.direction));
+  }, [columns, rows, sortState]);
+
   if (loading) {
     return <SkeletonRows count={5} />;
   }
@@ -281,18 +386,39 @@ export function AdminDataTable<T>({
   }
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator>
+    <ScrollView
+      contentContainerStyle={styles.tableScrollContent}
+      horizontal
+      showsHorizontalScrollIndicator
+      style={styles.tableScroll}>
       <View style={styles.table}>
         <View style={[styles.tableRow, styles.tableHeaderRow]}>
-          {columns.map((column) => (
-            <Text
-              key={column.key}
-              style={[styles.tableHeaderText, getColumnTextStyle(column), getTextAlignStyle(column.align)]}>
-              {column.title}
-            </Text>
-          ))}
+          {columns.map((column) => {
+            const activeSort = sortState?.key === column.key ? sortState.direction : null;
+            return (
+              <Pressable
+                accessibilityLabel={`Sort by ${column.title}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: Boolean(activeSort) }}
+                key={column.key}
+                onPress={() => setSortState((current) => getNextSortState(current, column.key))}
+                style={(state) => [
+                  styles.tableHeaderCell,
+                  getColumnStyle(column),
+                  isHovered(state) ? styles.tableHeaderCellHovered : undefined,
+                  state.pressed ? styles.pressed : undefined,
+                ]}>
+                <Text style={[styles.tableHeaderText, getTextAlignStyle(column.align)]}>{column.title}</Text>
+                <MaterialIcons
+                  color={activeSort ? BRAND_NAVY : Colors.light.icon}
+                  name={activeSort === 'asc' ? 'arrow-upward' : activeSort === 'desc' ? 'arrow-downward' : 'unfold-more'}
+                  size={14}
+                />
+              </Pressable>
+            );
+          })}
         </View>
-        {rows.map((row) => {
+        {sortedRows.map((row) => {
           const cells = columns.map((column) => (
             <View key={column.key} style={[styles.tableCell, getColumnStyle(column)]}>
               <View style={column.align === 'right' ? styles.alignRight : undefined}>
@@ -301,26 +427,130 @@ export function AdminDataTable<T>({
             </View>
           ));
 
-          if (!onRowPress) {
-            return (
-              <View key={keyExtractor(row)} style={styles.tableRow}>
-                {cells}
-              </View>
-            );
-          }
-
           return (
             <Pressable
-              accessibilityRole="button"
+              accessibilityRole={onRowPress ? 'button' : undefined}
               key={keyExtractor(row)}
-              onPress={() => onRowPress(row)}
-              style={({ pressed }) => [styles.tableRow, pressed ? styles.tableRowPressed : undefined]}>
+              onPress={onRowPress ? () => onRowPress(row) : undefined}
+              style={(state) => [
+                styles.tableRow,
+                isHovered(state) ? styles.tableRowHovered : undefined,
+                state.pressed ? styles.tableRowPressed : undefined,
+              ]}>
               {cells}
             </Pressable>
           );
         })}
       </View>
     </ScrollView>
+  );
+}
+
+export function AdminPagination({
+  itemLabel,
+  onPageChange,
+  onSizeChange,
+  page,
+  size,
+  totalElements,
+  totalPages,
+}: AdminPaginationProps) {
+  const [sizeMenuOpen, setSizeMenuOpen] = useState(false);
+  const lastAutoSizeRef = useRef<number | null>(null);
+  const safePage = Math.max(page, 0);
+  const safeSize = size > 0 ? size : 15;
+  const safeTotalPages = Math.max(totalPages, 1);
+  const first = totalElements === 0 ? 0 : safePage * safeSize + 1;
+  const last = Math.min((safePage + 1) * safeSize, totalElements);
+  const visibleCount = totalElements === 0 ? 0 : Math.max(last - first + 1, 0);
+  const pageItems = getPaginationItems(safePage, safeTotalPages);
+  const availableSizeOptions = ADMIN_PAGE_SIZE_OPTIONS.filter((option) => option <= totalElements);
+  const canChooseSize = Boolean(onSizeChange && availableSizeOptions.length > 0);
+  const largestAvailableSize = availableSizeOptions[availableSizeOptions.length - 1];
+
+  useEffect(() => {
+    if (!onSizeChange || !largestAvailableSize || safeSize <= totalElements) {
+      lastAutoSizeRef.current = null;
+      return;
+    }
+
+    if (lastAutoSizeRef.current !== largestAvailableSize) {
+      lastAutoSizeRef.current = largestAvailableSize;
+      onSizeChange(largestAvailableSize);
+    }
+  }, [largestAvailableSize, onSizeChange, safeSize, totalElements]);
+
+  return (
+    <View style={styles.paginationBar}>
+      <Text selectable style={styles.paginationText}>
+        Showing {formatAdminNumber(visibleCount)} out of {formatAdminNumber(totalElements)}
+      </Text>
+      <View style={styles.paginationControls}>
+        {canChooseSize ? (
+          <View style={styles.pageSizeMenuWrap}>
+            {sizeMenuOpen ? (
+              <View style={styles.pageSizeMenu}>
+                {availableSizeOptions.map((option) => (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: option === safeSize }}
+                    key={option}
+                    onPress={() => {
+                      onSizeChange?.(option);
+                      setSizeMenuOpen(false);
+                    }}
+                    style={(state) => [
+                      styles.pageSizeMenuItem,
+                      option === safeSize ? styles.pageSizeMenuItemActive : undefined,
+                      isHovered(state) ? styles.pageSizeMenuItemHovered : undefined,
+                    ]}>
+                    <MaterialIcons
+                      color={option === safeSize ? BRAND_NAVY : Colors.light.icon}
+                      name={option === safeSize ? 'check-box' : 'check-box-outline-blank'}
+                      size={16}
+                    />
+                    <Text style={styles.pageSizeMenuItemText}>{option} per page</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            <Pressable
+              accessibilityLabel={`Rows per page for ${itemLabel}`}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: sizeMenuOpen }}
+              onPress={() => setSizeMenuOpen((current) => !current)}
+              style={(state) => [
+                styles.pageSizeSelect,
+                isHovered(state) ? styles.pageSizeSelectHovered : undefined,
+                state.pressed ? styles.pressed : undefined,
+              ]}>
+              <Text style={styles.pageSizeSelectText}>{safeSize} per page</Text>
+              <MaterialIcons color={BRAND_NAVY} name={sizeMenuOpen ? 'expand-less' : 'expand-more'} size={20} />
+            </Pressable>
+          </View>
+        ) : null}
+        <PaginationButton disabled={safePage <= 0} label="<" onPress={() => onPageChange(Math.max(safePage - 1, 0))} />
+        {pageItems.map((item, index) =>
+          item === 'ellipsis' ? (
+            <Text selectable key={`ellipsis-${index}`} style={styles.paginationEllipsis}>
+              ...
+            </Text>
+          ) : (
+            <PaginationButton
+              key={item}
+              active={item === safePage}
+              label={String(item + 1)}
+              onPress={() => onPageChange(item)}
+            />
+          ),
+        )}
+        <PaginationButton
+          disabled={safePage + 1 >= safeTotalPages}
+          label=">"
+          onPress={() => onPageChange(Math.min(safePage + 1, safeTotalPages - 1))}
+        />
+      </View>
+    </View>
   );
 }
 
@@ -339,15 +569,17 @@ export function AdminConfirmModal({
     <Modal animationType="fade" onRequestClose={onCancel} transparent visible={visible}>
       <View style={styles.modalBackdrop}>
         <View style={styles.modalCard}>
-          <Text selectable style={styles.modalTitle}>
+          <Text selectable style={[styles.modalTitle, !message ? styles.modalTitleOnly : undefined]}>
             {title}
           </Text>
-          <Text selectable style={styles.modalMessage}>
-            {message}
-          </Text>
+          {message ? (
+            <Text selectable style={styles.modalMessage}>
+              {message}
+            </Text>
+          ) : null}
           <View style={styles.modalActions}>
-            <ActionButton disabled={pending} label="Cancel" onPress={onCancel} style={styles.modalButton} variant="ghost" />
-            <ActionButton
+            <AdminButton disabled={pending} label="Cancel" onPress={onCancel} style={styles.modalButton} variant="ghost" />
+            <AdminButton
               disabled={pending}
               label={pending ? pendingLabel : confirmLabel}
               onPress={onConfirm}
@@ -388,6 +620,82 @@ export function AdminMutedText({ children }: { children: ReactNode }) {
     <Text selectable style={styles.mutedText}>
       {children}
     </Text>
+  );
+}
+
+export function AdminDateInput({
+  accessibilityLabel,
+  onChangeText,
+  placeholder,
+  value,
+}: {
+  accessibilityLabel: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+  value: string;
+}) {
+  if (Platform.OS === 'web') {
+    return (
+      <View style={styles.iconInputShell}>
+        {createElement('input', {
+          'aria-label': accessibilityLabel,
+          onChange: (event: { currentTarget: { value: string } }) => onChangeText(event.currentTarget.value),
+          onFocus: (event: { currentTarget: { showPicker?: () => void } }) => {
+            try {
+              event.currentTarget.showPicker?.();
+            } catch {
+              // Browsers may block programmatic picker opening; focusing still leaves the native date input usable.
+            }
+          },
+          onKeyDown: (event: { key?: string; preventDefault: () => void }) => {
+            if ((event.key ?? '').length === 1) {
+              event.preventDefault();
+            }
+          },
+          onPaste: (event: { preventDefault: () => void }) => event.preventDefault(),
+          placeholder,
+          style: getWebDateInputStyle(),
+          type: 'date',
+          value,
+        })}
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.iconInputShell}>
+      <TextInput
+        accessibilityLabel={accessibilityLabel}
+        autoCapitalize="none"
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        style={[styles.input, styles.inputWithTrailingIcon, styles.dateInput]}
+        value={value}
+      />
+      <View pointerEvents="none" style={styles.inputTrailingIcon}>
+        <MaterialIcons color={Colors.light.icon} name="calendar-today" size={18} />
+      </View>
+    </View>
+  );
+}
+
+export function AdminSearchInput({ accessibilityLabel, onChangeText, placeholder, value }: AdminSearchInputProps) {
+  return (
+    <View style={styles.iconInputShell}>
+      <TextInput
+        accessibilityLabel={accessibilityLabel}
+        autoCapitalize="none"
+        autoCorrect={false}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        returnKeyType="search"
+        style={[styles.input, styles.inputWithTrailingIcon]}
+        value={value}
+      />
+      <View pointerEvents="none" style={styles.inputTrailingIcon}>
+        <MaterialIcons color={Colors.light.icon} name="search" size={20} />
+      </View>
+    </View>
   );
 }
 
@@ -436,6 +744,10 @@ export function formatAdminDate(value: string | null | undefined) {
 export function formatAdminEnum(value: string | null | undefined) {
   if (!value) {
     return 'Not available';
+  }
+
+  if (ADMIN_ENUM_LABELS[value]) {
+    return ADMIN_ENUM_LABELS[value];
   }
 
   return value
@@ -527,7 +839,7 @@ function AdminAccessDenied({
         <Text selectable style={styles.mutedText}>
           {description}
         </Text>
-        <ActionButton label="Log out" onPress={onLogout} variant="ghost" />
+        <AdminLogoutButton onLogout={onLogout} />
       </View>
     </View>
   );
@@ -535,12 +847,10 @@ function AdminAccessDenied({
 
 function AdminPhoneFallback({
   adminToken,
-  onClearToken,
   onLogout,
   onSetToken,
 }: {
   adminToken: string | null;
-  onClearToken: () => void;
   onLogout: () => void;
   onSetToken: (token: string | null) => void;
 }) {
@@ -557,39 +867,34 @@ function AdminPhoneFallback({
           Full admin tables and maintenance actions are hidden on phone-sized screens.
         </Text>
         {adminToken ? (
-          <ActionButton label="Clear admin token" onPress={onClearToken} variant="secondary" />
+          <AdminMutedText>Admin token is active for this app session. Use a tablet or web browser to continue.</AdminMutedText>
         ) : (
           <AdminTokenInlineForm onSaveToken={onSetToken} />
         )}
-        <ActionButton label="Log out" onPress={onLogout} variant="ghost" />
+        <AdminLogoutButton onLogout={onLogout} />
       </View>
     </View>
   );
 }
 
 function AdminTokenPrompt({
-  accountLabel,
   onLogout,
   onSaveToken,
 }: {
-  accountLabel: string;
   onLogout: () => void;
   onSaveToken: (token: string | null) => void;
 }) {
   return (
     <View style={styles.centerScreen}>
-      <View style={styles.centerCard}>
+      <View style={[styles.centerCard, styles.tokenCard]}>
         <Text selectable style={styles.eyebrow}>
           Admin token
         </Text>
         <Text selectable style={styles.pageTitle}>
           Enter admin token
         </Text>
-        <Text selectable style={styles.mutedText}>
-          Signed in as {accountLabel}. The token is kept only in React state for this app session.
-        </Text>
         <AdminTokenInlineForm onSaveToken={onSaveToken} />
-        <ActionButton label="Log out" onPress={onLogout} variant="ghost" />
+        <AdminLogoutButton onLogout={onLogout} />
       </View>
     </View>
   );
@@ -601,9 +906,6 @@ function AdminTokenInlineForm({ onSaveToken }: { onSaveToken: (token: string | n
 
   return (
     <View style={styles.tokenForm}>
-      <Text selectable style={styles.inputLabel}>
-        Admin token
-      </Text>
       <TextInput
         accessibilityLabel="Admin token"
         autoCapitalize="none"
@@ -614,23 +916,18 @@ function AdminTokenInlineForm({ onSaveToken }: { onSaveToken: (token: string | n
         style={styles.input}
         value={token}
       />
-      <ActionButton
+      <AdminButton
         disabled={!trimmedToken}
-        label="Use token for this session"
+        label="Log In"
         onPress={() => onSaveToken(trimmedToken)}
       />
     </View>
   );
 }
 
-function AdminSideNav({
-  onClearToken,
-  onLogout,
-}: {
-  onClearToken: () => void;
-  onLogout: () => void;
-}) {
+function AdminSideNav({ onLogout }: { onLogout: () => void }) {
   const pathname = usePathname();
+  const router = useRouter();
 
   const activeHref = useMemo(() => {
     if (pathname.startsWith('/admin/users')) {
@@ -645,46 +942,142 @@ function AdminSideNav({
     return '/admin';
   }, [pathname]);
 
+  const activeIndex = useMemo(
+    () => adminNavItems.findIndex((item) => item.href === activeHref),
+    [activeHref],
+  );
+
   return (
     <View style={styles.sideNav}>
       <View style={styles.sideNavBrand}>
-        <Text selectable style={styles.sideNavTitle}>
-          StockMentor
-        </Text>
-        <Text selectable style={styles.sideNavSubtitle}>
-          Admin console
-        </Text>
+        <View style={styles.brandBadge}>
+          <Image
+            contentFit="contain"
+            source={require('../../assets/images/stockmentor-icon-transparent-1024.png')}
+            style={styles.brandImage}
+          />
+        </View>
+        <View style={styles.sideNavBrandText}>
+          <Text selectable style={styles.sideNavTitle}>
+            StockMentor
+          </Text>
+          <Text selectable style={styles.sideNavSubtitle}>
+            Admin console
+          </Text>
+        </View>
       </View>
+
       <View style={styles.navItems}>
-        {adminNavItems.map((item) => {
+        {activeIndex >= 0 ? (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.navActivePill,
+              {
+                transform: [
+                  {
+                    translateY: activeIndex * (ADMIN_NAV_ITEM_HEIGHT + ADMIN_NAV_ITEM_GAP),
+                  },
+                ],
+              },
+            ]}
+          />
+        ) : null}
+
+        {adminNavItems.map((item, index) => {
           const active = activeHref === item.href;
+
           return (
-            <Link asChild href={item.href} key={item.label}>
+            <View key={item.label} style={styles.navItemWrap}>
+              {index > 0 ? <View pointerEvents="none" style={styles.navItemDivider} /> : null}
+
               <Pressable
                 accessibilityRole="link"
                 accessibilityState={{ selected: active }}
-                style={({ pressed }) => [
+                onPress={() => {
+                  if (!active) {
+                    router.push(item.href);
+                  }
+                }}
+                style={(state) => [
                   styles.navItem,
                   active ? styles.navItemActive : undefined,
-                  pressed ? styles.pressed : undefined,
+                  !active && isHovered(state) ? styles.navItemHovered : undefined,
+                  state.pressed ? styles.pressed : undefined,
                 ]}>
                 <Text style={[styles.navItemText, active ? styles.navItemTextActive : undefined]}>
                   {item.label}
                 </Text>
               </Pressable>
-            </Link>
+            </View>
           );
         })}
       </View>
+
       <View style={styles.sideNavActions}>
-        <ActionButton label="Clear admin token" onPress={onClearToken} variant="secondary" />
-        <ActionButton label="Log out" onPress={onLogout} variant="ghost" />
+        <AdminLogoutButton onLogout={onLogout} />
       </View>
     </View>
   );
 }
 
+function AdminLogoutButton({ onLogout }: { onLogout: () => void }) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  return (
+    <>
+      <AdminButton label="Log out" onPress={() => setConfirmOpen(true)} variant="danger" />
+      <AdminConfirmModal
+        visible={confirmOpen}
+        title="Log out of admin console?"
+        confirmLabel="Log out"
+        pendingLabel="Logging out..."
+        pending={false}
+        danger
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={() => {
+          setConfirmOpen(false);
+          onLogout();
+        }}
+      />
+    </>
+  );
+}
+
+function PaginationButton({
+  active = false,
+  disabled = false,
+  label,
+  onPress,
+}: {
+  active?: boolean;
+  disabled?: boolean;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled, selected: active }}
+      disabled={disabled}
+      onPress={onPress}
+      style={(state) => [
+        styles.paginationButton,
+        active ? styles.paginationButtonActive : undefined,
+        !active && isHovered(state) ? styles.paginationButtonHovered : undefined,
+        disabled ? styles.paginationButtonDisabled : undefined,
+        state.pressed ? styles.pressed : undefined,
+      ]}>
+      <Text style={[styles.paginationButtonText, active ? styles.paginationButtonTextActive : undefined]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 function getAdminErrorMessage(error: ApiError) {
+  const lowerMessage = error.message.toLowerCase();
+
   if (error.status === 401) {
     return 'The admin token was missing or not accepted. Enter the token again.';
   }
@@ -699,6 +1092,10 @@ function getAdminErrorMessage(error: ApiError) {
 
   if (error.status === 409) {
     return error.message || 'That change conflicts with the current backend state.';
+  }
+
+  if (error.status === 429 || lowerMessage.includes('rate limit')) {
+    return 'A backend rate limit was reached. Wait one minute, then retry.';
   }
 
   if (error.status === 0 || error.retryable) {
@@ -737,20 +1134,149 @@ function getTonePillStyle(tone: AdminMetricProps['tone']): StyleProp<ViewStyle> 
 }
 
 function getColumnStyle<T>(column: AdminDataColumn<T>): StyleProp<ViewStyle> {
+  const width = column.width ?? 140;
+
   return {
-    width: column.width ?? 140,
+    flexBasis: width,
+    flexGrow: width,
+    flexShrink: 0,
   };
 }
 
-function getColumnTextStyle<T>(column: AdminDataColumn<T>): StyleProp<TextStyle> {
+function getWebDateInputStyle() {
   return {
-    width: column.width ?? 140,
+    ...(StyleSheet.flatten([styles.input, styles.dateInput, styles.webDateInput]) as Record<string, unknown>),
+    borderColor: '#CBD5E1',
+    boxSizing: 'border-box',
+    outline: 'none',
+    paddingLeft: Spacing.md,
+    paddingRight: Spacing.md,
   };
 }
 
 function getTextAlignStyle(align?: 'left' | 'right'): StyleProp<TextStyle> {
   return align === 'right' ? styles.textRight : undefined;
 }
+
+function getNextSortState(current: { direction: SortDirection; key: string } | null, key: string) {
+  if (current?.key !== key) {
+    return { direction: 'asc' as const, key };
+  }
+  if (current.direction === 'asc') {
+    return { direction: 'desc' as const, key };
+  }
+  return null;
+}
+
+function getSortValue<T>(column: AdminDataColumn<T>, item: T) {
+  const value = column.sortValue ? column.sortValue(item) : getReactNodeText(column.render(item));
+  return typeof value === 'string' ? value.toLowerCase() : value;
+}
+
+function compareAdminSortValues(
+  left: number | string | null | undefined,
+  right: number | string | null | undefined,
+  direction: SortDirection,
+) {
+  const leftEmpty = left === null || left === undefined || left === '';
+  const rightEmpty = right === null || right === undefined || right === '';
+  if (leftEmpty || rightEmpty) {
+    return leftEmpty === rightEmpty ? 0 : leftEmpty ? 1 : -1;
+  }
+
+  const result = typeof left === 'number' && typeof right === 'number' ? left - right : String(left).localeCompare(String(right));
+  return direction === 'asc' ? result : -result;
+}
+
+function getReactNodeText(node: ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') {
+    return String(node);
+  }
+  if (Array.isArray(node)) {
+    return node.map(getReactNodeText).join(' ');
+  }
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return getReactNodeText(node.props.children);
+  }
+  return '';
+}
+
+function isHovered(state: unknown) {
+  return Boolean((state as { hovered?: boolean }).hovered);
+}
+
+function getPaginationItems(page: number, totalPages: number) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index);
+  }
+
+  const visiblePages = new Set([0, totalPages - 1, page - 1, page, page + 1]);
+  if (page <= 2) {
+    visiblePages.add(1).add(2).add(3);
+  }
+  if (page >= totalPages - 3) {
+    visiblePages.add(totalPages - 2).add(totalPages - 3).add(totalPages - 4);
+  }
+
+  const pages = [...visiblePages].filter((item) => item >= 0 && item < totalPages).sort((a, b) => a - b);
+  return pages.flatMap((item, index) => (index > 0 && item - pages[index - 1] > 1 ? ['ellipsis' as const, item] : [item]));
+}
+
+function getAdminButtonVariantStyle(variant: NonNullable<AdminButtonProps['variant']>): StyleProp<ViewStyle> {
+  switch (variant) {
+    case 'danger':
+      return styles.adminButtonDanger;
+    case 'ghost':
+      return styles.adminButtonGhost;
+    case 'secondary':
+      return styles.adminButtonSecondary;
+    case 'primary':
+    default:
+      return styles.adminButtonPrimary;
+  }
+}
+
+function getAdminButtonTextStyle(variant: NonNullable<AdminButtonProps['variant']>): StyleProp<TextStyle> {
+  switch (variant) {
+    case 'danger':
+    case 'primary':
+      return styles.adminButtonTextOnDark;
+    case 'secondary':
+      return styles.adminButtonTextSecondary;
+    case 'ghost':
+    default:
+      return styles.adminButtonTextGhost;
+  }
+}
+
+function getAdminButtonHoverStyle(variant: NonNullable<AdminButtonProps['variant']>): StyleProp<ViewStyle> {
+  switch (variant) {
+    case 'danger':
+      return styles.adminButtonDangerHovered;
+    case 'primary':
+      return styles.adminButtonPrimaryHovered;
+    case 'ghost':
+    case 'secondary':
+    default:
+      return styles.adminButtonLightHovered;
+  }
+}
+
+const ADMIN_ENUM_LABELS: Record<string, string> = {
+  ADMIN_MANUAL: 'Admin Manual',
+  CLEANUP_1MIN: 'Cleanup 1-Minute',
+  DAILY_MISSING: 'Daily Missing',
+  DAILY_RANGE: 'Daily Range',
+  FALLBACK_CACHED: 'Fallback Cached',
+  FALLBACK_RULE_BASED: 'Fallback Rules',
+  INTRADAY_DATE: 'Intraday Date',
+  MANUAL_REFRESH: 'Manual Refresh',
+  NO_ACTIVE_SUGGESTION: 'No Active Suggestion',
+  ONBOARDING_COMPLETED: 'Onboarding Completed',
+  PARTIAL_SUCCESS: 'Partial Success',
+  RETAKE_QUIZ: 'Retake Quiz',
+  SCHEDULED_REFRESH: 'Scheduled Refresh',
+};
 
 const styles = StyleSheet.create({
   shell: {
@@ -765,10 +1291,29 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND_NAVY,
     gap: Spacing.xl,
     padding: Spacing.xl,
-    width: 260,
+    width: 276,
   },
   sideNavBrand: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  sideNavBrandText: {
+    flex: 1,
     gap: Spacing.xs,
+  },
+  brandBadge: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: Radius.md,
+    height: 42,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    width: 42,
+  },
+  brandImage: {
+    height: 34,
+    width: 34,
   },
   sideNavTitle: {
     color: Colors.light.surface,
@@ -782,27 +1327,67 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   navItems: {
-    gap: Spacing.sm,
+    gap: ADMIN_NAV_ITEM_GAP,
+    position: 'relative',
+  },
+  navActivePill: {
+    ...WEB_TRANSITION,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FFFFFF',
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.24)',
+    height: ADMIN_NAV_ITEM_HEIGHT,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    zIndex: 0,
   },
   navItem: {
+    ...WEB_TRANSITION,
+    alignItems: 'flex-start',
+    backgroundColor: 'transparent',
     borderColor: 'transparent',
     borderRadius: Radius.md,
     borderWidth: 1,
-    minHeight: 44,
+    height: '100%',
     justifyContent: 'center',
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    position: 'relative',
+    width: '100%',
+    zIndex: 3,
   },
   navItemActive: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#FFFFFF',
+    transform: [{ translateX: 4 }],
+  },
+  navItemHovered: {
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+    borderColor: 'rgba(255, 255, 255, 0.28)',
   },
   navItemText: {
     color: '#DBEAFE',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '500',
   },
   navItemTextActive: {
     color: BRAND_NAVY,
+    fontWeight: '800',
+  },
+  navItemWrap: {
+    height: ADMIN_NAV_ITEM_HEIGHT,
+    position: 'relative',
+    zIndex: 1,
+  },
+  navItemDivider: {
+    backgroundColor: 'rgba(226, 232, 240, 0.22)',
+    height: 2,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: -(ADMIN_NAV_ITEM_GAP / 2),
+    zIndex: 2,
   },
   sideNavActions: {
     gap: Spacing.sm,
@@ -825,8 +1410,11 @@ const styles = StyleSheet.create({
     padding: Spacing.xl,
     width: '100%',
   },
+  tokenCard: {
+    gap: Spacing.md,
+  },
   tokenForm: {
-    gap: Spacing.sm,
+    gap: Spacing.md,
   },
   inputLabel: {
     color: Colors.light.text,
@@ -834,7 +1422,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   input: {
-    backgroundColor: Colors.light.surface,
+    backgroundColor: INPUT_BACKGROUND,
     borderColor: Colors.light.border,
     borderRadius: Radius.md,
     borderWidth: 1,
@@ -843,6 +1431,25 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
+  },
+  iconInputShell: {
+    flex: 1,
+    minWidth: 220,
+    position: 'relative',
+  },
+  inputWithTrailingIcon: {
+    paddingRight: 44,
+  },
+  inputTrailingIcon: {
+    position: 'absolute',
+    right: Spacing.md,
+    top: 14,
+  },
+  dateInput: {
+    flex: 1,
+  },
+  webDateInput: {
+    width: '100%',
   },
   page: {
     backgroundColor: Colors.light.background,
@@ -877,7 +1484,7 @@ const styles = StyleSheet.create({
   pageTitle: {
     color: Colors.light.text,
     fontSize: 28,
-    fontWeight: '800',
+    fontWeight: '700',
     lineHeight: 34,
   },
   section: {
@@ -888,16 +1495,33 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     padding: Spacing.lg,
   },
+  sectionHighlight: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FDBA74',
+  },
+  sectionSuccess: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#86EFAC',
+  },
   sectionHeader: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     flexDirection: 'row',
     gap: Spacing.md,
     justifyContent: 'space-between',
+  },
+  sectionHeaderText: {
+    flex: 1,
+    gap: Spacing.xs,
   },
   sectionTitle: {
     color: Colors.light.text,
     fontSize: 18,
     fontWeight: '800',
+  },
+  sectionDescription: {
+    color: Colors.light.mutedText,
+    fontSize: 14,
+    lineHeight: 20,
   },
   metricGrid: {
     flexDirection: 'row',
@@ -923,6 +1547,71 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontVariant: ['tabular-nums'],
     fontWeight: '800',
+  },
+  metricDescription: {
+    color: Colors.light.mutedText,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  adminButton: {
+    ...WEB_TRANSITION,
+    alignItems: 'center',
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+  },
+  adminButtonPrimary: {
+    backgroundColor: BRAND_NAVY,
+    borderColor: BRAND_NAVY,
+  },
+  adminButtonSecondary: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#CBD5E1',
+  },
+  adminButtonGhost: {
+    backgroundColor: 'transparent',
+    borderColor: Colors.light.border,
+  },
+  adminButtonDanger: {
+    backgroundColor: Colors.light.destructive,
+    borderColor: Colors.light.destructive,
+  },
+  adminButtonLightHovered: {
+    backgroundColor: ADMIN_HOVER,
+    borderColor: '#CBD5E1',
+  },
+  adminButtonPrimaryHovered: {
+    backgroundColor: '#08315F',
+    borderColor: '#08315F',
+  },
+  adminButtonDangerHovered: {
+    backgroundColor: '#991B1B',
+    borderColor: '#991B1B',
+  },
+  adminButtonPressed: {
+    opacity: 0.78,
+  },
+  adminButtonDisabled: {
+    opacity: 0.48,
+  },
+  adminButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  adminButtonTextOnDark: {
+    color: '#FFFFFF',
+  },
+  adminButtonTextSecondary: {
+    color: BRAND_NAVY,
+  },
+  adminButtonTextGhost: {
+    color: Colors.light.text,
+  },
+  adminButtonTextDisabled: {
+    color: Colors.light.mutedText,
   },
   mutedText: {
     color: Colors.light.mutedText,
@@ -979,6 +1668,9 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND_NAVY,
     borderColor: BRAND_NAVY,
   },
+  tabHovered: {
+    backgroundColor: ADMIN_HOVER,
+  },
   tabText: {
     color: Colors.light.text,
     fontSize: 14,
@@ -992,24 +1684,46 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     borderWidth: 1,
     minWidth: '100%',
+    width: '100%',
+  },
+  tableScroll: {
+    width: '100%',
+  },
+  tableScrollContent: {
+    minWidth: '100%',
   },
   tableHeaderRow: {
     backgroundColor: '#F8FAFC',
+  },
+  tableHeaderCell: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    justifyContent: 'flex-start',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+  },
+  tableHeaderCellHovered: {
+    backgroundColor: '#E2E8F0',
   },
   tableRow: {
     borderBottomColor: Colors.light.border,
     borderBottomWidth: 1,
     flexDirection: 'row',
     minHeight: 52,
+    width: '100%',
   },
   tableRowPressed: {
     backgroundColor: '#EFF6FF',
   },
+  tableRowHovered: {
+    backgroundColor: '#F8FAFC',
+  },
   tableHeaderText: {
     color: Colors.light.mutedText,
+    flexShrink: 1,
     fontSize: 11,
     fontWeight: '800',
-    padding: Spacing.md,
     textTransform: 'uppercase',
   },
   tableCell: {
@@ -1079,6 +1793,9 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '800',
   },
+  modalTitleOnly: {
+    marginBottom: Spacing.md,
+  },
   modalMessage: {
     color: Colors.light.text,
     fontSize: 15,
@@ -1090,6 +1807,121 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     flex: 1,
+  },
+  paginationBar: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.md,
+    justifyContent: 'space-between',
+    paddingTop: Spacing.sm,
+  },
+  paginationText: {
+    color: Colors.light.mutedText,
+    fontSize: 13,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '700',
+  },
+  paginationControls: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  pageSizeMenuWrap: {
+    position: 'relative',
+  },
+  pageSizeSelect: {
+    ...WEB_TRANSITION,
+    alignItems: 'center',
+    backgroundColor: Colors.light.surface,
+    borderColor: '#CBD5E1',
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    height: 34,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.md,
+  },
+  pageSizeSelectHovered: {
+    backgroundColor: ADMIN_HOVER,
+  },
+  pageSizeSelectText: {
+    color: BRAND_NAVY,
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 18,
+  },
+  pageSizeMenu: {
+    backgroundColor: Colors.light.surface,
+    borderColor: Colors.light.border,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    bottom: 40,
+    boxShadow: '0 14px 32px rgba(15, 23, 42, 0.18)',
+    minWidth: 160,
+    padding: Spacing.xs,
+    position: 'absolute',
+    right: 0,
+    zIndex: 10,
+  },
+  pageSizeMenuItem: {
+    ...WEB_TRANSITION,
+    alignItems: 'center',
+    borderRadius: Radius.sm,
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    minHeight: 36,
+    paddingHorizontal: Spacing.sm,
+  },
+  pageSizeMenuItemActive: {
+    backgroundColor: '#EEF2FF',
+  },
+  pageSizeMenuItemHovered: {
+    backgroundColor: ADMIN_HOVER,
+  },
+  pageSizeMenuItemText: {
+    color: Colors.light.text,
+    fontSize: 13,
+    fontWeight: '400',
+  },
+  paginationButton: {
+    ...WEB_TRANSITION,
+    alignItems: 'center',
+    backgroundColor: Colors.light.surface,
+    borderColor: Colors.light.border,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: 'center',
+    minWidth: 34,
+    paddingHorizontal: Spacing.sm,
+  },
+  paginationButtonActive: {
+    backgroundColor: BRAND_NAVY,
+    borderColor: BRAND_NAVY,
+  },
+  paginationButtonHovered: {
+    backgroundColor: ADMIN_HOVER,
+  },
+  paginationButtonDisabled: {
+    opacity: 0.42,
+  },
+  paginationButtonText: {
+    color: Colors.light.text,
+    fontSize: 13,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '800',
+  },
+  paginationButtonTextActive: {
+    color: Colors.light.surface,
+  },
+  paginationEllipsis: {
+    color: Colors.light.mutedText,
+    fontSize: 13,
+    fontWeight: '800',
+    paddingHorizontal: Spacing.xs,
   },
   pressed: {
     opacity: 0.82,

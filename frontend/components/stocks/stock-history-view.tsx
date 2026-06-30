@@ -8,7 +8,6 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { CandlestickChart, LineChart } from 'react-native-wagmi-charts';
 
 import { ActionButton } from '@/components/foundation/action-button';
 import { EmptyState } from '@/components/foundation/empty-state';
@@ -66,11 +65,21 @@ type BottomMarker = {
   showLabel?: boolean;
 };
 
+type WagmiChartsModule = typeof import('react-native-wagmi-charts');
+
+declare const require: (moduleName: 'react-native-wagmi-charts') => WagmiChartsModule;
+
 const CHART_LEFT_GUTTER = 42;
 const CHART_RIGHT_GUTTER = 48;
 const CHART_BOTTOM_GUTTER = 28;
 const CHART_TOP_GUTTER = 8;
 const FOCUS_DELAY_MS = 380;
+let wagmiChartsModule: WagmiChartsModule | null = null;
+
+function getWagmiCharts() {
+  wagmiChartsModule ??= require('react-native-wagmi-charts') as WagmiChartsModule;
+  return wagmiChartsModule;
+}
 
 export function StockHistoryView({
   errorMessage,
@@ -185,6 +194,7 @@ export function StockHistoryView({
     scale.referenceTopPercent === null
       ? null
       : CHART_TOP_GUTTER + (scale.referenceTopPercent / 100) * plotHeight;
+  const { CandlestickChart, LineChart } = getWagmiCharts();
 
   const setIndexFromX = (locationX: number) => {
     const nextIndex = getIndexFromX(locationX, drawWidth, visiblePoints.length);

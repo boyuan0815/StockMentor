@@ -3,8 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 
 import { adminApi } from '@/api/admin';
-import { ActionButton } from '@/components/foundation/action-button';
 import {
+  AdminButton,
   AdminDataTable,
   AdminFieldText,
   AdminInlineError,
@@ -58,8 +58,8 @@ export function AdminAiBatchDetailScreen() {
       title={detail ? `Batch #${detail.batchId}` : 'AI batch detail'}
       actions={
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          <ActionButton label="Back to monitoring" onPress={() => router.push('/admin/ai-suggestions')} variant="ghost" />
-          <ActionButton label="Refresh" onPress={loadBatch} variant="secondary" />
+          <AdminButton label="Back to monitoring" onPress={() => router.push('/admin/ai-suggestions')} variant="ghost" />
+          <AdminButton label="Refresh" onPress={loadBatch} variant="secondary" />
         </View>
       }>
       <AdminInlineError message={errorMessage} />
@@ -112,18 +112,21 @@ export function AdminAiBatchDetailScreen() {
               title: 'Rank',
               align: 'right',
               width: 90,
+              sortValue: (item) => item.rankNo,
               render: (item) => <AdminFieldText>{formatAdminNumber(item.rankNo)}</AdminFieldText>,
             },
             {
               key: 'symbol',
               title: 'Symbol',
               width: 100,
+              sortValue: (item) => item.symbol,
               render: (item) => <AdminFieldText>{item.symbol}</AdminFieldText>,
             },
             {
               key: 'label',
               title: 'Label',
               width: 190,
+              sortValue: (item) => item.suggestionLabel,
               render: (item) => <AdminFieldText>{item.suggestionLabel ?? 'Not available'}</AdminFieldText>,
             },
             {
@@ -131,36 +134,42 @@ export function AdminAiBatchDetailScreen() {
               title: 'Score',
               align: 'right',
               width: 100,
+              sortValue: (item) => item.matchScore,
               render: (item) => <AdminFieldText>{formatAdminNumber(item.matchScore)}</AdminFieldText>,
             },
             {
               key: 'risk',
               title: 'Risk',
               width: 140,
+              sortValue: (item) => item.riskLevel,
               render: (item) => <AdminFieldText>{formatAdminEnum(item.riskLevel)}</AdminFieldText>,
             },
             {
               key: 'status',
               title: 'Status',
               width: 160,
+              sortValue: (item) => item.status,
               render: (item) => <AdminStatusPill tone={getStatusTone(item.status)} value={item.status ?? 'Unknown'} />,
             },
             {
               key: 'reason',
               title: 'Short reason',
               width: 320,
+              sortValue: (item) => item.shortReason,
               render: (item) => <AdminFieldText>{item.shortReason ?? 'Not available'}</AdminFieldText>,
             },
             {
               key: 'snapshot',
               title: 'Snapshot',
               width: 120,
+              sortValue: (item) => item.snapshotId,
               render: (item) => <AdminFieldText>{item.snapshotId ? `#${item.snapshotId}` : 'Not available'}</AdminFieldText>,
             },
             {
               key: 'created',
               title: 'Created',
               width: 190,
+              sortValue: (item) => item.createdAt,
               render: (item) => <AdminFieldText>{formatAdminDate(item.createdAt)}</AdminFieldText>,
             },
           ]}

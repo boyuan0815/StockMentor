@@ -3,8 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 
 import { adminApi } from '@/api/admin';
-import { ActionButton } from '@/components/foundation/action-button';
 import {
+  AdminButton,
   AdminInlineError,
   AdminKeyValueGrid,
   AdminMetric,
@@ -56,8 +56,8 @@ export function AdminRefreshJobDetailScreen() {
       title={job ? `Refresh job #${job.jobId}` : 'Refresh job detail'}
       actions={
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          <ActionButton label="Back to monitoring" onPress={() => router.push('/admin/ai-suggestions')} variant="ghost" />
-          <ActionButton label="Refresh" onPress={loadJob} variant="secondary" />
+          <AdminButton label="Back to monitoring" onPress={() => router.push('/admin/ai-suggestions')} variant="ghost" />
+          <AdminButton label="Refresh" onPress={loadJob} variant="secondary" />
         </View>
       }>
       <AdminInlineError message={errorMessage} />

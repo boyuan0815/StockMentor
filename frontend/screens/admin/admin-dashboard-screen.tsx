@@ -1,16 +1,14 @@
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { View } from 'react-native';
 
 import { adminApi } from '@/api/admin';
-import { ActionButton } from '@/components/foundation/action-button';
 import {
+  AdminButton,
   AdminDataTable,
   AdminFieldText,
   AdminInlineError,
   AdminMetric,
   AdminMetricGrid,
-  AdminMutedText,
   AdminPage,
   AdminSection,
   AdminStatusPill,
@@ -67,23 +65,47 @@ export function AdminDashboardScreen() {
   return (
     <AdminPage
       title="Dashboard"
-      actions={<ActionButton label="Refresh" onPress={loadDashboard} variant="secondary" />}>
+      actions={<AdminButton label="Refresh" onPress={loadDashboard} variant="secondary" />}>
       <AdminInlineError message={errorMessage} />
 
       <AdminMetricGrid>
-        <AdminMetric label="Total batches" value={formatAdminNumber(usage?.totalBatches)} />
-        <AdminMetric label="Successful" tone="success" value={formatAdminNumber(usage?.successCount)} />
-        <AdminMetric label="Failed" tone="danger" value={formatAdminNumber(usage?.failedCount)} />
-        <AdminMetric label="Fallback" tone="warn" value={formatAdminNumber((usage?.fallbackCachedCount ?? 0) + (usage?.fallbackRuleBasedCount ?? 0))} />
-        <AdminMetric label="Total tokens" value={formatAdminNumber(usage?.totalTokens)} />
+        <AdminMetric
+          description="AI suggestion generation attempts."
+          label="Total batches generated"
+          value={formatAdminNumber(usage?.totalBatches)}
+        />
+        <AdminMetric
+          description="Batches generated normally."
+          label="Successful batches"
+          tone="success"
+          value={formatAdminNumber(usage?.successCount)}
+        />
+        <AdminMetric
+          description="Batches that ended in FAILED status."
+          label="Failed batches"
+          tone="danger"
+          value={formatAdminNumber(usage?.failedCount)}
+        />
+        <AdminMetric
+          description="Batches served by cache or rules."
+          label="Fallback batches"
+          tone="warn"
+          value={formatAdminNumber((usage?.fallbackCachedCount ?? 0) + (usage?.fallbackRuleBasedCount ?? 0))}
+        />
+        <AdminMetric
+          description="Prompt plus completion tokens for AI stock suggestions."
+          label="Total tokens used"
+          value={formatAdminNumber(usage?.totalTokens)}
+        />
       </AdminMetricGrid>
 
       <AdminSection
         title="Recent AI failures"
+        description="Latest AI suggestion batches reported by the backend as failed. This can be empty even when fallback batches exist."
         action={
-          <ActionButton
-            label="Open monitoring"
-            onPress={() => router.push('/admin/ai-suggestions')}
+          <AdminButton
+            label="View all failures"
+            onPress={() => router.push('/admin/ai-suggestions?tab=failures')}
             variant="ghost"
           />
         }>
@@ -97,25 +119,29 @@ export function AdminDashboardScreen() {
             {
               key: 'batch',
               title: 'Batch',
-              width: 100,
+              width: 120,
+              sortValue: (item) => item.batchId,
               render: (item) => <AdminFieldText>#{item.batchId}</AdminFieldText>,
             },
             {
               key: 'user',
-              title: 'User',
-              width: 220,
+              title: 'User email',
+              width: 360,
+              sortValue: (item) => item.userEmail || `User #${item.userId}`,
               render: (item) => <AdminFieldText>{item.userEmail || `User #${item.userId}`}</AdminFieldText>,
             },
             {
               key: 'trigger',
               title: 'Trigger',
-              width: 180,
+              width: 240,
+              sortValue: (item) => item.triggerReason,
               render: (item) => <AdminFieldText>{formatAdminEnum(item.triggerReason)}</AdminFieldText>,
             },
             {
               key: 'created',
               title: 'Created',
-              width: 190,
+              width: 240,
+              sortValue: (item) => item.createdAt,
               render: (item) => <AdminFieldText>{formatAdminDate(item.createdAt)}</AdminFieldText>,
             },
           ]}
@@ -125,10 +151,11 @@ export function AdminDashboardScreen() {
 
       <AdminSection
         title="Refresh jobs"
+        description="Scheduled or admin-triggered AI suggestion refresh work."
         action={
-          <ActionButton
-            label="View jobs"
-            onPress={() => router.push('/admin/ai-suggestions')}
+          <AdminButton
+            label="View refresh jobs"
+            onPress={() => router.push('/admin/ai-suggestions?tab=jobs')}
             variant="ghost"
           />
         }>
@@ -142,44 +169,42 @@ export function AdminDashboardScreen() {
             {
               key: 'job',
               title: 'Job',
-              width: 100,
+              width: 120,
+              sortValue: (item) => item.jobId,
               render: (item) => <AdminFieldText>#{item.jobId}</AdminFieldText>,
             },
             {
               key: 'status',
               title: 'Status',
               width: 170,
+              sortValue: (item) => item.status,
               render: (item) => <AdminStatusPill tone={getStatusTone(item.status)} value={item.status ?? 'Unknown'} />,
             },
             {
               key: 'triggered',
               title: 'Triggered by',
-              width: 160,
+              width: 190,
+              sortValue: (item) => item.triggeredBy,
               render: (item) => <AdminFieldText>{formatAdminEnum(item.triggeredBy)}</AdminFieldText>,
             },
             {
               key: 'processed',
               title: 'Processed',
-              align: 'right',
               width: 120,
+              sortValue: (item) => item.processedUsers,
               render: (item) => <AdminFieldText>{formatAdminNumber(item.processedUsers)}</AdminFieldText>,
             },
             {
               key: 'started',
               title: 'Started',
-              width: 190,
+              width: 240,
+              sortValue: (item) => item.startedAt,
               render: (item) => <AdminFieldText>{formatAdminDate(item.startedAt)}</AdminFieldText>,
             },
           ]}
           onRowPress={(item) => router.push(`/admin/ai-suggestions/jobs/${item.jobId}`)}
         />
       </AdminSection>
-
-      <View>
-        <AdminMutedText>
-          Admin API calls use the signed-in Basic Auth session plus the in-memory admin token.
-        </AdminMutedText>
-      </View>
     </AdminPage>
   );
 }

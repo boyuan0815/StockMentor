@@ -1,19 +1,22 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { adminApi } from '@/api/admin';
-import { ActionButton } from '@/components/foundation/action-button';
 import {
+  AdminButton,
   AdminConfirmModal,
   AdminDataTable,
+  AdminDateInput,
   AdminFieldText,
   AdminInlineError,
   AdminMetric,
   AdminMetricGrid,
   AdminMutedText,
   AdminPage,
+  AdminPagination,
   AdminSection,
+  AdminSearchInput,
   AdminStatusPill,
   AdminTabs,
   formatAdminDate,
@@ -40,10 +43,10 @@ import type {
 
 type AdminAiTab = 'usage' | 'batches' | 'failures' | 'jobs';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 15;
 const tabs: Array<{ label: string; value: AdminAiTab }> = [
   { label: 'Usage', value: 'usage' },
-  { label: 'Batches', value: 'batches' },
+  { label: 'Suggestion runs', value: 'batches' },
   { label: 'Failures', value: 'failures' },
   { label: 'Refresh jobs', value: 'jobs' },
 ];
@@ -56,11 +59,11 @@ const batchStatuses: Array<{ label: string; value: AdminAiSuggestionBatchStatus 
 ];
 const triggerReasons: Array<{ label: string; value: AdminAiSuggestionTriggerReason | '' }> = [
   { label: 'All triggers', value: '' },
-  { label: 'Onboarding', value: 'ONBOARDING_COMPLETED' },
-  { label: 'Retake', value: 'RETAKE_QUIZ' },
-  { label: 'Manual', value: 'MANUAL_REFRESH' },
-  { label: 'Scheduled', value: 'SCHEDULED_REFRESH' },
-  { label: 'No active', value: 'NO_ACTIVE_SUGGESTION' },
+  { label: 'Onboarding Completed', value: 'ONBOARDING_COMPLETED' },
+  { label: 'Retake Quiz', value: 'RETAKE_QUIZ' },
+  { label: 'Manual Refresh', value: 'MANUAL_REFRESH' },
+  { label: 'Scheduled Refresh', value: 'SCHEDULED_REFRESH' },
+  { label: 'No Active Suggestion', value: 'NO_ACTIVE_SUGGESTION' },
 ];
 const jobStatuses: Array<{ label: string; value: AdminAiRefreshJobStatus | '' }> = [
   { label: 'All statuses', value: '' },
@@ -76,8 +79,9 @@ const triggeredByOptions: Array<{ label: string; value: AdminAiRefreshTriggeredB
 ];
 
 export function AdminAiMonitoringScreen() {
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
   const { adminToken, credentials, handleAdminError } = useAdminRequest();
-  const [activeTab, setActiveTab] = useState<AdminAiTab>('usage');
+  const [activeTab, setActiveTab] = useState<AdminAiTab>(() => getRouteTab(tab) ?? 'usage');
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -93,6 +97,13 @@ export function AdminAiMonitoringScreen() {
   const [batches, setBatches] = useState<AdminPageResponse<AdminAiSuggestionBatchRowResponse> | null>(null);
   const [failures, setFailures] = useState<AdminPageResponse<AdminAiSuggestionBatchRowResponse> | null>(null);
   const [jobs, setJobs] = useState<AdminPageResponse<AiSuggestionRefreshJobResponse> | null>(null);
+
+  useEffect(() => {
+    const nextTab = getRouteTab(tab);
+    if (nextTab) {
+      setActiveTab(nextTab);
+    }
+  }, [tab]);
 
   const loadActiveTab = useCallback(async () => {
     if (!credentials || !adminToken) {
@@ -160,8 +171,8 @@ export function AdminAiMonitoringScreen() {
       title="AI suggestion monitoring"
       actions={
         <View style={styles.actions}>
-          <ActionButton label="Refresh tab" onPress={loadActiveTab} variant="secondary" />
-          <ActionButton
+          <AdminButton label="Refresh tab" onPress={loadActiveTab} variant="secondary" />
+          <AdminButton
             disabled={refreshPending}
             label={refreshPending ? 'Starting...' : 'Run scheduled refresh'}
             onPress={() => setConfirmRefresh(true)}
@@ -220,6 +231,11 @@ export function AdminAiMonitoringScreen() {
   );
 }
 
+function getRouteTab(tab: string | string[] | undefined): AdminAiTab | null {
+  const value = Array.isArray(tab) ? tab[0] : tab;
+  return value === 'usage' || value === 'batches' || value === 'failures' || value === 'jobs' ? value : null;
+}
+
 function UsagePanel({
   filters,
   loading,
@@ -239,17 +255,49 @@ function UsagePanel({
         onChangeTo={(to) => onChangeFilters({ ...filters, to })}
         to={filters.to}
       />
-      <AdminSection title="Usage summary">
+      <AdminSection
+        title="Usage summary"
+        description="These totals are for AI stock suggestion generation only. They do not include AI explanation requests. A batch is one backend suggestion run for one user trigger.">
         <AdminMetricGrid>
-          <AdminMetric label="Total batches" value={formatAdminNumber(usage?.totalBatches)} />
-          <AdminMetric label="Successful" tone="success" value={formatAdminNumber(usage?.successCount)} />
-          <AdminMetric label="Failed" tone="danger" value={formatAdminNumber(usage?.failedCount)} />
-          <AdminMetric label="Cached fallback" tone="warn" value={formatAdminNumber(usage?.fallbackCachedCount)} />
-          <AdminMetric label="Rule fallback" tone="warn" value={formatAdminNumber(usage?.fallbackRuleBasedCount)} />
-          <AdminMetric label="Total tokens" value={formatAdminNumber(usage?.totalTokens)} />
+          <AdminMetric
+            description="All AI suggestion runs in the selected date range."
+            label="Total batches generated"
+            value={formatAdminNumber(usage?.totalBatches)}
+          />
+          <AdminMetric
+            description="Runs that completed with model-backed suggestions."
+            label="Successful batches"
+            tone="success"
+            value={formatAdminNumber(usage?.successCount)}
+          />
+          <AdminMetric
+            description="Runs that ended in FAILED status."
+            label="Failed batches"
+            tone="danger"
+            value={formatAdminNumber(usage?.failedCount)}
+          />
+          <AdminMetric
+            description="Runs reused from earlier successful output."
+            label="Cached fallback"
+            tone="warn"
+            value={formatAdminNumber(usage?.fallbackCachedCount)}
+          />
+          <AdminMetric
+            description="Runs served by rule-based backend fallback."
+            label="Rule fallback"
+            tone="warn"
+            value={formatAdminNumber(usage?.fallbackRuleBasedCount)}
+          />
+          <AdminMetric
+            description="Prompt plus completion tokens for suggestions."
+            label="Total tokens used"
+            value={formatAdminNumber(usage?.totalTokens)}
+          />
         </AdminMetricGrid>
       </AdminSection>
-      <AdminSection title="Grouped counts">
+      <AdminSection
+        title="Usage breakdown"
+        description="The table splits the same usage summary by backend status and trigger reason, so admins can see what caused the total counts.">
         <AdminDataTable
           loading={loading}
           rows={[
@@ -285,15 +333,14 @@ function BatchesPanel({
         onChangeTo={(to) => onChangeFilters({ ...filters, to, page: 0 })}
         to={filters.to ?? ''}
       />
-      <AdminSection title="Batch filters">
+      <AdminSection
+        title="Search and filters"
+        description="Filter AI suggestion runs by user email, backend status, trigger reason, or date range. Email search updates as you type.">
         <View style={styles.filterStack}>
-          <TextInput
+          <AdminSearchInput
             accessibilityLabel="Filter batches by user email"
-            autoCapitalize="none"
-            autoCorrect={false}
             onChangeText={(email) => onChangeFilters({ ...filters, email, page: 0 })}
             placeholder="User email"
-            style={styles.input}
             value={filters.email ?? ''}
           />
           <ChipGroup
@@ -310,8 +357,7 @@ function BatchesPanel({
           />
         </View>
       </AdminSection>
-      <AdminSection title="Batches" action={<Pagination response={response} onChangeFilters={onChangeFilters} filters={filters} />}>
-        <PageSummary response={response} label="batches" />
+      <AdminSection title="AI suggestion run history">
         <AdminDataTable
           loading={loading}
           rows={response?.content ?? []}
@@ -321,6 +367,7 @@ function BatchesPanel({
           columns={batchColumns}
           onRowPress={(item) => router.push(`/admin/ai-suggestions/batches/${item.batchId}`)}
         />
+        <Pagination response={response} onChangeFilters={onChangeFilters} filters={filters} label="runs" />
       </AdminSection>
     </>
   );
@@ -345,7 +392,9 @@ function FailuresPanel({
         onChangeTo={(to) => onChangeFilters({ ...filters, to, page: 0 })}
         to={filters.to ?? ''}
       />
-      <AdminSection title="Failure filters">
+      <AdminSection
+        title="Failure filters"
+        description="Failures are backend-reported AI suggestion runs that did not complete successfully. This is different from fallback batches, which completed with cached or rule-based output.">
         <ChipGroup
           label="Trigger"
           options={triggerReasons}
@@ -353,8 +402,7 @@ function FailuresPanel({
           onSelect={(triggerReason) => onChangeFilters({ ...filters, triggerReason, page: 0 })}
         />
       </AdminSection>
-      <AdminSection title="Failures" action={<Pagination response={response} onChangeFilters={onChangeFilters} filters={filters} />}>
-        <PageSummary response={response} label="failures" />
+      <AdminSection title="Failed AI suggestion runs">
         <AdminDataTable
           loading={loading}
           rows={response?.content ?? []}
@@ -364,6 +412,7 @@ function FailuresPanel({
           columns={failureColumns}
           onRowPress={(item) => router.push(`/admin/ai-suggestions/batches/${item.batchId}`)}
         />
+        <Pagination response={response} onChangeFilters={onChangeFilters} filters={filters} label="failures" />
       </AdminSection>
     </>
   );
@@ -388,7 +437,7 @@ function RefreshJobsPanel({
         onChangeTo={(to) => onChangeFilters({ ...filters, to, page: 0 })}
         to={filters.to ?? ''}
       />
-      <AdminSection title="Job filters">
+      <AdminSection title="Job filters" description="Filter scheduled or admin-triggered refresh jobs by status, source, or date range.">
         <View style={styles.filterStack}>
           <ChipGroup
             label="Status"
@@ -404,8 +453,7 @@ function RefreshJobsPanel({
           />
         </View>
       </AdminSection>
-      <AdminSection title="Refresh jobs" action={<Pagination response={response} onChangeFilters={onChangeFilters} filters={filters} />}>
-        <PageSummary response={response} label="jobs" />
+      <AdminSection title="Refresh job history">
         <AdminDataTable
           loading={loading}
           rows={response?.content ?? []}
@@ -415,6 +463,7 @@ function RefreshJobsPanel({
           columns={jobColumns}
           onRowPress={(item) => router.push(`/admin/ai-suggestions/jobs/${item.jobId}`)}
         />
+        <Pagination response={response} onChangeFilters={onChangeFilters} filters={filters} label="jobs" />
       </AdminSection>
     </>
   );
@@ -434,20 +483,16 @@ function DateFilters({
   return (
     <AdminSection title="Date range">
       <View style={styles.dateRow}>
-        <TextInput
+        <AdminDateInput
           accessibilityLabel="From date"
-          autoCapitalize="none"
           onChangeText={onChangeFrom}
-          placeholder="From, YYYY-MM-DD"
-          style={styles.input}
+          placeholder="From date"
           value={from}
         />
-        <TextInput
+        <AdminDateInput
           accessibilityLabel="To date"
-          autoCapitalize="none"
           onChangeText={onChangeTo}
-          placeholder="To, YYYY-MM-DD"
-          style={styles.input}
+          placeholder="To date"
           value={to}
         />
       </View>
@@ -478,10 +523,11 @@ function ChipGroup<T extends string>({
             accessibilityState={{ selected: selectedValue === option.value }}
             key={option.label}
             onPress={() => onSelect(option.value)}
-            style={({ pressed }) => [
+            style={(state) => [
               styles.chip,
               selectedValue === option.value ? styles.chipActive : undefined,
-              pressed ? styles.pressed : undefined,
+              selectedValue !== option.value && isHovered(state) ? styles.chipHovered : undefined,
+              state.pressed ? styles.pressed : undefined,
             ]}>
             <Text style={[styles.chipText, selectedValue === option.value ? styles.chipTextActive : undefined]}>
               {option.label}
@@ -493,42 +539,32 @@ function ChipGroup<T extends string>({
   );
 }
 
-function Pagination<T, F extends { page?: number } & Record<string, unknown>>({
+function Pagination<T, F extends { page?: number; size?: number } & Record<string, unknown>>({
   filters,
+  label,
   onChangeFilters,
   response,
 }: {
   filters: F;
+  label: string;
   onChangeFilters: (filters: F) => void;
   response: AdminPageResponse<T> | null;
 }) {
-  const canGoBack = (response?.page ?? 0) > 0;
-  const canGoNext = response ? response.page + 1 < response.totalPages : false;
+  const page = response?.page ?? filters.page ?? 0;
+  const size = response?.size ?? filters.size ?? PAGE_SIZE;
+  const totalElements = response?.totalElements ?? 0;
+  const totalPages = Math.max(response?.totalPages ?? 1, 1);
 
   return (
-    <View style={styles.actions}>
-      <ActionButton
-        disabled={!canGoBack}
-        label="Previous"
-        onPress={() => onChangeFilters({ ...filters, page: Math.max((filters.page ?? 0) - 1, 0) })}
-        variant="ghost"
-      />
-      <ActionButton
-        disabled={!canGoNext}
-        label="Next"
-        onPress={() => onChangeFilters({ ...filters, page: (filters.page ?? 0) + 1 })}
-        variant="ghost"
-      />
-    </View>
-  );
-}
-
-function PageSummary<T>({ label, response }: { label: string; response: AdminPageResponse<T> | null }) {
-  return (
-    <AdminMutedText>
-      {formatAdminNumber(response?.totalElements ?? 0)} {label}. Page {(response?.page ?? 0) + 1} of{' '}
-      {Math.max(response?.totalPages ?? 1, 1)}.
-    </AdminMutedText>
+    <AdminPagination
+      itemLabel={label}
+      onPageChange={(nextPage) => onChangeFilters({ ...filters, page: nextPage })}
+      onSizeChange={(nextSize) => onChangeFilters({ ...filters, page: 0, size: nextSize })}
+      page={page}
+      size={size}
+      totalElements={totalElements}
+      totalPages={totalPages}
+    />
   );
 }
 
@@ -537,6 +573,7 @@ const groupedCountColumns = [
     key: 'group',
     title: 'Group',
     width: 160,
+    sortValue: (item: AdminAiSuggestionGroupedCountResponse & { group: string }) => item.group,
     render: (item: AdminAiSuggestionGroupedCountResponse & { group: string }) => (
       <AdminFieldText>{item.group}</AdminFieldText>
     ),
@@ -545,6 +582,7 @@ const groupedCountColumns = [
     key: 'key',
     title: 'Value',
     width: 220,
+    sortValue: (item: AdminAiSuggestionGroupedCountResponse & { group: string }) => item.key,
     render: (item: AdminAiSuggestionGroupedCountResponse & { group: string }) => (
       <AdminFieldText>{formatAdminEnum(item.key)}</AdminFieldText>
     ),
@@ -552,8 +590,8 @@ const groupedCountColumns = [
   {
     key: 'count',
     title: 'Count',
-    align: 'right' as const,
     width: 120,
+    sortValue: (item: AdminAiSuggestionGroupedCountResponse & { group: string }) => item.count,
     render: (item: AdminAiSuggestionGroupedCountResponse & { group: string }) => (
       <AdminFieldText>{formatAdminNumber(item.count)}</AdminFieldText>
     ),
@@ -565,18 +603,21 @@ const batchColumns = [
     key: 'batch',
     title: 'Batch',
     width: 100,
+    sortValue: (item: AdminAiSuggestionBatchRowResponse) => item.batchId,
     render: (item: AdminAiSuggestionBatchRowResponse) => <AdminFieldText>#{item.batchId}</AdminFieldText>,
   },
   {
     key: 'user',
-    title: 'User',
-    width: 230,
+    title: 'User email',
+    width: 360,
+    sortValue: (item: AdminAiSuggestionBatchRowResponse) => item.userEmail,
     render: (item: AdminAiSuggestionBatchRowResponse) => <AdminFieldText>{item.userEmail}</AdminFieldText>,
   },
   {
     key: 'status',
     title: 'Status',
     width: 180,
+    sortValue: (item: AdminAiSuggestionBatchRowResponse) => item.status,
     render: (item: AdminAiSuggestionBatchRowResponse) => (
       <AdminStatusPill tone={getStatusTone(item.status)} value={item.status ?? 'Unknown'} />
     ),
@@ -585,12 +626,14 @@ const batchColumns = [
     key: 'trigger',
     title: 'Trigger',
     width: 180,
+    sortValue: (item: AdminAiSuggestionBatchRowResponse) => item.triggerReason,
     render: (item: AdminAiSuggestionBatchRowResponse) => <AdminFieldText>{formatAdminEnum(item.triggerReason)}</AdminFieldText>,
   },
   {
     key: 'symbols',
     title: 'Symbols',
     width: 180,
+    sortValue: (item: AdminAiSuggestionBatchRowResponse) => item.suggestedSymbols.join(', '),
     render: (item: AdminAiSuggestionBatchRowResponse) => <AdminFieldText>{item.suggestedSymbols.join(', ') || 'None'}</AdminFieldText>,
   },
   {
@@ -598,12 +641,14 @@ const batchColumns = [
     title: 'Tokens',
     align: 'right' as const,
     width: 120,
+    sortValue: (item: AdminAiSuggestionBatchRowResponse) => item.totalTokens,
     render: (item: AdminAiSuggestionBatchRowResponse) => <AdminFieldText>{formatAdminNumber(item.totalTokens)}</AdminFieldText>,
   },
   {
     key: 'created',
     title: 'Created',
     width: 190,
+    sortValue: (item: AdminAiSuggestionBatchRowResponse) => item.createdAt,
     render: (item: AdminAiSuggestionBatchRowResponse) => <AdminFieldText>{formatAdminDate(item.createdAt)}</AdminFieldText>,
   },
 ];
@@ -613,13 +658,15 @@ const failureColumns = [
   {
     key: 'error',
     title: 'Message',
-    width: 320,
+    width: 620,
+    sortValue: (item: AdminAiSuggestionBatchRowResponse) => item.errorMessage,
     render: (item: AdminAiSuggestionBatchRowResponse) => <AdminFieldText>{item.errorMessage ?? 'Not available'}</AdminFieldText>,
   },
   {
     key: 'created',
     title: 'Created',
     width: 190,
+    sortValue: (item: AdminAiSuggestionBatchRowResponse) => item.createdAt,
     render: (item: AdminAiSuggestionBatchRowResponse) => <AdminFieldText>{formatAdminDate(item.createdAt)}</AdminFieldText>,
   },
 ];
@@ -629,12 +676,14 @@ const jobColumns = [
     key: 'job',
     title: 'Job',
     width: 100,
+    sortValue: (item: AiSuggestionRefreshJobResponse) => item.jobId,
     render: (item: AiSuggestionRefreshJobResponse) => <AdminFieldText>#{item.jobId}</AdminFieldText>,
   },
   {
     key: 'status',
     title: 'Status',
     width: 170,
+    sortValue: (item: AiSuggestionRefreshJobResponse) => item.status,
     render: (item: AiSuggestionRefreshJobResponse) => (
       <AdminStatusPill tone={getStatusTone(item.status)} value={item.status ?? 'Unknown'} />
     ),
@@ -643,29 +692,35 @@ const jobColumns = [
     key: 'triggeredBy',
     title: 'Triggered by',
     width: 160,
+    sortValue: (item: AiSuggestionRefreshJobResponse) => item.triggeredBy,
     render: (item: AiSuggestionRefreshJobResponse) => <AdminFieldText>{formatAdminEnum(item.triggeredBy)}</AdminFieldText>,
   },
   {
     key: 'processed',
     title: 'Processed',
-    align: 'right' as const,
     width: 120,
+    sortValue: (item: AiSuggestionRefreshJobResponse) => item.processedUsers,
     render: (item: AiSuggestionRefreshJobResponse) => <AdminFieldText>{formatAdminNumber(item.processedUsers)}</AdminFieldText>,
   },
   {
     key: 'failed',
     title: 'Failed',
-    align: 'right' as const,
     width: 110,
+    sortValue: (item: AiSuggestionRefreshJobResponse) => item.failedCount,
     render: (item: AiSuggestionRefreshJobResponse) => <AdminFieldText>{formatAdminNumber(item.failedCount)}</AdminFieldText>,
   },
   {
     key: 'started',
     title: 'Started',
     width: 190,
+    sortValue: (item: AiSuggestionRefreshJobResponse) => item.startedAt,
     render: (item: AiSuggestionRefreshJobResponse) => <AdminFieldText>{formatAdminDate(item.startedAt)}</AdminFieldText>,
   },
 ];
+
+function isHovered(state: unknown) {
+  return Boolean((state as { hovered?: boolean }).hovered);
+}
 
 const styles = StyleSheet.create({
   actions: {
@@ -679,17 +734,6 @@ const styles = StyleSheet.create({
   dateRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
-  },
-  input: {
-    backgroundColor: Colors.light.surface,
-    borderColor: Colors.light.border,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    color: Colors.light.text,
-    flex: 1,
-    fontSize: 15,
-    minHeight: 44,
-    paddingHorizontal: Spacing.md,
   },
   filterGroup: {
     gap: Spacing.sm,
@@ -716,6 +760,9 @@ const styles = StyleSheet.create({
   chipActive: {
     backgroundColor: '#052344',
     borderColor: '#052344',
+  },
+  chipHovered: {
+    backgroundColor: '#F1F5F9',
   },
   chipText: {
     color: Colors.light.text,

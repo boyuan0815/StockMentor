@@ -1,20 +1,20 @@
 import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { adminApi } from '@/api/admin';
-import { ActionButton } from '@/components/foundation/action-button';
 import {
+  AdminButton,
   AdminDataTable,
   AdminFieldText,
   AdminInlineError,
-  AdminMutedText,
   AdminPage,
+  AdminPagination,
   AdminSection,
+  AdminSearchInput,
   AdminStatusPill,
   formatAdminDate,
   formatAdminEnum,
-  formatAdminNumber,
   getStatusTone,
   useAdminRequest,
 } from '@/components/admin/admin-ui';
@@ -27,7 +27,7 @@ import type {
   AdminUserStatus,
 } from '@/types/admin';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 15;
 const roleOptions: Array<{ label: string; value: AdminUserRole | '' }> = [
   { label: 'All roles', value: '' },
   { label: 'Beginner', value: 'BEGINNER_INVESTOR' },
@@ -77,19 +77,13 @@ export function AdminUsersScreen() {
     void loadUsers();
   }, [loadUsers]);
 
-  const pageText = useMemo(() => {
-    if (!response) {
-      return 'Page 1 of 1';
-    }
-    return `Page ${response.page + 1} of ${Math.max(response.totalPages, 1)}`;
-  }, [response]);
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      const search = searchInput.trim();
+      setFilters((current) => (current.search === search ? current : { ...current, page: 0, search }));
+    }, 300);
 
-  const applySearch = useCallback(() => {
-    setFilters((current) => ({
-      ...current,
-      page: 0,
-      search: searchInput.trim(),
-    }));
+    return () => clearTimeout(handle);
   }, [searchInput]);
 
   const setRoleFilter = useCallback((role: AdminUserRole | '') => {
@@ -100,30 +94,21 @@ export function AdminUsersScreen() {
     setFilters((current) => ({ ...current, page: 0, status }));
   }, []);
 
-  const canGoBack = (response?.page ?? 0) > 0;
-  const canGoNext = response ? response.page + 1 < response.totalPages : false;
-
   return (
     <AdminPage
       title="Users"
-      actions={<ActionButton label="Refresh" onPress={loadUsers} variant="secondary" />}>
+      actions={<AdminButton label="Refresh" onPress={loadUsers} variant="secondary" />}>
       <AdminInlineError message={errorMessage} />
 
       <AdminSection title="Search and filters">
         <View style={styles.filterStack}>
           <View style={styles.searchRow}>
-            <TextInput
+            <AdminSearchInput
               accessibilityLabel="Search users by email or username"
-              autoCapitalize="none"
-              autoCorrect={false}
               onChangeText={setSearchInput}
-              onSubmitEditing={applySearch}
               placeholder="Search email or username"
-              returnKeyType="search"
-              style={styles.input}
               value={searchInput}
             />
-            <ActionButton label="Search" onPress={applySearch} />
           </View>
 
           <View style={styles.filterGroup}>
@@ -160,27 +145,7 @@ export function AdminUsersScreen() {
         </View>
       </AdminSection>
 
-      <AdminSection
-        title="User accounts"
-        action={
-          <View style={styles.paginationActions}>
-            <ActionButton
-              disabled={!canGoBack}
-              label="Previous"
-              onPress={() => setFilters((current) => ({ ...current, page: Math.max((current.page ?? 0) - 1, 0) }))}
-              variant="ghost"
-            />
-            <ActionButton
-              disabled={!canGoNext}
-              label="Next"
-              onPress={() => setFilters((current) => ({ ...current, page: (current.page ?? 0) + 1 }))}
-              variant="ghost"
-            />
-          </View>
-        }>
-        <AdminMutedText>
-          {formatAdminNumber(response?.totalElements ?? 0)} users found. {pageText}
-        </AdminMutedText>
+      <AdminSection title="User accounts">
         <AdminDataTable
           loading={loading}
           rows={response?.content ?? []}
@@ -192,46 +157,62 @@ export function AdminUsersScreen() {
               key: 'id',
               title: 'ID',
               width: 80,
+              sortValue: (item) => item.userId,
               render: (item) => <AdminFieldText>#{item.userId}</AdminFieldText>,
             },
             {
               key: 'email',
-              title: 'Email',
-              width: 230,
+              title: 'User email',
+              width: 300,
+              sortValue: (item) => item.email,
               render: (item) => <AdminFieldText>{item.email}</AdminFieldText>,
             },
             {
               key: 'username',
               title: 'Username',
               width: 170,
+              sortValue: (item) => item.username,
               render: (item) => <AdminFieldText>{item.username}</AdminFieldText>,
             },
             {
               key: 'role',
               title: 'Role',
               width: 170,
+              sortValue: (item) => item.role,
               render: (item) => <AdminFieldText>{formatAdminEnum(item.role)}</AdminFieldText>,
             },
             {
               key: 'status',
               title: 'Status',
               width: 150,
+              sortValue: (item) => item.status,
               render: (item) => <AdminStatusPill tone={getStatusTone(item.status)} value={item.status ?? 'Unknown'} />,
             },
             {
               key: 'lastLogin',
               title: 'Last login',
               width: 190,
+              sortValue: (item) => item.lastLoginAt,
               render: (item) => <AdminFieldText>{formatAdminDate(item.lastLoginAt)}</AdminFieldText>,
             },
             {
               key: 'created',
               title: 'Created',
               width: 190,
+              sortValue: (item) => item.createdAt,
               render: (item) => <AdminFieldText>{formatAdminDate(item.createdAt)}</AdminFieldText>,
             },
           ]}
           onRowPress={(item) => router.push(`/admin/users/${item.userId}`)}
+        />
+        <AdminPagination
+          itemLabel="users"
+          onPageChange={(page) => setFilters((current) => ({ ...current, page }))}
+          onSizeChange={(size) => setFilters((current) => ({ ...current, page: 0, size }))}
+          page={response?.page ?? filters.page ?? 0}
+          size={response?.size ?? filters.size ?? PAGE_SIZE}
+          totalElements={response?.totalElements ?? 0}
+          totalPages={Math.max(response?.totalPages ?? 1, 1)}
         />
       </AdminSection>
     </AdminPage>
@@ -252,14 +233,19 @@ function FilterChip({
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       onPress={onPress}
-      style={({ pressed }) => [
+      style={(state) => [
         styles.chip,
         active ? styles.chipActive : undefined,
-        pressed ? styles.pressed : undefined,
+        !active && isHovered(state) ? styles.chipHovered : undefined,
+        state.pressed ? styles.pressed : undefined,
       ]}>
       <Text style={[styles.chipText, active ? styles.chipTextActive : undefined]}>{label}</Text>
     </Pressable>
   );
+}
+
+function isHovered(state: unknown) {
+  return Boolean((state as { hovered?: boolean }).hovered);
 }
 
 const styles = StyleSheet.create({
@@ -270,17 +256,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: Spacing.sm,
-  },
-  input: {
-    backgroundColor: Colors.light.surface,
-    borderColor: Colors.light.border,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    color: Colors.light.text,
-    flex: 1,
-    fontSize: 15,
-    minHeight: 44,
-    paddingHorizontal: Spacing.md,
   },
   filterGroup: {
     gap: Spacing.sm,
@@ -308,6 +283,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#052344',
     borderColor: '#052344',
   },
+  chipHovered: {
+    backgroundColor: '#F1F5F9',
+  },
   chipText: {
     color: Colors.light.text,
     fontSize: 14,
@@ -315,10 +293,6 @@ const styles = StyleSheet.create({
   },
   chipTextActive: {
     color: Colors.light.surface,
-  },
-  paginationActions: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
   },
   pressed: {
     opacity: 0.82,

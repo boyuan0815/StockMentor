@@ -1,15 +1,15 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { adminApi } from '@/api/admin';
-import { ActionButton } from '@/components/foundation/action-button';
 import {
+  AdminButton,
   AdminConfirmModal,
+  AdminDateInput,
   AdminInlineError,
   AdminKeyValueGrid,
   AdminMetric,
   AdminMetricGrid,
-  AdminMutedText,
   AdminPage,
   AdminSection,
   formatAdminDate,
@@ -17,6 +17,7 @@ import {
   formatAdminNumber,
   useAdminRequest,
 } from '@/components/admin/admin-ui';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import type { AdminBackfillRequest, AdminBackfillType, BackfillResultDto } from '@/types/admin';
 
@@ -47,8 +48,7 @@ const backfillTypes: Array<{ description: string; label: string; value: AdminBac
 export function AdminStockMaintenanceScreen() {
   const { adminToken, credentials, handleAdminError } = useAdminRequest();
   const [type, setType] = useState<AdminBackfillType>('INTRADAY_DATE');
-  const [allSymbols, setAllSymbols] = useState(true);
-  const [selectedSymbols, setSelectedSymbols] = useState<string[]>(['NVDA']);
+  const [selectedSymbols, setSelectedSymbols] = useState<string[]>(supportedSymbols);
   const [date, setDate] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -58,14 +58,28 @@ export function AdminStockMaintenanceScreen() {
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<BackfillResultDto | null>(null);
 
-  const requestPreview = useMemo(() => buildRequest(type, allSymbols, selectedSymbols, date, startDate, endDate), [
-    allSymbols,
+  const allSymbolsSelected = selectedSymbols.length === supportedSymbols.length;
+
+  const requestPreview = useMemo(() => buildRequest(type, selectedSymbols, date, startDate, endDate), [
     date,
     endDate,
     selectedSymbols,
     startDate,
     type,
   ]);
+
+  const tradingDateError = getTradingDateError(type, validationMessage);
+  const startDateError = getStartDateError(type, validationMessage, startDate);
+  const endDateError = getEndDateError(type, validationMessage, endDate);
+  const symbolError = getSymbolError(validationMessage);
+
+  const selectType = useCallback((nextType: AdminBackfillType) => {
+    setType(nextType);
+    setConfirmOpen(false);
+    setErrorMessage(null);
+    setValidationMessage(null);
+    setResult(null);
+  }, []);
 
   const openConfirmation = useCallback(() => {
     setErrorMessage(null);
@@ -108,11 +122,19 @@ export function AdminStockMaintenanceScreen() {
     setSelectedSymbols((current) =>
       current.includes(symbol) ? current.filter((item) => item !== symbol) : [...current, symbol],
     );
+    setValidationMessage(null);
+    setResult(null);
+  }, []);
+
+  const toggleAllSymbols = useCallback(() => {
+    setSelectedSymbols((current) => (current.length === supportedSymbols.length ? [] : [...supportedSymbols]));
+    setValidationMessage(null);
+    setResult(null);
   }, []);
 
   return (
     <AdminPage title="Stock maintenance">
-      <AdminInlineError message={errorMessage || validationMessage} title={errorMessage ? 'Backfill failed' : 'Check form'} />
+      <AdminInlineError message={errorMessage} title="Backfill failed" />
 
       <AdminSection title="Backfill mode">
         <View style={styles.modeGrid}>
@@ -121,11 +143,12 @@ export function AdminStockMaintenanceScreen() {
               accessibilityRole="button"
               accessibilityState={{ selected: type === option.value }}
               key={option.value}
-              onPress={() => setType(option.value)}
-              style={({ pressed }) => [
+              onPress={() => selectType(option.value)}
+              style={(state) => [
                 styles.modeCard,
                 type === option.value ? styles.modeCardActive : undefined,
-                pressed ? styles.pressed : undefined,
+                type !== option.value && isHovered(state) ? styles.modeCardHovered : undefined,
+                state.pressed ? styles.pressed : undefined,
               ]}>
               <Text style={[styles.modeTitle, type === option.value ? styles.modeTextActive : undefined]}>
                 {option.label}
@@ -138,87 +161,103 @@ export function AdminStockMaintenanceScreen() {
         </View>
       </AdminSection>
 
-      <AdminSection title="Symbols">
-        {type === 'CLEANUP_1MIN' ? (
-          <AdminMutedText>Cleanup uses backend cleanup rules and ignores symbol/date form fields.</AdminMutedText>
-        ) : (
-          <View style={styles.formStack}>
+      {type !== 'CLEANUP_1MIN' ? (
+        <AdminSection title="Symbols">
+          <View style={styles.symbolStack}>
+            <View style={styles.symbolGrid}>
+              {supportedSymbols.map((symbol) => {
+                const selected = selectedSymbols.includes(symbol);
+                return (
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: selected }}
+                    key={symbol}
+                    onPress={() => toggleSymbol(symbol)}
+                    style={(state) => [
+                      styles.symbolOption,
+                      selected ? styles.symbolOptionActive : undefined,
+                      isHovered(state) ? styles.symbolOptionHovered : undefined,
+                      state.pressed ? styles.pressed : undefined,
+                    ]}>
+                    <View style={[styles.checkbox, selected ? styles.checkboxActive : undefined]}>
+                      {selected ? <IconSymbol name="checkmark" color={Colors.light.surface} size={15} /> : null}
+                    </View>
+                    <Text style={styles.symbolText}>{symbol}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
             <Pressable
               accessibilityRole="checkbox"
-              accessibilityState={{ checked: allSymbols }}
-              onPress={() => setAllSymbols((current) => !current)}
-              style={({ pressed }) => [styles.checkboxRow, pressed ? styles.pressed : undefined]}>
-              <View style={[styles.checkbox, allSymbols ? styles.checkboxActive : undefined]}>
-                <Text style={styles.checkboxMark}>{allSymbols ? 'x' : ''}</Text>
+              accessibilityState={{ checked: allSymbolsSelected }}
+              onPress={toggleAllSymbols}
+              style={(state) => [
+                styles.allSymbolsRow,
+                isHovered(state) ? styles.allSymbolsRowHovered : undefined,
+                state.pressed ? styles.pressed : undefined,
+              ]}>
+              <View style={[styles.checkbox, styles.checkboxSmall, allSymbolsSelected ? styles.checkboxActive : undefined]}>
+                {allSymbolsSelected ? <IconSymbol name="checkmark" color={Colors.light.surface} size={12} /> : null}
               </View>
-              <Text style={styles.checkboxText}>All supported symbols</Text>
+              <Text style={styles.allSymbolsText}>All symbols</Text>
             </Pressable>
-            {!allSymbols ? (
-              <View style={styles.symbolGrid}>
-                {supportedSymbols.map((symbol) => {
-                  const selected = selectedSymbols.includes(symbol);
-                  return (
-                    <Pressable
-                      accessibilityRole="checkbox"
-                      accessibilityState={{ checked: selected }}
-                      key={symbol}
-                      onPress={() => toggleSymbol(symbol)}
-                      style={({ pressed }) => [
-                        styles.symbolChip,
-                        selected ? styles.symbolChipActive : undefined,
-                        pressed ? styles.pressed : undefined,
-                      ]}>
-                      <Text style={[styles.symbolText, selected ? styles.symbolTextActive : undefined]}>{symbol}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
+            <FieldError message={symbolError} />
           </View>
-        )}
-      </AdminSection>
+        </AdminSection>
+      ) : null}
 
       {type !== 'CLEANUP_1MIN' ? (
-        <AdminSection title="Dates">
+        <AdminSection
+          title={type === 'INTRADAY_DATE' ? 'Date' : type === 'DAILY_MISSING' ? 'Date range (optional)' : 'Date range'}>
           {type === 'INTRADAY_DATE' ? (
-            <TextInput
+            <AdminDateInput
               accessibilityLabel="Trading date"
-              autoCapitalize="none"
-              onChangeText={setDate}
-              placeholder="Trading date, YYYY-MM-DD"
-              style={styles.input}
+              onChangeText={(nextDate) => {
+                setDate(nextDate);
+                setValidationMessage(null);
+                setResult(null);
+              }}
+              placeholder="Trading date"
               value={date}
             />
+            <FieldError message={tradingDateError} />
           ) : (
             <View style={styles.dateRow}>
-              <TextInput
-                accessibilityLabel="Start date"
-                autoCapitalize="none"
-                onChangeText={setStartDate}
-                placeholder={type === 'DAILY_MISSING' ? 'Start date optional, YYYY-MM-DD' : 'Start date, YYYY-MM-DD'}
-                style={styles.input}
-                value={startDate}
-              />
-              <TextInput
-                accessibilityLabel="End date"
-                autoCapitalize="none"
-                onChangeText={setEndDate}
-                placeholder={type === 'DAILY_MISSING' ? 'End date optional, YYYY-MM-DD' : 'End date, YYYY-MM-DD'}
-                style={styles.input}
-                value={endDate}
-              />
+              <View style={styles.dateField}>
+                <AdminDateInput
+                  accessibilityLabel="Start date"
+                  onChangeText={(nextDate) => {
+                    setStartDate(nextDate);
+                    setValidationMessage(null);
+                    setResult(null);
+                  }}
+                  placeholder={type === 'DAILY_MISSING' ? 'Optional start date' : 'Start date'}
+                  value={startDate}
+                />
+                <FieldError message={startDateError} />
+              </View>
+              <View style={styles.dateField}>
+                <AdminDateInput
+                  accessibilityLabel="End date"
+                  onChangeText={(nextDate) => {
+                    setEndDate(nextDate);
+                    setValidationMessage(null);
+                    setResult(null);
+                  }}
+                  placeholder={type === 'DAILY_MISSING' ? 'Optional end date' : 'End date'}
+                  value={endDate}
+                />
+                <FieldError message={endDateError} />
+              </View>
             </View>
           )}
-          {type === 'DAILY_MISSING' ? (
-            <AdminMutedText>Leave both dates empty to use backend defaults, or enter both dates for a bounded repair.</AdminMutedText>
-          ) : null}
         </AdminSection>
       ) : null}
 
       <AdminSection
         title="Run maintenance"
         action={
-          <ActionButton
+          <AdminButton
             disabled={pending}
             label={pending ? 'Running...' : 'Review and run'}
             onPress={openConfirmation}
@@ -228,7 +267,7 @@ export function AdminStockMaintenanceScreen() {
         <AdminKeyValueGrid
           rows={[
             ['Job type', formatAdminEnum(requestPreview.type)],
-            ['Symbols', requestPreview.symbols?.join(', ') ?? 'All supported symbols'],
+            ['Symbols', type === 'CLEANUP_1MIN' ? 'Not used' : requestPreview.symbols?.join(', ') ?? 'All symbols'],
             ['Date', requestPreview.date ?? 'Not used'],
             ['Start date', requestPreview.startDate ?? 'Not used'],
             ['End date', requestPreview.endDate ?? 'Not used'],
@@ -237,7 +276,7 @@ export function AdminStockMaintenanceScreen() {
       </AdminSection>
 
       {result ? (
-        <AdminSection title="Result summary">
+        <AdminSection title="Result summary" tone="success">
           <AdminMetricGrid>
             <AdminMetric label="Saved rows" tone="success" value={formatAdminNumber(result.savedRows)} />
             <AdminMetric label="Skipped rows" tone="warn" value={formatAdminNumber(result.skippedRows)} />
@@ -251,24 +290,13 @@ export function AdminStockMaintenanceScreen() {
               ['End date', result.endDate ?? 'Not available'],
             ]}
           />
-          <View style={styles.messageList}>
-            {result.messages.length > 0 ? (
-              result.messages.map((message, index) => (
-                <Text selectable key={`${index}-${message}`} style={styles.messageText}>
-                  {message}
-                </Text>
-              ))
-            ) : (
-              <AdminMutedText>No backend messages returned.</AdminMutedText>
-            )}
-          </View>
+          <ResultMessages result={result} />
         </AdminSection>
       ) : null}
 
       <AdminConfirmModal
         visible={confirmOpen}
         title="Run stock maintenance?"
-        message="This calls the backend maintenance endpoint. It may fetch provider data or delete old 1-minute rows according to backend rules."
         confirmLabel="Run maintenance"
         pendingLabel="Running..."
         pending={pending}
@@ -282,7 +310,6 @@ export function AdminStockMaintenanceScreen() {
 
 function buildRequest(
   type: AdminBackfillType,
-  allSymbols: boolean,
   selectedSymbols: string[],
   date: string,
   startDate: string,
@@ -292,7 +319,7 @@ function buildRequest(
     return { type };
   }
 
-  const symbols = allSymbols ? undefined : selectedSymbols;
+  const symbols = selectedSymbols.length === supportedSymbols.length ? undefined : selectedSymbols;
   if (type === 'INTRADAY_DATE') {
     return { type, symbols, date: date.trim() || undefined };
   }
@@ -307,19 +334,19 @@ function buildRequest(
 
 function validateRequest(request: AdminBackfillRequest) {
   if (request.type !== 'CLEANUP_1MIN' && request.symbols && request.symbols.length === 0) {
-    return 'Choose at least one symbol, or switch to all supported symbols.';
+    return 'Choose at least one symbol, or select All symbols.';
   }
 
   if (request.type === 'INTRADAY_DATE') {
     if (!request.date) {
-      return 'INTRADAY_DATE requires a trading date.';
+      return 'Intraday Date requires one trading date.';
     }
     return isDateOnly(request.date) ? null : 'Use YYYY-MM-DD for the trading date.';
   }
 
   if (request.type === 'DAILY_RANGE') {
     if (!request.startDate || !request.endDate) {
-      return 'DAILY_RANGE requires start date and end date.';
+      return 'Daily Range requires a start date and end date.';
     }
     if (!isDateOnly(request.startDate) || !isDateOnly(request.endDate)) {
       return 'Use YYYY-MM-DD for daily range dates.';
@@ -332,7 +359,7 @@ function validateRequest(request: AdminBackfillRequest) {
       return null;
     }
     if (!request.startDate || !request.endDate) {
-      return 'DAILY_MISSING uses both dates or no dates.';
+      return 'Daily Missing needs both dates, or no dates.';
     }
     if (!isDateOnly(request.startDate) || !isDateOnly(request.endDate)) {
       return 'Use YYYY-MM-DD for daily missing dates.';
@@ -341,6 +368,108 @@ function validateRequest(request: AdminBackfillRequest) {
   }
 
   return null;
+}
+
+function getSymbolError(message: string | null) {
+  return message?.startsWith('Choose at least one symbol') ? message : null;
+}
+
+function getTradingDateError(type: AdminBackfillType, message: string | null) {
+  if (type !== 'INTRADAY_DATE' || !message) {
+    return null;
+  }
+  if (message.includes('trading date')) {
+    return 'Choose a trading date.';
+  }
+  if (message.includes('YYYY-MM-DD')) {
+    return 'Choose a valid trading date.';
+  }
+  return null;
+}
+
+function getStartDateError(type: AdminBackfillType, message: string | null, startDate: string) {
+  if ((type !== 'DAILY_RANGE' && type !== 'DAILY_MISSING') || !message) {
+    return null;
+  }
+  if (message.startsWith('Start date')) {
+    return message;
+  }
+  if (message.includes('requires a start date') && !startDate) {
+    return 'Start date is required.';
+  }
+  if (message.includes('needs both dates') && !startDate) {
+    return 'Start date is required when an end date is used.';
+  }
+  if (message.includes('YYYY-MM-DD') && startDate && !isDateOnly(startDate)) {
+    return 'Choose a valid start date.';
+  }
+  return null;
+}
+
+function getEndDateError(type: AdminBackfillType, message: string | null, endDate: string) {
+  if ((type !== 'DAILY_RANGE' && type !== 'DAILY_MISSING') || !message) {
+    return null;
+  }
+  if (message.includes('requires a start date') && !endDate) {
+    return 'End date is required.';
+  }
+  if (message.includes('needs both dates') && !endDate) {
+    return 'End date is required when a start date is used.';
+  }
+  if (message.includes('YYYY-MM-DD') && endDate && !isDateOnly(endDate)) {
+    return 'Choose a valid end date.';
+  }
+  return null;
+}
+
+function formatBackfillMessage(message: string, result: BackfillResultDto) {
+  const noRowsChanged = result.savedRows === 0 && result.skippedRows === 0 && result.deletedRows === 0;
+  if (noRowsChanged && message.includes('max 2-symbol batches')) {
+    return 'Twelve Data free-tier only allows data requests for up to 8 stocks per minute. Wait one minute, then try again.';
+  }
+
+  if (message.toLowerCase().includes('rate limit')) {
+    return 'Twelve Data free-tier limit reached. Wait one minute, then try again.';
+  }
+
+  const lowerMessage = message.toLowerCase();
+  if (lowerMessage.includes('failed') || lowerMessage.includes('error') || lowerMessage.includes('unable')) {
+    return message;
+  }
+
+  return null;
+}
+
+function ResultMessages({ result }: { result: BackfillResultDto }) {
+  const messages = result.messages
+    .map((message) => formatBackfillMessage(message, result))
+    .filter((message): message is string => Boolean(message));
+
+  if (messages.length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.messageList}>
+      {messages.map((message, index) => (
+        <Text selectable key={`${index}-${message}`} style={styles.messageText}>
+          {message}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+function FieldError({ message }: { message: string | null }) {
+  if (!message) {
+    return null;
+  }
+
+  return (
+    <Text selectable style={styles.fieldErrorText}>
+      {message}
+    </Text>
+  );
 }
 
 function isDateOnly(value: string) {
@@ -355,6 +484,10 @@ function isDateOnly(value: string) {
     parsedDate.getUTCMonth() === month - 1 &&
     parsedDate.getUTCDate() === day
   );
+}
+
+function isHovered(state: unknown) {
+  return Boolean((state as { hovered?: boolean }).hovered);
 }
 
 const styles = StyleSheet.create({
@@ -373,8 +506,11 @@ const styles = StyleSheet.create({
     width: 220,
   },
   modeCardActive: {
-    backgroundColor: '#052344',
-    borderColor: '#052344',
+    backgroundColor: Colors.light.actionSecondarySoft,
+    borderColor: Colors.light.actionSecondary,
+  },
+  modeCardHovered: {
+    backgroundColor: '#F8FAFC',
   },
   modeTitle: {
     color: Colors.light.text,
@@ -382,7 +518,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   modeTextActive: {
-    color: Colors.light.surface,
+    color: Colors.light.actionSecondaryText,
   },
   modeDescription: {
     color: Colors.light.mutedText,
@@ -390,15 +526,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   modeDescriptionActive: {
-    color: '#DBEAFE',
-  },
-  formStack: {
-    gap: Spacing.md,
-  },
-  checkboxRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: Spacing.sm,
+    color: Colors.light.actionSecondaryText,
   },
   checkbox: {
     alignItems: 'center',
@@ -413,66 +541,81 @@ const styles = StyleSheet.create({
     backgroundColor: '#052344',
     borderColor: '#052344',
   },
-  checkboxMark: {
-    color: Colors.light.surface,
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  checkboxText: {
-    color: Colors.light.text,
-    fontSize: 15,
-    fontWeight: '700',
+  checkboxSmall: {
+    height: 18,
+    width: 18,
   },
   symbolGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.sm,
   },
-  symbolChip: {
+  symbolStack: {
+    gap: Spacing.sm,
+  },
+  allSymbolsRow: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    minHeight: 24,
+  },
+  allSymbolsRowHovered: {
+    opacity: 0.72,
+  },
+  allSymbolsText: {
+    color: Colors.light.text,
+    fontSize: 13,
+    fontWeight: '400',
+  },
+  symbolOption: {
+    alignItems: 'center',
     borderColor: Colors.light.border,
     borderRadius: Radius.md,
     borderWidth: 1,
+    flexDirection: 'row',
+    gap: Spacing.sm,
     minHeight: 40,
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.md,
+    minWidth: 120,
+    paddingHorizontal: Spacing.sm,
   },
-  symbolChipActive: {
-    backgroundColor: Colors.light.softTeal,
-    borderColor: Colors.light.secondaryTint,
+  symbolOptionActive: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#94A3B8',
+  },
+  symbolOptionHovered: {
+    backgroundColor: '#F8FAFC',
   },
   symbolText: {
     color: Colors.light.text,
     fontSize: 14,
     fontWeight: '800',
   },
-  symbolTextActive: {
-    color: Colors.light.secondaryTint,
-  },
   dateRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
   },
-  input: {
-    backgroundColor: Colors.light.surface,
-    borderColor: Colors.light.border,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    color: Colors.light.text,
+  dateField: {
     flex: 1,
-    fontSize: 15,
-    minHeight: 44,
-    paddingHorizontal: Spacing.md,
+    gap: Spacing.xs,
+  },
+  fieldErrorText: {
+    color: Colors.light.destructive,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   messageList: {
     gap: Spacing.sm,
   },
   messageText: {
-    backgroundColor: '#F8FAFC',
-    borderColor: Colors.light.border,
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FCA5A5',
     borderRadius: Radius.sm,
     borderWidth: 1,
-    color: Colors.light.text,
+    color: '#991B1B',
     fontSize: 14,
+    fontWeight: '700',
     lineHeight: 20,
     padding: Spacing.md,
   },

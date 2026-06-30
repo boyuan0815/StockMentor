@@ -3,9 +3,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { View } from 'react-native';
 
 import { adminApi } from '@/api/admin';
-import { ActionButton } from '@/components/foundation/action-button';
 import { EmptyState } from '@/components/foundation/empty-state';
 import {
+  AdminButton,
   AdminConfirmModal,
   AdminFieldText,
   AdminInlineError,
@@ -96,8 +96,8 @@ export function AdminUserDetailScreen() {
       title={user ? user.email : 'User detail'}
       actions={
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          <ActionButton label="Back to users" onPress={() => router.push('/admin/users')} variant="ghost" />
-          <ActionButton label="Refresh" onPress={loadUser} variant="secondary" />
+          <AdminButton label="Back to users" onPress={() => router.push('/admin/users')} variant="ghost" />
+          <AdminButton label="Refresh" onPress={loadUser} variant="secondary" />
         </View>
       }>
       <AdminInlineError message={errorMessage} />
@@ -106,7 +106,7 @@ export function AdminUserDetailScreen() {
         title="Account"
         action={
           targetStatus ? (
-            <ActionButton
+            <AdminButton
               disabled={loading || savingStatus}
               label={targetStatus === 'ACTIVE' ? 'Re-enable user' : 'Disable user'}
               onPress={() => setConfirmStatus(targetStatus)}
