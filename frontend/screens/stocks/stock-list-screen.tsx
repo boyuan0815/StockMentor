@@ -284,10 +284,8 @@ export function StockListScreen() {
                 <ErrorBanner title="Stocks need attention" message={errorMessage} />
               ) : null}
               <PortfolioSummaryCard
-                errorMessage={portfolioError}
                 loading={isPortfolioLoading && !portfolio}
                 onOpenPortfolio={() => router.push('/paper-trading' as Href)}
-                onRetry={loadPortfolioCard}
                 onReset={() => setResetConfirmVisible(true)}
                 onViewSuggestions={openSuggestionsPlaceholder}
                 onViewWatchlist={() => router.push('/watchlist' as Href)}
@@ -430,19 +428,15 @@ function StockTableHeader({
 }
 
 function PortfolioSummaryCard({
-  errorMessage,
   loading,
   onOpenPortfolio,
-  onRetry,
   onReset,
   onViewSuggestions,
   onViewWatchlist,
   portfolio,
 }: {
-  errorMessage: string | null;
   loading: boolean;
   onOpenPortfolio: () => void;
-  onRetry: () => void;
   onReset: () => void;
   onViewSuggestions: () => void;
   onViewWatchlist: () => void;
@@ -506,28 +500,6 @@ function PortfolioSummaryCard({
           </Text>
         </View>
       </View>
-      {errorMessage ? (
-        <View
-          style={[
-            styles.portfolioUnavailable,
-            { backgroundColor: tier.unavailableBackground, borderColor: tier.unavailableBorder },
-          ]}>
-          <Text selectable style={[styles.portfolioUnavailableText, { color: tier.unavailableText }]}>
-            Portfolio summary is unavailable.
-          </Text>
-          <Pressable
-            accessibilityLabel="Retry portfolio summary"
-            accessibilityRole="button"
-            onPress={onRetry}
-            style={({ pressed }) => [
-              styles.retryChip,
-              { backgroundColor: tier.buttonPrimaryBackground },
-              pressed ? styles.pressed : undefined,
-            ]}>
-            <Text style={[styles.retryChipText, { color: tier.buttonPrimaryText }]}>Retry</Text>
-          </Pressable>
-        </View>
-      ) : null}
       <View
         style={[
           styles.portfolioActions,
@@ -674,8 +646,6 @@ function getPortfolioCardTier(value: ApiNumber) {
       todayNegative: '#D23A32',
       todayNeutral: '#5B647E',
       todayPositive: '#15803D',
-      unavailableBackground: 'rgba(255,255,255,0.55)',
-      unavailableBorder: 'rgba(180,190,212,0.58)',
       unavailableText: '#4A5270',
       valueText: '#232A42',
     };
@@ -718,8 +688,6 @@ function getPortfolioCardTier(value: ApiNumber) {
       todayNegative: '#BF3A2B',
       todayNeutral: '#8A6A26',
       todayPositive: '#15803D',
-      unavailableBackground: 'rgba(255,255,255,0.42)',
-      unavailableBorder: 'rgba(200,165,80,0.44)',
       unavailableText: '#7A5D22',
       valueText: '#43340F',
     };
@@ -762,8 +730,6 @@ function getPortfolioCardTier(value: ApiNumber) {
       todayNegative: '#D6342C',
       todayNeutral: '#6B7589',
       todayPositive: '#166534',
-      unavailableBackground: 'rgba(255,255,255,0.55)',
-      unavailableBorder: 'rgba(160,170,185,0.34)',
       unavailableText: '#334155',
       valueText: '#2A3344',
     };
@@ -805,8 +771,6 @@ function getPortfolioCardTier(value: ApiNumber) {
     todayNegative: '#FF5B60',
     todayNeutral: '#8B93A3',
     todayPositive: '#86EFAC',
-    unavailableBackground: 'rgba(255,255,255,0.08)',
-    unavailableBorder: 'rgba(255,255,255,0.16)',
     unavailableText: '#E2E8F0',
     valueText: '#FFFFFF',
   };
@@ -1078,34 +1042,6 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     fontWeight: '400',
     lineHeight: 19,
-  },
-  portfolioUnavailable: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderColor: 'rgba(255,255,255,0.16)',
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    justifyContent: 'space-between',
-    padding: Spacing.sm,
-  },
-  portfolioUnavailableText: {
-    color: '#E2E8F0',
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  retryChip: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 999,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-  },
-  retryChipText: {
-    color: '#052344',
-    fontSize: 12,
-    fontWeight: '700',
   },
   portfolioActions: {
     borderRadius: 999,

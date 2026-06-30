@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
+import { Colors } from '@/constants/theme';
 import { AppProviders } from '@/providers/app-providers';
 
 export const unstable_settings = {
@@ -20,7 +21,7 @@ export default function RootLayout() {
           <Stack.Screen name="(user)" />
           <Stack.Screen name="(admin)" />
         </Stack>
-        <StatusBar style="auto" />
+        <StatusBar backgroundColor={Colors.light.background} style="dark" translucent={false} />
       </AppProviders>
     </GestureHandlerRootView>
   );

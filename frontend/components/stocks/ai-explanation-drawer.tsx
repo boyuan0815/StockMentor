@@ -225,7 +225,7 @@ const styles = StyleSheet.create({
   body: {
     borderTopColor: Colors.light.border,
     borderTopWidth: 1,
-    paddingBottom: Spacing.xxl + Spacing.xl,
+    paddingBottom: Spacing.sm,
     paddingHorizontal: Spacing.sm,
     paddingTop: Spacing.sm,
   },

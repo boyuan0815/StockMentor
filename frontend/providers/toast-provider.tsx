@@ -20,7 +20,8 @@ type ToastMessage = {
 };
 
 type ToastContextValue = {
-  showToast: (message: string, tone?: ToastTone) => void;
+  showToast: (message: string, tone?: ToastTone, durationMs?: number) => void;
+  hideToast: () => void;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -29,7 +30,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showToast = useCallback((message: string, tone: ToastTone = 'neutral') => {
+  const showToast = useCallback((message: string, tone: ToastTone = 'neutral', durationMs = 2600) => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
@@ -43,10 +44,18 @@ export function ToastProvider({ children }: PropsWithChildren) {
     timeoutRef.current = setTimeout(() => {
       setToast(null);
       timeoutRef.current = null;
-    }, 2600);
+    }, durationMs);
   }, []);
 
-  const value = useMemo(() => ({ showToast }), [showToast]);
+  const hideToast = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    setToast(null);
+  }, []);
+
+  const value = useMemo(() => ({ hideToast, showToast }), [hideToast, showToast]);
 
   return (
     <ToastContext.Provider value={value}>

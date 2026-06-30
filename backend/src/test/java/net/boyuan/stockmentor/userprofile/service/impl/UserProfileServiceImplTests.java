@@ -8,6 +8,8 @@ import net.boyuan.stockmentor.auth.model.AppUserRole;
 import net.boyuan.stockmentor.auth.model.AppUserStatus;
 import net.boyuan.stockmentor.auth.repository.AppUserRepository;
 import net.boyuan.stockmentor.auth.service.CurrentUserService;
+import net.boyuan.stockmentor.papertrading.entity.PaperTradingAccount;
+import net.boyuan.stockmentor.papertrading.repository.PaperTradingAccountRepository;
 import net.boyuan.stockmentor.userbehavior.dto.BehaviorSummaryForSuggestion;
 import net.boyuan.stockmentor.userbehavior.model.UserBehaviorStyle;
 import net.boyuan.stockmentor.userbehavior.service.UserBehaviorProfileService;
@@ -59,6 +61,8 @@ class UserProfileServiceImplTests {
     @Mock
     private UserInvestmentProfileRepository profileRepository;
     @Mock
+    private PaperTradingAccountRepository paperTradingAccountRepository;
+    @Mock
     private UserBehaviorProfileService behaviorProfileService;
     @Mock
     private StockAiSuggestionTriggerService stockAiSuggestionTriggerService;
@@ -77,6 +81,7 @@ class UserProfileServiceImplTests {
                 currentUserService,
                 appUserRepository,
                 profileRepository,
+                paperTradingAccountRepository,
                 behaviorProfileService,
                 stockAiSuggestionTriggerService,
                 transactionManager,
@@ -86,6 +91,7 @@ class UserProfileServiceImplTests {
         lenient().when(currentUserService.getCurrentUser()).thenReturn(user);
         lenient().when(appUserRepository.save(any(AppUser.class))).thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(behaviorProfileService.getBehaviorSummaryForSuggestion(1L)).thenReturn(behaviorSummary());
+        lenient().when(paperTradingAccountRepository.findByUserUserId(1L)).thenReturn(Optional.empty());
         lenient().when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(new SimpleTransactionStatus());
         lenient().when(stockAiSuggestionTriggerService.handleOnboardingCompleted(any(AppUser.class)))
                 .thenReturn(SuggestionTriggerResult.success(StockAiSuggestionTriggerReason.ONBOARDING_COMPLETED, 101L, "SUCCESS", "created"));
@@ -312,6 +318,28 @@ class UserProfileServiceImplTests {
     }
 
     @Test
+    void currentProfileDowngradesBehaviorSummaryAfterPortfolioResetBoundary() {
+        user.setOnboardingCompleted(true);
+        UserInvestmentProfile profile = profile(user, 2);
+        LocalDateTime behaviorUpdatedAt = LocalDateTime.of(2026, 6, 29, 9, 0);
+        PaperTradingAccount account = new PaperTradingAccount();
+        account.setLastResetAt(behaviorUpdatedAt.plusMinutes(5));
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
+                .thenReturn(Optional.of(profile));
+        when(behaviorProfileService.getBehaviorSummaryForSuggestion(1L))
+                .thenReturn(behaviorSummary(BehaviorConfidence.MEDIUM, behaviorUpdatedAt));
+        when(paperTradingAccountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+
+        UserProfileResponse response = service.getCurrentUserProfile();
+
+        assertEquals("LOW", response.behaviorSummary().behaviorConfidence());
+        assertEquals("INSUFFICIENT_DATA", response.behaviorSummary().behaviorStyle());
+        assertTrue(response.behaviorSummary().sourceNote().contains("Portfolio was reset"));
+        assertNull(response.behaviorSummary().updatedAt());
+    }
+
+    @Test
     void postServiceMethodsAreTransactional() throws Exception {
         assertNotNull(UserProfileServiceImpl.class
                 .getMethod("completeOnboarding", OnboardingSubmitRequest.class)
@@ -410,13 +438,17 @@ class UserProfileServiceImplTests {
     }
 
     private BehaviorSummaryForSuggestion behaviorSummary() {
+        return behaviorSummary(BehaviorConfidence.LOW, null);
+    }
+
+    private BehaviorSummaryForSuggestion behaviorSummary(BehaviorConfidence confidence, LocalDateTime updatedAt) {
         return new BehaviorSummaryForSuggestion(
                 null,
                 null,
                 null,
-                null,
-                UserBehaviorStyle.INSUFFICIENT_DATA,
-                BehaviorConfidence.LOW,
+                confidence == BehaviorConfidence.LOW ? null : 60,
+                confidence == BehaviorConfidence.LOW ? UserBehaviorStyle.INSUFFICIENT_DATA : UserBehaviorStyle.BALANCED,
+                confidence,
                 null,
                 null,
                 null,
@@ -429,7 +461,7 @@ class UserProfileServiceImplTests {
                 null,
                 null,
                 "No paper-trading behavior profile has been calculated yet.",
-                null,
+                updatedAt,
                 "Behavior profile is unavailable; no paper-trading transaction source exists yet."
         );
     }

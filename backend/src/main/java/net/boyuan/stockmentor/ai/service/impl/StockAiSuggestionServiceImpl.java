@@ -236,11 +236,12 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
 
             Highlight rules:
 
-            * Return up to 3 exact phrases from shortReason and up to 3 exact phrases from detailReason for beginner-friendly highlighting.
+            * Return up to 3 exact phrases from detailReason for beginner-friendly highlighting.
             * Use style "positive" for supportive data, "negative" for caution/risk data, and "emphasis" for neutral important concepts.
             * Highlight phrases must be copied exactly from the final reason text.
             * Do not put visible tags, markdown, brackets, or HTML in the reason text.
-            * It is okay to return empty highlight arrays.
+            * Do not return highlights for shortReason.
+            * It is okay to return an empty detailReasonHighlights array.
             
             Output format rules:
             
@@ -262,9 +263,6 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                   "suggestionLabel": "Risk-aligned paper-trading practice",
                   "shortReason": "One sentence reason.",
                   "detailReason": "Beginner-friendly explanation using at least three provided factors.",
-                  "shortReasonHighlights": [
-                    {"phrase": "exact phrase from shortReason", "style": "positive"}
-                  ],
                   "detailReasonHighlights": [
                     {"phrase": "exact phrase from detailReason", "style": "emphasis"}
                   ]
@@ -279,7 +277,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         AppUser user = currentUserService.getCurrentUser();
         LocalDateTime now = LocalDateTime.now();
         Optional<StockAiSuggestionBatch> latestBatch = batchRepository
-                .findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(
+                .findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(
                         user.getUserId(),
                         READABLE_BATCH_STATUSES,
                         now
@@ -320,7 +318,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
 
         UserInvestmentProfile profile = profileOptional.get();
         Optional<StockAiSuggestionBatch> latestBatch = batchRepository
-                .findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(
+                .findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(
                         user.getUserId(),
                         READABLE_BATCH_STATUSES,
                         now
@@ -466,18 +464,30 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 .orElseThrow(() -> new IllegalArgumentException("Suggestion item not found"));
 
         if (!isWatchlistableSuggestionItem(item)) {
-            throw new IllegalArgumentException("Only active or already watchlisted suggestion items can be watchlisted from this endpoint. Use a stock watchlist action for dismissed or expired suggestions.");
+            throw new IllegalArgumentException("Only active, expired, or already watchlisted suggestion items can be watchlisted from this endpoint. Use a stock watchlist action for dismissed suggestions.");
         }
 
         LocalDateTime now = LocalDateTime.now();
-        UserWatchlist watchlist = watchlistRepository.findByUserUserIdAndSymbol(user.getUserId(), item.getSymbol())
-                .orElseGet(() -> {
-                    UserWatchlist row = new UserWatchlist();
-                    row.setUser(user);
-                    row.setSymbol(item.getSymbol());
-                    row.setCreatedAt(now);
-                    return row;
-                });
+        Optional<UserWatchlist> existingWatchlist = watchlistRepository.findByUserUserIdAndSymbol(user.getUserId(), item.getSymbol());
+        if (existingWatchlist.isPresent()) {
+            UserWatchlist row = existingWatchlist.get();
+            watchlistRepository.delete(row);
+            normalizeWatchlistOrders(orderedWatchlistRows(user.getUserId()).stream()
+                    .filter(remainingRow -> !Objects.equals(remainingRow.getWatchlistId(), row.getWatchlistId()))
+                    .toList());
+            item.setStatus(StockAiSuggestionItemStatus.ACTIVE);
+            item.setUpdatedAt(now);
+            itemRepository.save(item);
+            return buildResponse(user, item.getSuggestionBatch(), "Suggestion removed from watchlist", false);
+        }
+
+        List<UserWatchlist> existingRows = orderedWatchlistRows(user.getUserId());
+        normalizeWatchlistOrders(existingRows);
+        UserWatchlist watchlist = new UserWatchlist();
+        watchlist.setUser(user);
+        watchlist.setSymbol(item.getSymbol());
+        watchlist.setDisplayOrder(existingRows.size());
+        watchlist.setCreatedAt(now);
         watchlist.setSource(WatchlistSource.AI_SUGGESTION);
         watchlist.setUpdatedAt(now);
         watchlistRepository.save(watchlist);
@@ -491,7 +501,32 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
 
     private boolean isWatchlistableSuggestionItem(StockAiSuggestionItem item) {
         return item.getStatus() == StockAiSuggestionItemStatus.ACTIVE
-                || item.getStatus() == StockAiSuggestionItemStatus.WATCHLISTED;
+                || item.getStatus() == StockAiSuggestionItemStatus.WATCHLISTED
+                || item.getStatus() == StockAiSuggestionItemStatus.EXPIRED;
+    }
+
+    private List<UserWatchlist> orderedWatchlistRows(Long userId) {
+        List<UserWatchlist> rows = watchlistRepository.findByUserUserIdOrderByDisplayOrderAscCreatedAtAscWatchlistIdAsc(userId);
+        if (rows == null || rows.isEmpty()) {
+            rows = watchlistRepository.findByUserUserId(userId);
+        }
+        return rows.stream()
+                .sorted(Comparator
+                        .comparing((UserWatchlist row) -> row.getDisplayOrder() == null ? Integer.MAX_VALUE : row.getDisplayOrder())
+                        .thenComparing(UserWatchlist::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(UserWatchlist::getWatchlistId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+    }
+
+    private void normalizeWatchlistOrders(List<UserWatchlist> rows) {
+        for (int index = 0; index < rows.size(); index++) {
+            UserWatchlist row = rows.get(index);
+            if (!Objects.equals(row.getDisplayOrder(), index)) {
+                row.setDisplayOrder(index);
+                row.setUpdatedAt(LocalDateTime.now());
+                watchlistRepository.save(row);
+            }
+        }
     }
 
     private List<StockAnalysisSnapshot> loadUsableSnapshots() {
@@ -584,12 +619,34 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                     }
                     return normalizeSuggestedStock(stock, profile, behaviorSummary, snapshot);
                 })
+                .sorted(Comparator
+                        .comparing((AiSuggestedStockDto stock) -> stock.matchScore() == null ? -1 : stock.matchScore())
+                        .reversed()
+                        .thenComparing(stock -> stock.rankNo() == null ? Integer.MAX_VALUE : stock.rankNo()))
                 .toList();
 
         return new AiSuggestionContentDto(
                 sanitizeReasonText(content.batchSummary()),
-                normalizedStocks
+                withSequentialRanks(normalizedStocks)
         );
+    }
+
+    private List<AiSuggestedStockDto> withSequentialRanks(List<AiSuggestedStockDto> stocks) {
+        List<AiSuggestedStockDto> ranked = new ArrayList<>();
+        for (int i = 0; i < stocks.size(); i++) {
+            AiSuggestedStockDto stock = stocks.get(i);
+            ranked.add(new AiSuggestedStockDto(
+                    stock.symbol(),
+                    i + 1,
+                    stock.matchScore(),
+                    stock.riskLevel(),
+                    stock.suggestionLabel(),
+                    stock.shortReason(),
+                    stock.detailReason(),
+                    stock.detailReasonHighlights()
+            ));
+        }
+        return ranked;
     }
 
     private String appendBehaviorContextIfNeeded(
@@ -722,7 +779,6 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 suggestionLabel,
                 shortReason,
                 detailReason,
-                stock.shortReasonHighlights(),
                 stock.detailReasonHighlights()
         );
     }
@@ -1140,7 +1196,6 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                     suggestion.suggestionLabel(),
                     suggestion.shortReason(),
                     suggestion.detailReason(),
-                    List.of(),
                     List.of()
             ));
         }
@@ -1193,7 +1248,6 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                         + ". The fallback ranking uses onboarding weight " + personalizationWeight.onboardingWeight()
                         + " and behavior weight " + personalizationWeight.behaviorWeight()
                         + " for educational paper-trading practice. " + behaviorSentence + portfolioSentence + conflictSentence,
-                List.of(),
                 List.of()
         );
     }
@@ -1502,6 +1556,49 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 || item.getStatus() == StockAiSuggestionItemStatus.WATCHLISTED;
     }
 
+    private List<StockAiSuggestionItem> responseTopItems(List<StockAiSuggestionItem> topItems) {
+        if (topItems == null || topItems.isEmpty()) {
+            return List.of();
+        }
+        List<StockAiSuggestionItem> rankedItems = topItems.stream()
+                .filter(item -> item.getRankNo() != null)
+                .filter(item -> item.getRankNo() >= 1 && item.getRankNo() <= MAX_SUGGESTIONS)
+                .sorted(visibleItemPreferenceComparator())
+                .collect(Collectors.toMap(
+                        StockAiSuggestionItem::getRankNo,
+                        Function.identity(),
+                        (first, second) -> first,
+                        LinkedHashMap::new
+                ))
+                .values()
+                .stream()
+                .sorted(Comparator.comparing(StockAiSuggestionItem::getRankNo))
+                .toList();
+        if (!rankedItems.isEmpty()) {
+            return rankedItems;
+        }
+        return topItems.stream()
+                .sorted(visibleItemPreferenceComparator())
+                .limit(MAX_SUGGESTIONS)
+                .toList();
+    }
+
+    private List<StockAiSuggestionItem> responseItemsForBatch(StockAiSuggestionBatch batch) {
+        List<StockAiSuggestionItem> visibleItems = responseTopItems(
+                itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(batch, TOP_ITEM_STATUSES)
+        );
+        if (!visibleItems.isEmpty()) {
+            return visibleItems;
+        }
+        List<StockAiSuggestionItem> storedItems = itemRepository.findBySuggestionBatchOrderByRankNoAsc(batch);
+        if (storedItems == null || storedItems.isEmpty()) {
+            return List.of();
+        }
+        return responseTopItems(storedItems.stream()
+                .filter(item -> item.getStatus() != StockAiSuggestionItemStatus.DISMISSED)
+                .toList());
+    }
+
     private void saveOrUpdateSuggestionItems(
             AppUser user,
             List<StockAnalysisSnapshot> snapshots,
@@ -1551,10 +1648,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             item.setSuggestionLabel(limitText(suggestedStock.suggestionLabel(), 100));
             item.setShortReason(limitText(suggestedStock.shortReason(), 500));
             item.setDetailReason(limitText(suggestedStock.detailReason(), 2000));
-            item.setShortReasonHighlights(AiHighlightSupport.serialize(
-                    objectMapper,
-                    AiHighlightSupport.validatedSegments(item.getShortReason(), suggestedStock.shortReasonHighlights())
-            ));
+            item.setShortReasonHighlights(null);
             item.setDetailReasonHighlights(AiHighlightSupport.serialize(
                     objectMapper,
                     AiHighlightSupport.validatedSegments(item.getDetailReason(), suggestedStock.detailReasonHighlights())
@@ -1597,7 +1691,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
             boolean refreshAllowed,
             LocalDateTime nextRefreshAllowedAt
     ) {
-        List<StockAiSuggestionItem> topItems = itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(batch, TOP_ITEM_STATUSES);
+        List<StockAiSuggestionItem> topItems = responseItemsForBatch(batch);
         Set<String> topSymbols = topItems.stream().map(StockAiSuggestionItem::getSymbol).collect(Collectors.toSet());
         List<String> symbols = new ArrayList<>(SUPPORTED_SYMBOLS);
         Map<String, Stock> stockBySymbol = stockRepository.findBySymbolIn(symbols).stream()
@@ -1727,7 +1821,6 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 item.getSuggestionLabel(),
                 item.getShortReason(),
                 item.getDetailReason(),
-                AiHighlightSupport.deserialize(objectMapper, item.getShortReasonHighlights(), item.getShortReason()),
                 AiHighlightSupport.deserialize(objectMapper, item.getDetailReasonHighlights(), item.getDetailReason()),
                 item.getStatus().name(),
                 snapshot == null ? null : snapshot.getAnalysisSnapshotId(),

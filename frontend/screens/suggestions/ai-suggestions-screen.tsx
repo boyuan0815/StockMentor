@@ -1,7 +1,7 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { type Href, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { aiSuggestionsApi } from '@/api/ai-suggestions';
@@ -13,6 +13,7 @@ import { PaperHeader } from '@/components/paper-trading/paper-trading-ui';
 import { HighlightedText } from '@/components/stocks/highlighted-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Radius, Spacing } from '@/constants/theme';
+import { useMinuteBoundaryRefresh } from '@/hooks/use-minute-boundary-refresh';
 import { useRefreshCooldown } from '@/hooks/use-refresh-cooldown';
 import { useAuthSession } from '@/providers/auth-session-provider';
 import { useToast } from '@/providers/toast-provider';
@@ -32,7 +33,7 @@ import {
   toNumber,
 } from '@/utils/stock-display';
 
-type LoadMode = 'initial' | 'refresh';
+type LoadMode = 'initial' | 'refresh' | 'background';
 type PendingAction = {
   itemId: number;
   type: 'dismiss' | 'watchlist';
@@ -45,11 +46,17 @@ type RankTheme = {
   buttonBackground: string;
   buttonBorder: string;
   buttonText: string;
+  doneBackground: string;
+  doneBorder: string;
+  doneText: string;
   divider: string;
   headerBackground: string;
   scoreBackground: string;
+  scoreLabelText: string;
   scoreText: string;
 };
+
+const LONG_TOAST_MS = 3600;
 
 const RANK_THEMES: Record<'gold' | 'silver' | 'bronze', RankTheme> = {
   gold: {
@@ -59,9 +66,13 @@ const RANK_THEMES: Record<'gold' | 'silver' | 'bronze', RankTheme> = {
     buttonBackground: '#D9AA14',
     buttonBorder: '#C79506',
     buttonText: '#FFFFFF',
+    doneBackground: '#FBF2D2',
+    doneBorder: '#E4C977',
+    doneText: '#8A6A12',
     divider: '#D5AA27',
     headerBackground: '#FFF9E8',
     scoreBackground: '#D8A20E',
+    scoreLabelText: '#9A7414',
     scoreText: '#FFFFFF',
   },
   silver: {
@@ -71,9 +82,13 @@ const RANK_THEMES: Record<'gold' | 'silver' | 'bronze', RankTheme> = {
     buttonBackground: '#8793A4',
     buttonBorder: '#758295',
     buttonText: '#FFFFFF',
+    doneBackground: '#EEF1F5',
+    doneBorder: '#CBD2DE',
+    doneText: '#5A6573',
     divider: '#CBD5E1',
     headerBackground: '#F8FAFC',
     scoreBackground: '#94A3B8',
+    scoreLabelText: '#6B7686',
     scoreText: '#FFFFFF',
   },
   bronze: {
@@ -83,9 +98,13 @@ const RANK_THEMES: Record<'gold' | 'silver' | 'bronze', RankTheme> = {
     buttonBackground: '#F8EAD8',
     buttonBorder: '#DA9B65',
     buttonText: '#8A4B1C',
+    doneBackground: '#FAEEE0',
+    doneBorder: '#E1C09A',
+    doneText: '#8A5526',
     divider: '#D99A63',
     headerBackground: '#FFF7ED',
     scoreBackground: '#C8793C',
+    scoreLabelText: '#9A6234',
     scoreText: '#FFFFFF',
   },
 };
@@ -94,12 +113,13 @@ export function AiSuggestionsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { credentials, user } = useAuthSession();
-  const { showToast } = useToast();
+  const { hideToast, showToast } = useToast();
   const guardedRefresh = useRefreshCooldown();
   const requestInFlightRef = useRef(false);
   const writeInFlightRef = useRef(false);
   const hasLoadedRef = useRef(false);
   const scrollRef = useRef<ScrollView | null>(null);
+  const responseWriteVersionRef = useRef(0);
   const credentialsKey = credentials ? String(user?.userId ?? credentials.username) : null;
   const [response, setResponse] = useState<StockAiSuggestionResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -124,21 +144,29 @@ export function AiSuggestionsScreen() {
       requestInFlightRef.current = true;
       if (mode === 'refresh') {
         setIsRefreshing(true);
-      } else if (!hasLoadedRef.current) {
+      } else if (mode === 'initial' && !hasLoadedRef.current) {
         setIsLoading(true);
       }
       setErrorMessage(null);
 
+      const requestVersion = ++responseWriteVersionRef.current;
       try {
         const nextResponse = await aiSuggestionsApi.getSuggestions(credentials);
-        setResponse(normalizeSuggestionResponse(nextResponse));
+        const normalizedResponse = normalizeSuggestionResponse(nextResponse);
+        if (requestVersion === responseWriteVersionRef.current) {
+          setResponse(normalizedResponse);
+        }
       } catch (error) {
-        setErrorMessage(getStockApiErrorMessage(error, 'AI suggestions could not be loaded.'));
+        if (requestVersion === responseWriteVersionRef.current) {
+          setErrorMessage(getStockApiErrorMessage(error, 'AI suggestions could not be loaded.'));
+        }
       } finally {
-        hasLoadedRef.current = true;
-        requestInFlightRef.current = false;
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (requestVersion === responseWriteVersionRef.current) {
+          hasLoadedRef.current = true;
+          requestInFlightRef.current = false;
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
     [credentials],
@@ -148,6 +176,7 @@ export function AiSuggestionsScreen() {
     hasLoadedRef.current = false;
     requestInFlightRef.current = false;
     writeInFlightRef.current = false;
+    responseWriteVersionRef.current += 1;
     setResponse(null);
     setPendingAction(null);
     setErrorMessage(null);
@@ -170,14 +199,19 @@ export function AiSuggestionsScreen() {
     }, []),
   );
 
+  useMinuteBoundaryRefresh({
+    enabled: Boolean(credentials),
+    onRefresh: async () => {
+      await loadSuggestions('background');
+    },
+  });
+
   const suggestedStocks = response?.suggestedStocks ?? [];
   const remainingStocks = response?.remainingStocks ?? [];
-  const refreshAllowed = response?.refreshAllowed === true;
   const readInFlight = isLoading || isRefreshing;
   const writeInFlight = isRefreshingBatch || Boolean(pendingAction);
-  const refreshDisabled = !refreshAllowed || readInFlight || writeInFlight;
+  const refreshDisabled = readInFlight || writeInFlight;
   const itemActionsDisabled = readInFlight || writeInFlight;
-  const cooldownText = getCooldownText(response);
   const fallbackVisible = Boolean(response?.fallbackUsed || response?.batchStatus?.startsWith('FALLBACK'));
 
   const openStock = useCallback(
@@ -198,22 +232,52 @@ export function AiSuggestionsScreen() {
   };
 
   const handleRefreshSuggestions = async () => {
-    if (!credentials || refreshDisabled || requestInFlightRef.current || writeInFlightRef.current) {
+    scrollRef.current?.scrollTo({ animated: true, y: 0 });
+    if (!credentials || readInFlight || writeInFlight || requestInFlightRef.current || writeInFlightRef.current) {
       return;
     }
 
     writeInFlightRef.current = true;
+    const writeVersion = ++responseWriteVersionRef.current;
+    hideToast();
     setIsRefreshingBatch(true);
     try {
+      const cachedResponse = normalizeSuggestionResponse(await aiSuggestionsApi.getSuggestions(credentials));
+      const hasVisibleSuggestions = (response?.suggestedStocks?.length ?? 0) > 0;
+      if (!hasVisibleSuggestions && writeVersion === responseWriteVersionRef.current) {
+        setResponse(cachedResponse);
+      }
+      if (cachedResponse.refreshAllowed !== true) {
+        if (writeVersion === responseWriteVersionRef.current) {
+          showToast(cooldownToastMessage(cachedResponse), 'neutral', LONG_TOAST_MS);
+        }
+        return;
+      }
+
       const nextResponse = await aiSuggestionsApi.refreshSuggestions(credentials);
-      setResponse(normalizeSuggestionResponse(nextResponse));
-      setErrorMessage(null);
-      showToast('Educational suggestions updated.', 'success');
+      const normalizedResponse = normalizeSuggestionResponse(nextResponse);
+      if (writeVersion === responseWriteVersionRef.current) {
+        setResponse(normalizedResponse);
+        setErrorMessage(null);
+        showToast(
+          refreshToastMessage(normalizedResponse),
+          normalizedResponse.refreshAllowed === false
+            || normalizedResponse.fallbackUsed
+            || normalizedResponse.batchStatus?.startsWith('FALLBACK')
+            ? 'neutral'
+            : 'success',
+          LONG_TOAST_MS,
+        );
+      }
     } catch (error) {
-      showToast(getStockApiErrorMessage(error, 'Suggestions could not be refreshed.'), 'error');
+      if (writeVersion === responseWriteVersionRef.current) {
+        showToast(getStockApiErrorMessage(error, 'Suggestions could not be refreshed.'), 'error', LONG_TOAST_MS);
+      }
     } finally {
-      writeInFlightRef.current = false;
-      setIsRefreshingBatch(false);
+      if (writeVersion === responseWriteVersionRef.current) {
+        writeInFlightRef.current = false;
+        setIsRefreshingBatch(false);
+      }
     }
   };
 
@@ -223,16 +287,23 @@ export function AiSuggestionsScreen() {
     }
 
     writeInFlightRef.current = true;
+    const writeVersion = ++responseWriteVersionRef.current;
     setPendingAction({ itemId: item.itemId, type: 'dismiss' });
     try {
       const nextResponse = await aiSuggestionsApi.dismissSuggestion(credentials, item.itemId);
-      setResponse(normalizeSuggestionResponse(nextResponse));
-      showToast(`${item.symbol} dismissed from suggestions.`, 'success');
+      if (writeVersion === responseWriteVersionRef.current) {
+        setResponse(normalizeSuggestionResponse(nextResponse));
+        showToast(`${item.symbol} dismissed from suggestions.`, 'success');
+      }
     } catch (error) {
-      showToast(getStockApiErrorMessage(error, `${item.symbol} could not be dismissed.`), 'error');
+      if (writeVersion === responseWriteVersionRef.current) {
+        showToast(getStockApiErrorMessage(error, `${item.symbol} could not be dismissed.`), 'error');
+      }
     } finally {
-      writeInFlightRef.current = false;
-      setPendingAction(null);
+      if (writeVersion === responseWriteVersionRef.current) {
+        writeInFlightRef.current = false;
+        setPendingAction(null);
+      }
     }
   };
 
@@ -243,23 +314,39 @@ export function AiSuggestionsScreen() {
       isRefreshingBatch ||
       isRefreshing ||
       requestInFlightRef.current ||
-      writeInFlightRef.current ||
-      item.isWatchlisted === true
+      writeInFlightRef.current
     ) {
       return;
     }
 
+    const removeFromWatchlist = item.isWatchlisted === true;
     writeInFlightRef.current = true;
+    const writeVersion = ++responseWriteVersionRef.current;
     setPendingAction({ itemId: item.itemId, type: 'watchlist' });
     try {
       const nextResponse = await aiSuggestionsApi.watchlistSuggestion(credentials, item.itemId);
-      setResponse(normalizeSuggestionResponse(nextResponse));
-      showToast(`${item.symbol} added to watchlist.`, 'success');
+      if (writeVersion === responseWriteVersionRef.current) {
+        setResponse(normalizeSuggestionResponse(nextResponse));
+        showToast(
+          `${item.symbol} ${removeFromWatchlist ? 'removed from' : 'added to'} watchlist.`,
+          'success',
+        );
+      }
     } catch (error) {
-      showToast(getStockApiErrorMessage(error, `${item.symbol} could not be added to watchlist.`), 'error');
+      if (writeVersion === responseWriteVersionRef.current) {
+        showToast(
+          getStockApiErrorMessage(
+            error,
+            `${item.symbol} could not be ${removeFromWatchlist ? 'removed from' : 'added to'} watchlist.`,
+          ),
+          'error',
+        );
+      }
     } finally {
-      writeInFlightRef.current = false;
-      setPendingAction(null);
+      if (writeVersion === responseWriteVersionRef.current) {
+        writeInFlightRef.current = false;
+        setPendingAction(null);
+      }
     }
   };
 
@@ -268,8 +355,8 @@ export function AiSuggestionsScreen() {
       <View style={[styles.fixedHeader, { paddingTop: insets.top + 2 }]}>
         <PaperHeader
           brandIcon
-          onRefresh={handleSafeReadRefresh}
-          refreshAccessibilityLabel="Reload cached suggestions"
+          onRefresh={handleRefreshSuggestions}
+          refreshAccessibilityLabel="Refresh AI suggestions"
           refreshDisabled={readInFlight || writeInFlight}
           title="Suggestions"
         />
@@ -298,24 +385,12 @@ export function AiSuggestionsScreen() {
           <ErrorState message={errorMessage} onRetry={() => void loadSuggestions('refresh')} />
         ) : !response || suggestedStocks.length === 0 ? (
           <>
-            <EmptySuggestions
-              cooldownText={cooldownText}
-              onRefresh={handleRefreshSuggestions}
-              refreshDisabled={refreshDisabled}
-              refreshLabel={isRefreshingBatch ? 'Refreshing...' : 'Request updated suggestions'}
-            />
+            <EmptySuggestions />
             <RemainingStocksSection onOpenStock={openStock} stocks={remainingStocks} />
           </>
         ) : (
           <>
-            <BatchSummary
-              cooldownText={cooldownText}
-              fallbackVisible={fallbackVisible}
-              isRefreshing={isRefreshingBatch}
-              onRefresh={handleRefreshSuggestions}
-              response={response}
-              refreshDisabled={refreshDisabled}
-            />
+            <SuggestionStatus fallbackVisible={fallbackVisible} />
             <View style={styles.suggestionList}>
               {suggestedStocks.map((item, index) => (
                 <SuggestionCard
@@ -334,68 +409,36 @@ export function AiSuggestionsScreen() {
           </>
         )}
       </ScrollView>
+      {isRefreshingBatch ? (
+        <View pointerEvents="none" style={styles.generatingOverlay}>
+          <View style={styles.generatingCard}>
+            <ActivityIndicator color={Colors.light.brandNavy} size="large" />
+            <Text selectable style={styles.generatingText}>
+              Generating AI stock suggestions...
+            </Text>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
 
-function BatchSummary({
-  cooldownText,
+function SuggestionStatus({
   fallbackVisible,
-  isRefreshing,
-  onRefresh,
-  refreshDisabled,
-  response,
 }: {
-  cooldownText: string | null;
   fallbackVisible: boolean;
-  isRefreshing: boolean;
-  onRefresh: () => void;
-  refreshDisabled: boolean;
-  response: StockAiSuggestionResponse;
 }) {
+  if (!fallbackVisible) {
+    return null;
+  }
+
   return (
-    <View style={styles.summary}>
-      <View style={styles.summaryHeader}>
-        <View style={styles.summaryCopy}>
-          <Text selectable style={styles.summaryTitle}>
-            Current learning batch
-          </Text>
-          <Text selectable style={styles.summaryMeta}>
-            {formatBatchMeta(response)}
-          </Text>
-        </View>
-        <ActionButton
-          disabled={refreshDisabled}
-          label={isRefreshing ? 'Refreshing...' : 'AI refresh'}
-          onPress={onRefresh}
-          style={styles.refreshButton}
-        />
+    <View style={styles.statusStack}>
+      <View style={styles.fallbackNotice}>
+        <Text selectable style={styles.fallbackText}>
+          AI suggestions are temporarily unavailable, so fallback learning examples are shown.
+        </Text>
       </View>
-      <Text selectable style={styles.safetyText}>
-        Educational paper-trading suggestions only. Not financial advice or a future price prediction.
-      </Text>
-      {response.batchSummary ? (
-        <Text selectable style={styles.summaryText}>
-          {response.batchSummary}
-        </Text>
-      ) : null}
-      {response.message ? (
-        <Text selectable style={styles.messageText}>
-          {response.message}
-        </Text>
-      ) : null}
-      {cooldownText ? (
-        <Text selectable style={styles.cooldownText}>
-          {cooldownText}
-        </Text>
-      ) : null}
-      {fallbackVisible ? (
-        <View style={styles.fallbackNotice}>
-          <Text selectable style={styles.fallbackText}>
-            Fallback suggestions are shown because the latest AI batch was not fully available.
-          </Text>
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -431,33 +474,37 @@ function SuggestionCard({
         onPress={onOpen}
         style={({ pressed }) => [styles.cardPressable, pressed ? styles.cardPressed : undefined]}>
         <View style={[styles.cardHeader, { backgroundColor: theme.headerBackground }]}>
-          <View style={[styles.rankBadge, { backgroundColor: theme.badgeBackground }]}>
-            <Text selectable style={[styles.rankText, { color: theme.badgeText }]}>
-              {item.rankNo ?? '-'}
-            </Text>
-          </View>
-          <View style={styles.identity}>
-            <Text selectable numberOfLines={1} style={styles.symbol}>
-              {item.symbol}
-            </Text>
-            <Text selectable numberOfLines={1} style={styles.company}>
-              {item.companyName}
-            </Text>
-          </View>
-          <View style={styles.quoteInline}>
-            <Text selectable numberOfLines={1} style={[styles.topQuoteText, { color: movementColor }]}>
-              {formatPrice(display.price)}
-            </Text>
-            <Text selectable numberOfLines={1} style={[styles.topQuoteText, { color: movementColor }]}>
-              {formatPercent(display.percentChange)}
-            </Text>
+          <View style={styles.headerLeft}>
+            <View style={[styles.rankBadge, { backgroundColor: theme.badgeBackground }]}>
+              <Text selectable style={[styles.rankText, { color: theme.badgeText }]}>
+                {item.rankNo ?? '-'}
+              </Text>
+            </View>
+            <View style={styles.identity}>
+              <Text selectable numberOfLines={1} style={styles.symbol}>
+                {item.symbol}
+              </Text>
+              <Text selectable numberOfLines={1} style={styles.company}>
+                {item.companyName}
+              </Text>
+            </View>
+            <View style={styles.quoteInline}>
+              <Text selectable numberOfLines={1} style={[styles.topQuoteText, { color: movementColor }]}>
+                {formatPrice(display.price)}
+              </Text>
+              <Text selectable numberOfLines={1} style={[styles.topQuoteText, { color: movementColor }]}>
+                {formatPercent(display.percentChange)}
+              </Text>
+            </View>
           </View>
           {item.matchScore !== null && item.matchScore !== undefined ? (
-            <View style={[styles.scoreBox, { backgroundColor: theme.scoreBackground }]}>
-              <Text selectable style={[styles.scoreNumber, { color: theme.scoreText }]}>
-                {item.matchScore}%
-              </Text>
-              <Text selectable style={[styles.scoreLabel, { color: theme.scoreText }]}>
+            <View style={styles.scoreStack}>
+              <View style={[styles.scoreBox, { backgroundColor: theme.scoreBackground }]}>
+                <Text selectable style={[styles.scoreNumber, { color: theme.scoreText }]}>
+                  {item.matchScore}%
+                </Text>
+              </View>
+              <Text selectable style={[styles.scoreLabel, { color: theme.scoreLabelText }]}>
                 MATCH
               </Text>
             </View>
@@ -468,16 +515,13 @@ function SuggestionCard({
           <View style={styles.labelWrap}>
             {item.suggestionLabel ? <InfoPill label={item.suggestionLabel} tone="blue" /> : null}
             {item.riskLevel ? <InfoPill label={`${labelize(item.riskLevel)} risk`} tone="amber" /> : null}
-            {item.priceFreshnessLabel ? <InfoPill label={item.priceFreshnessLabel} tone="violet" /> : null}
             {alreadyWatchlisted ? <InfoPill label="Watchlisted" tone="green" /> : null}
           </View>
 
           {item.shortReason ? (
-            <HighlightedText
-              highlights={item.shortReasonHighlights}
-              style={styles.shortReason}
-              text={item.shortReason}
-            />
+            <Text selectable style={styles.shortReason}>
+              {item.shortReason}
+            </Text>
           ) : null}
           {item.detailReason ? (
             <View style={styles.reasonBlock}>
@@ -503,11 +547,13 @@ function SuggestionCard({
           variant="dismiss"
         />
         <SuggestionActionButton
-          disabled={actionsDisabled || alreadyWatchlisted}
+          disabled={actionsDisabled}
           iconName={alreadyWatchlisted ? 'checkmark' : 'plus'}
           label={
             alreadyWatchlisted
-              ? 'Watchlisted'
+              ? currentAction === 'watchlist'
+                ? 'Removing...'
+                : 'Watchlisted'
               : currentAction === 'watchlist'
                 ? 'Adding...'
                 : 'Add to watchlist'
@@ -551,12 +597,17 @@ function SuggestionActionButton({
               borderColor: theme?.buttonBorder ?? '#052344',
             }
           : undefined,
-        done ? styles.doneButton : undefined,
+        done
+          ? {
+              backgroundColor: theme?.doneBackground ?? '#FFF4E6',
+              borderColor: theme?.doneBorder ?? '#D99A63',
+            }
+          : undefined,
         pressed && !disabled ? styles.actionPressed : undefined,
         disabled ? styles.actionDisabled : undefined,
       ]}>
       <IconSymbol
-        color={watchlist ? theme?.buttonText ?? '#FFFFFF' : done ? '#8A4B1C' : Colors.light.mutedText}
+        color={watchlist ? theme?.buttonText ?? '#FFFFFF' : done ? theme?.doneText ?? '#8A4B1C' : Colors.light.mutedText}
         name={iconName}
         size={16}
       />
@@ -565,7 +616,7 @@ function SuggestionActionButton({
         style={[
           styles.actionText,
           watchlist ? { color: theme?.buttonText ?? '#FFFFFF' } : undefined,
-          done ? styles.doneText : undefined,
+          done ? { color: theme?.doneText ?? '#8A4B1C' } : undefined,
         ]}>
         {label}
       </Text>
@@ -589,7 +640,7 @@ function RemainingStocksSection({
   return (
     <View style={styles.remainingSection}>
       <Text selectable style={styles.remainingTitle}>
-        Other supported stocks
+        Other supported stocks:
       </Text>
       <View style={styles.remainingRows}>
         {rows.map((stock, index) => (
@@ -650,32 +701,16 @@ function RemainingRow({
   );
 }
 
-function EmptySuggestions({
-  cooldownText,
-  onRefresh,
-  refreshDisabled,
-  refreshLabel,
-}: {
-  cooldownText: string | null;
-  onRefresh: () => void;
-  refreshDisabled: boolean;
-  refreshLabel: string;
-}) {
+function EmptySuggestions() {
   return (
     <View style={styles.emptyWrap}>
       <EmptyState
         title="No cached suggestions yet"
-        description="Request an updated educational suggestion batch after completing onboarding or when refresh is available."
+        description="Complete onboarding, then use the header refresh to request learning suggestions."
       />
       <Text selectable style={styles.safetyText}>
         StockMentor shows learning suggestions only, not real financial advice.
       </Text>
-      {cooldownText ? (
-        <Text selectable style={styles.cooldownText}>
-          {cooldownText}
-        </Text>
-      ) : null}
-      <ActionButton disabled={refreshDisabled} label={refreshLabel} onPress={onRefresh} />
     </View>
   );
 }
@@ -689,7 +724,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 
-function InfoPill({ label, tone }: { label: string; tone: 'blue' | 'green' | 'amber' | 'violet' }) {
+function InfoPill({ label, tone }: { label: string; tone: 'blue' | 'green' | 'amber' }) {
   return (
     <View
       style={[
@@ -697,7 +732,6 @@ function InfoPill({ label, tone }: { label: string; tone: 'blue' | 'green' | 'am
         tone === 'blue' ? styles.bluePill : undefined,
         tone === 'green' ? styles.greenPill : undefined,
         tone === 'amber' ? styles.amberPill : undefined,
-        tone === 'violet' ? styles.violetPill : undefined,
       ]}>
       <Text selectable style={[styles.infoPillText, tone === 'green' ? styles.greenPillText : undefined]}>
         {label}
@@ -714,6 +748,33 @@ function normalizeSuggestionResponse(response: StockAiSuggestionResponse): Stock
   };
 }
 
+function refreshToastMessage(response: StockAiSuggestionResponse) {
+  if (response.fallbackUsed || response.batchStatus?.startsWith('FALLBACK')) {
+    return 'AI Suggestions are temporarily unavailable, so a simple fallback is shown.';
+  }
+  const message = response.message?.trim();
+  if (message === 'Returned stored AI stock suggestions') {
+    return 'Returned existing suggestions because your profile and stock data are unchanged.';
+  }
+  if (message) {
+    return message;
+  }
+  return 'Generated new AI Stock Suggestions.';
+}
+
+function cooldownToastMessage(response: StockAiSuggestionResponse) {
+  if (response.nextRefreshAllowedAt) {
+    return `AI refresh available after ${formatBackendDateTime(response.nextRefreshAllowedAt)}.`;
+  }
+  if (response.refreshAllowed === false) {
+    return 'AI refresh is still cooling down. Try again later.';
+  }
+  if (response.message?.trim()) {
+    return response.message.trim();
+  }
+  return 'AI refresh is temporarily unavailable.';
+}
+
 function getDisplayValues(stock: AiSuggestionQuoteFields) {
   return {
     price: stock.displayedPrice ?? stock.delayedPriceMetadata?.displayedPrice ?? stock.currentPrice,
@@ -722,36 +783,6 @@ function getDisplayValues(stock: AiSuggestionQuoteFields) {
       stock.delayedPriceMetadata?.displayedPercentChange ??
       stock.percentChange,
   };
-}
-
-function getCooldownText(response: StockAiSuggestionResponse | null) {
-  if (!response) {
-    return null;
-  }
-
-  if (response.refreshAllowed === true) {
-    return 'AI refresh is available when you want an updated educational batch.';
-  }
-
-  if (response.nextRefreshAllowedAt) {
-    return `AI refresh available after ${formatBackendDateTime(response.nextRefreshAllowedAt)}.`;
-  }
-
-  if (response.refreshAllowed === false) {
-    return 'AI refresh is temporarily unavailable.';
-  }
-
-  return null;
-}
-
-function formatBatchMeta(response: StockAiSuggestionResponse) {
-  const parts = [
-    response.analysisTimeframe ? `${response.analysisTimeframe} analysis` : null,
-    response.generatedAt ? `Generated ${formatBackendDateTime(response.generatedAt)}` : null,
-    response.expiresAt ? `Expires ${formatBackendDateTime(response.expiresAt)}` : null,
-  ].filter(Boolean);
-
-  return parts.length > 0 ? parts.join(' | ') : 'Stored suggestion batch';
 }
 
 function themeForRank(rankNo: number) {
@@ -812,7 +843,8 @@ const styles = StyleSheet.create({
   cardHeader: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: Spacing.sm,
+    gap: Spacing.md,
+    justifyContent: 'space-between',
     minHeight: 82,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
@@ -850,11 +882,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingTop: Spacing.md,
   },
-  cooldownText: {
-    color: Colors.light.mutedText,
-    fontSize: 13,
-    lineHeight: 18,
-  },
   detailReason: {
     color: Colors.light.mutedText,
     fontSize: 14,
@@ -863,13 +890,6 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
   },
-  doneButton: {
-    backgroundColor: '#FFF4E6',
-    borderColor: '#D99A63',
-  },
-  doneText: {
-    color: '#8A4B1C',
-  },
   emptyWrap: {
     gap: Spacing.md,
   },
@@ -877,15 +897,16 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   fallbackNotice: {
-    backgroundColor: '#FFF7ED',
-    borderColor: '#FED7AA',
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FCA5A5',
     borderRadius: Radius.sm,
     borderWidth: 1,
     padding: Spacing.sm,
   },
   fallbackText: {
-    color: Colors.light.text,
+    color: '#7F1D1D',
     fontSize: 13,
+    fontWeight: '700',
     lineHeight: 18,
   },
   fixedHeader: {
@@ -900,8 +921,47 @@ const styles = StyleSheet.create({
   greenPillText: {
     color: '#047857',
   },
-  identity: {
+  generatingCard: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderColor: Colors.light.border,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    elevation: 5,
+    gap: Spacing.md,
+    minWidth: 280,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.xl,
+    shadowColor: '#0F172A',
+    shadowOffset: { height: 6, width: 0 },
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
+    transform: [{ translateY: Spacing.xxl }],
+  },
+  generatingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.16)',
+    justifyContent: 'center',
+    padding: Spacing.xl,
+    zIndex: 5,
+  },
+  generatingText: {
+    color: Colors.light.text,
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 19,
+    textAlign: 'center',
+  },
+  headerLeft: {
+    alignItems: 'center',
     flex: 1,
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    minWidth: 0,
+  },
+  identity: {
+    flexShrink: 1,
     gap: 2,
     minWidth: 0,
   },
@@ -914,7 +974,7 @@ const styles = StyleSheet.create({
   infoPillText: {
     color: Colors.light.text,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '500',
   },
   labelWrap: {
     alignItems: 'flex-start',
@@ -922,16 +982,13 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: Spacing.xs,
   },
-  messageText: {
-    color: Colors.light.mutedText,
-    fontSize: 13,
-    lineHeight: 18,
-  },
   quoteInline: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: Spacing.sm,
-    maxWidth: 112,
+    flexShrink: 0,
+    marginLeft: Spacing.sm,
+    maxWidth: 140,
   },
   rankBadge: {
     alignItems: 'center',
@@ -946,7 +1003,7 @@ const styles = StyleSheet.create({
     width: 40,
   },
   rankText: {
-    fontSize: 14,
+    fontSize: 16,
     fontVariant: ['tabular-nums'],
     fontWeight: '900',
   },
@@ -956,10 +1013,6 @@ const styles = StyleSheet.create({
   reasonLabel: {
     fontSize: 11,
     fontWeight: '900',
-  },
-  refreshButton: {
-    minHeight: 38,
-    paddingHorizontal: Spacing.md,
   },
   remainingCompany: {
     color: Colors.light.mutedText,
@@ -971,14 +1024,14 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   remainingPercent: {
-    fontSize: 12,
-    fontVariant: ['tabular-nums'],
-    fontWeight: '700',
-  },
-  remainingPrice: {
     fontSize: 13,
     fontVariant: ['tabular-nums'],
-    fontWeight: '800',
+    fontWeight: '500',
+  },
+  remainingPrice: {
+    fontSize: 14,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '500',
   },
   remainingQuote: {
     alignItems: 'flex-end',
@@ -1009,17 +1062,20 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     borderWidth: 1,
     gap: Spacing.sm,
+    marginTop: Spacing.xxl,
     padding: Spacing.md,
   },
   remainingSymbol: {
     color: Colors.light.text,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '500',
   },
   remainingTitle: {
     color: Colors.light.text,
-    fontSize: 18,
-    fontWeight: '900',
+    fontSize: 21,
+    fontWeight: '700',
+    paddingTop: Spacing.xs,
+    paddingBottom: Spacing.md
   },
   safetyText: {
     color: Colors.light.mutedText,
@@ -1033,21 +1089,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minWidth: 54,
     paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
+    paddingVertical: 7,
     shadowColor: '#0F172A',
     shadowOffset: { height: 2, width: 0 },
     shadowOpacity: 0.14,
     shadowRadius: 6,
   },
   scoreLabel: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: '900',
+    letterSpacing: 0,
+    textTransform: 'uppercase',
+  },
+  scoreStack: {
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: 4,
   },
   scoreNumber: {
-    fontSize: 16,
+    fontSize: 18,
     fontVariant: ['tabular-nums'],
     fontWeight: '900',
-    lineHeight: 19,
+    lineHeight: 20,
   },
   scroller: {
     backgroundColor: Colors.light.background,
@@ -1062,51 +1125,18 @@ const styles = StyleSheet.create({
   suggestionList: {
     gap: Spacing.md,
   },
-  summary: {
-    backgroundColor: Colors.light.surface,
-    borderColor: Colors.light.border,
-    borderRadius: Radius.md,
-    borderWidth: 1,
+  statusStack: {
     gap: Spacing.sm,
-    padding: Spacing.md,
-  },
-  summaryCopy: {
-    flex: 1,
-    gap: Spacing.xs,
-  },
-  summaryHeader: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: Spacing.md,
-  },
-  summaryMeta: {
-    color: Colors.light.mutedText,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  summaryText: {
-    color: Colors.light.text,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  summaryTitle: {
-    color: Colors.light.text,
-    fontSize: 16,
-    fontWeight: '900',
   },
   symbol: {
     color: Colors.light.text,
-    fontSize: 18,
-    fontWeight: '900',
-    lineHeight: 22,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 20,
   },
   topQuoteText: {
-    fontSize: 13,
+    fontSize: 16,
     fontVariant: ['tabular-nums'],
-    fontWeight: '600',
-  },
-  violetPill: {
-    backgroundColor: '#EDE9FE',
-    borderColor: '#DDD6FE',
+    fontWeight: '500',
   },
 });

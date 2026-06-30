@@ -12,9 +12,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
 
 @Service
 public class OpenAiClient {
@@ -28,6 +32,7 @@ public class OpenAiClient {
         private String model;
 
         private static final Logger log = LoggerFactory.getLogger(OpenAiClient.class);
+        private static final int TRANSIENT_MAX_ATTEMPTS = 2;
 
         public OpenAiClient(
                         @Qualifier("openAiWebClient") WebClient webClient,
@@ -46,21 +51,25 @@ public class OpenAiClient {
                 }
 
                 try {
-                        return executeExplanationRequest(systemContent, userContent, true);
+                        return executeWithTransientRetry(
+                                        () -> executeExplanationRequest(systemContent, userContent, true),
+                                        "explanation");
                 } catch (Exception e) {
                         if (isSchemaRelatedFailure(e)) {
                                 log.warn("OpenAI explanation schema request failed; retrying without response_format: {}",
                                                 e.getMessage());
                                 try {
-                                        return executeExplanationRequest(systemContent, userContent, false);
+                                        return executeWithTransientRetry(
+                                                        () -> executeExplanationRequest(systemContent, userContent, false),
+                                                        "explanation schema fallback");
                                 } catch (Exception fallbackException) {
-                                        log.error("OpenAI explanation generation failed after schema fallback",
+                                        logOpenAiFailure("OpenAI explanation generation failed after schema fallback",
                                                         fallbackException);
-                                        return OpenAiExplanationResult.failure(fallbackException.getMessage());
+                                        return OpenAiExplanationResult.failure(failureMessage(fallbackException));
                                 }
                         }
-                        log.error("OpenAI explanation generation failed", e);
-                        return OpenAiExplanationResult.failure(e.getMessage());
+                        logOpenAiFailure("OpenAI explanation generation failed", e);
+                        return OpenAiExplanationResult.failure(failureMessage(e));
                 }
         }
 
@@ -126,21 +135,25 @@ public class OpenAiClient {
                 }
 
                 try {
-                        return executeSuggestionRequest(systemContent, userContent, true);
+                        return executeWithTransientRetry(
+                                        () -> executeSuggestionRequest(systemContent, userContent, true),
+                                        "suggestion");
                 } catch (Exception e) {
                         if (isSchemaRelatedFailure(e)) {
                                 log.warn("OpenAI suggestion schema request failed; retrying without response_format: {}",
                                                 e.getMessage());
                                 try {
-                                        return executeSuggestionRequest(systemContent, userContent, false);
+                                        return executeWithTransientRetry(
+                                                        () -> executeSuggestionRequest(systemContent, userContent, false),
+                                                        "suggestion schema fallback");
                                 } catch (Exception fallbackException) {
-                                        log.error("OpenAI suggestion generation failed after schema fallback",
+                                        logOpenAiFailure("OpenAI suggestion generation failed after schema fallback",
                                                         fallbackException);
-                                        return OpenAiSuggestionResult.failure(fallbackException.getMessage());
+                                        return OpenAiSuggestionResult.failure(failureMessage(fallbackException));
                                 }
                         }
-                        log.error("OpenAI suggestion generation failed", e);
-                        return OpenAiSuggestionResult.failure(e.getMessage());
+                        logOpenAiFailure("OpenAI suggestion generation failed", e);
+                        return OpenAiSuggestionResult.failure(failureMessage(e));
                 }
         }
 
@@ -238,12 +251,6 @@ public class OpenAiClient {
                                                                 "type", "string",
                                                                 "description",
                                                                 "A 40 to 70 word beginner-friendly explanation grounded in at least two provided factors such as risk, volatility, trend, price consistency, behavior confidence, volume, or data quality."),
-                                                "shortReasonHighlights", Map.of(
-                                                                "type", "array",
-                                                                "description",
-                                                                "Up to three exact phrases from shortReason to highlight for beginner readability.",
-                                                                "items", highlightSchema,
-                                                                "maxItems", 3),
                                                 "detailReasonHighlights", Map.of(
                                                                 "type", "array",
                                                                 "description",
@@ -258,7 +265,6 @@ public class OpenAiClient {
                                                 "suggestionLabel",
                                                 "shortReason",
                                                 "detailReason",
-                                                "shortReasonHighlights",
                                                 "detailReasonHighlights"),
                                 "additionalProperties", false);
 
@@ -289,7 +295,7 @@ public class OpenAiClient {
                                                 "explanation", Map.of(
                                                                 "type", "string",
                                                                 "description",
-                                                                "The complete beginner-friendly explanation, exactly two short paragraphs."),
+                                                                "The complete beginner-friendly explanation. Keep it concise for mobile reading."),
                                                 "highlights", Map.of(
                                                                 "type", "array",
                                                                 "description",
@@ -331,5 +337,73 @@ public class OpenAiClient {
                                 || message.contains("json_schema")
                                 || message.contains("schema")
                                 || message.contains("structured output");
+        }
+
+        private <T> T executeWithTransientRetry(ThrowingSupplier<T> supplier, String requestType) throws Exception {
+                for (int attempt = 1; attempt <= TRANSIENT_MAX_ATTEMPTS; attempt++) {
+                        try {
+                                return supplier.get();
+                        } catch (Exception exception) {
+                                if (!isTransientFailure(exception) || attempt == TRANSIENT_MAX_ATTEMPTS) {
+                                        throw exception;
+                                }
+                                log.warn("OpenAI {} request transient failure on attempt {}/{}: {}",
+                                                requestType,
+                                                attempt,
+                                                TRANSIENT_MAX_ATTEMPTS,
+                                                safeFailureMessage(exception));
+                        }
+                }
+                throw new IllegalStateException("OpenAI retry loop exited unexpectedly");
+        }
+
+        private boolean isTransientFailure(Throwable throwable) {
+                Throwable current = throwable;
+                while (current != null) {
+                        if (current instanceof WebClientResponseException responseException
+                                        && isTransientHttpStatus(responseException)) {
+                                return true;
+                        }
+                        if (current instanceof WebClientRequestException
+                                        || current instanceof SocketException
+                                        || current instanceof SocketTimeoutException
+                                        || current instanceof TimeoutException) {
+                                return true;
+                        }
+                        current = current.getCause();
+                }
+                return false;
+        }
+
+        private boolean isTransientHttpStatus(WebClientResponseException exception) {
+                int statusCode = exception.getStatusCode().value();
+                return statusCode == 408 || statusCode == 429 || statusCode >= 500;
+        }
+
+        private void logOpenAiFailure(String message, Exception exception) {
+                if (isTransientFailure(exception)) {
+                        log.warn("{}: {}", message, safeFailureMessage(exception));
+                        return;
+                }
+                log.error(message, exception);
+        }
+
+        private String failureMessage(Exception exception) {
+                if (isTransientFailure(exception)) {
+                        return "OpenAI request failed after a temporary connection problem";
+                }
+                return exception.getMessage();
+        }
+
+        private String safeFailureMessage(Throwable throwable) {
+                String message = throwable.getMessage();
+                return message == null || message.isBlank()
+                                ? throwable.getClass().getSimpleName()
+                                : message;
+        }
+
+        @FunctionalInterface
+        private interface ThrowingSupplier<T> {
+                T get() throws Exception;
         }
 }

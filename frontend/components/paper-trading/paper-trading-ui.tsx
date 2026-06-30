@@ -523,7 +523,7 @@ export function ConfirmOverlay({
   visible: boolean;
 }) {
   return (
-    <Modal animationType="fade" transparent visible={visible}>
+    <Modal animationType="fade" onRequestClose={onCancel} transparent visible={visible}>
       <View style={styles.modalBackdrop}>
         <View style={styles.confirmCard}>
           <View style={styles.confirmHeaderLayer}>
@@ -611,9 +611,9 @@ const styles = StyleSheet.create({
   },
   metricValue: {
     color: Colors.light.text,
-    fontSize: 19,
+    fontSize: 17,
     fontVariant: ['tabular-nums'],
-    fontWeight: '600',
+    fontWeight: '500',
   },
   metricValueProminent: {
     fontSize: 28,
@@ -914,47 +914,45 @@ const styles = StyleSheet.create({
   },
   confirmCard: {
     backgroundColor: Colors.light.surface,
-    borderRadius: 14,
-    gap: Spacing.md,
-    maxWidth: 420,
-    overflow: 'hidden',
+    borderRadius: 16,
+    elevation: 8,
+    gap: Spacing.lg,
+    maxWidth: 320,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.lg,
     shadowColor: '#000000',
     shadowOffset: { height: 10, width: 0 },
     shadowOpacity: 0.16,
     shadowRadius: 24,
-    width: '100%',
-    elevation: 8,
+    width: '86%',
   },
   confirmHeaderLayer: {
-    backgroundColor: '#F1F5F9',
-    borderBottomColor: Colors.light.border,
-    borderBottomWidth: 1,
     gap: Spacing.xs,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.lg,
   },
   confirmTitle: {
     color: Colors.light.text,
-    fontSize: 20,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   confirmMessage: {
-    color: Colors.light.text,
+    color: Colors.light.mutedText,
     fontSize: 14,
     lineHeight: 20,
+    textAlign: 'center',
   },
   confirmActions: {
     flexDirection: 'row',
-    gap: Spacing.sm,
-    paddingBottom: Spacing.lg,
-    paddingHorizontal: Spacing.lg,
+    gap: Spacing.md,
   },
   confirmButton: {
+    borderRadius: 999,
     flex: 1,
   },
   confirmPrimaryButton: {
     backgroundColor: BRAND_NAVY,
     borderColor: BRAND_NAVY,
+    borderRadius: 999,
   },
   disabled: {
     opacity: 0.46,

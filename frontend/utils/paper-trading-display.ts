@@ -7,7 +7,6 @@ import type {
 import type { ApiNumber } from '@/types/stocks';
 import {
   formatBackendDateTime,
-  formatPercent,
   formatPrice,
   formatSignedCurrencyChange,
   labelize,
@@ -56,7 +55,14 @@ export function formatPaperMoney(value: ApiNumber) {
 }
 
 export function formatPaperPercent(value: ApiNumber) {
-  return formatPercent(value).replace('Change unavailable', 'Unavailable');
+  const parsed = toNumber(value);
+  if (parsed === null) {
+    return 'Unavailable';
+  }
+
+  const digits = Math.abs(parsed) > 0 && Math.abs(parsed) < 0.01 ? 4 : 2;
+  const sign = parsed > 0 ? '+' : '';
+  return `${sign}${parsed.toFixed(digits)}%`;
 }
 
 export function formatSignedPaperMoney(value: ApiNumber) {

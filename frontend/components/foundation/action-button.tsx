@@ -79,12 +79,12 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
   },
   primary: {
-    backgroundColor: Colors.light.tint,
-    borderColor: Colors.light.tint,
+    backgroundColor: Colors.light.brandNavy,
+    borderColor: Colors.light.brandNavy,
   },
   secondary: {
-    backgroundColor: Colors.light.softTeal,
-    borderColor: Colors.light.secondaryTint,
+    backgroundColor: Colors.light.actionSecondarySoft,
+    borderColor: Colors.light.actionSecondary,
   },
   ghost: {
     backgroundColor: Colors.light.surface,
@@ -103,12 +103,13 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 15,
     fontWeight: '700',
+    textAlign: 'center',
   },
   primaryLabel: {
     color: Colors.light.surface,
   },
   secondaryLabel: {
-    color: Colors.light.secondaryTint,
+    color: Colors.light.actionSecondaryText,
   },
   ghostLabel: {
     color: Colors.light.text,

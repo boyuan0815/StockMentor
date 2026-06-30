@@ -210,17 +210,19 @@ export function AdminStockMaintenanceScreen() {
         <AdminSection
           title={type === 'INTRADAY_DATE' ? 'Date' : type === 'DAILY_MISSING' ? 'Date range (optional)' : 'Date range'}>
           {type === 'INTRADAY_DATE' ? (
-            <AdminDateInput
-              accessibilityLabel="Trading date"
-              onChangeText={(nextDate) => {
-                setDate(nextDate);
-                setValidationMessage(null);
-                setResult(null);
-              }}
-              placeholder="Trading date"
-              value={date}
-            />
-            <FieldError message={tradingDateError} />
+            <View style={styles.dateField}>
+              <AdminDateInput
+                accessibilityLabel="Trading date"
+                onChangeText={(nextDate) => {
+                  setDate(nextDate);
+                  setValidationMessage(null);
+                  setResult(null);
+                }}
+                placeholder="Trading date"
+                value={date}
+              />
+              <FieldError message={tradingDateError} />
+            </View>
           ) : (
             <View style={styles.dateRow}>
               <View style={styles.dateField}>
@@ -461,14 +463,14 @@ function ResultMessages({ result }: { result: BackfillResultDto }) {
 }
 
 function FieldError({ message }: { message: string | null }) {
-  if (!message) {
-    return null;
-  }
-
   return (
-    <Text selectable style={styles.fieldErrorText}>
-      {message}
-    </Text>
+    <View style={styles.fieldErrorSlot}>
+      {message ? (
+        <Text selectable style={styles.fieldErrorText}>
+          {message}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -518,15 +520,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   modeTextActive: {
-    color: Colors.light.actionSecondaryText,
+    color: '#c07a1e',
   },
   modeDescription: {
     color: Colors.light.mutedText,
     fontSize: 13,
     lineHeight: 18,
-  },
-  modeDescriptionActive: {
-    color: Colors.light.actionSecondaryText,
   },
   checkbox: {
     alignItems: 'center',
@@ -594,6 +593,7 @@ const styles = StyleSheet.create({
   dateRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
+    alignItems: 'flex-start',
   },
   dateField: {
     flex: 1,
@@ -604,6 +604,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     lineHeight: 18,
+  },
+  fieldErrorSlot: {
+    minHeight: 20,  
+    justifyContent: 'flex-start',
   },
   messageList: {
     gap: Spacing.sm,

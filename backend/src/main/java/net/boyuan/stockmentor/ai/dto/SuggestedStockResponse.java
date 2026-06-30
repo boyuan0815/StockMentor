@@ -17,7 +17,6 @@ public record SuggestedStockResponse(
         String suggestionLabel,
         String shortReason,
         String detailReason,
-        List<TextHighlightSegmentResponse> shortReasonHighlights,
         List<TextHighlightSegmentResponse> detailReasonHighlights,
         String status,
         Long snapshotId,

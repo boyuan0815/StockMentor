@@ -26,11 +26,11 @@ export function PageHeader({ description, eyebrow, title }: PageHeaderProps) {
 
 const styles = StyleSheet.create({
   container: {
-    gap: Spacing.sm,
+    gap: Spacing.xs,
   },
   eyebrow: {
-    color: Colors.light.secondaryTint,
-    fontSize: 13,
+    color: Colors.light.brandNavy,
+    fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
   },

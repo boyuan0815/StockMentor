@@ -374,7 +374,7 @@ class StockMarketDataControllerSecurityTests {
                 if (explanationRepository.existsByAnalysisSnapshotAndModelAndPromptVersion(
                                 snapshot,
                                 "gpt-4o-mini",
-                                "stock-explanation-v1")) {
+                                "stock-explanation-v3")) {
                         return;
                 }
                 StockAiExplanation explanation = new StockAiExplanation();
@@ -382,7 +382,7 @@ class StockMarketDataControllerSecurityTests {
                 explanation.setSymbol(symbol);
                 explanation.setTimeframe("7D");
                 explanation.setModel("gpt-4o-mini");
-                explanation.setPromptVersion("stock-explanation-v1");
+                explanation.setPromptVersion("stock-explanation-v3");
                 explanation.setExplanation("Stored explanation.");
                 explanation.setCreatedAt(LocalDateTime.now());
                 explanationRepository.save(explanation);

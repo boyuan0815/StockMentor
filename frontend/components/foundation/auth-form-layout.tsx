@@ -1,9 +1,11 @@
 import type { PropsWithChildren } from 'react';
+import { Image } from 'expo-image';
 import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
+  Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +16,7 @@ import { Colors, Spacing } from '@/constants/theme';
 type AuthFormLayoutProps = PropsWithChildren<{
   eyebrow: string;
   title: string;
-  description: string;
+  description?: string;
 }>;
 
 export function AuthFormLayout({ children, description, eyebrow, title }: AuthFormLayoutProps) {
@@ -41,6 +43,17 @@ export function AuthFormLayout({ children, description, eyebrow, title }: AuthFo
         showsVerticalScrollIndicator={false}
         style={styles.scroll}>
         <View style={styles.body}>
+          <View style={styles.brandLockup}>
+            <Image
+              accessibilityLabel="StockMentor"
+              contentFit="contain"
+              source={require('../../assets/images/stockmentor-icon-transparent-1024.png')}
+              style={styles.brandIcon}
+            />
+            <Text selectable style={styles.brandName}>
+              StockMentor
+            </Text>
+          </View>
           <PageHeader eyebrow={eyebrow} title={title} description={description} />
           {children}
         </View>
@@ -67,5 +80,20 @@ const styles = StyleSheet.create({
     gap: Spacing.xl,
     maxWidth: 520,
     width: '100%',
+  },
+  brandIcon: {
+    height: 42,
+    width: 42,
+  },
+  brandLockup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  brandName: {
+    color: Colors.light.brandNavy,
+    fontSize: 22,
+    fontWeight: '800',
+    lineHeight: 28,
   },
 });

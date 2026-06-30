@@ -59,7 +59,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
     private static final String THREE_MONTH_TIMEFRAME = "3M";
     private static final String YEAR_TO_DATE_TIMEFRAME = "YTD";
     private static final String ONE_YEAR_TIMEFRAME = "1Y";
-    private static final String AI_EXPLANATION_PROMPT_VERSION = "stock-explanation-v1";
+    private static final String AI_EXPLANATION_PROMPT_VERSION = "stock-explanation-v3";
     private static final LocalTime REGULAR_SESSION_OPEN = LocalTime.of(9, 30);
     private static final LocalTime REGULAR_SESSION_CLOSE = LocalTime.of(16, 0);
     private static final int REGULAR_SESSION_POINT_COUNT = 390;
@@ -173,6 +173,7 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
                 : historyRepository
                         .findBySymbolAndTradingDateInAndTimeIntervalOrderByTimestampAsc(symbol, latestDates, "1min")
                         .stream()
+                        .filter(history -> isWithinFiveDayDelayedCutoff(history, delayedPrice))
                         .filter(this::isRegularSessionHistory)
                         .map(this::toHistoryPoint)
                         .toList();
@@ -521,6 +522,21 @@ public class StockMarketDataServiceImpl implements StockMarketDataService {
         }
         LocalTime time = history.getTimestamp().toLocalTime();
         return !time.isBefore(REGULAR_SESSION_OPEN) && time.isBefore(REGULAR_SESSION_CLOSE);
+    }
+
+    private boolean isWithinFiveDayDelayedCutoff(StockPriceHistory history, DelayedMarketPrice delayedPrice) {
+        if (history == null
+                || history.getTradingDate() == null
+                || history.getTimestamp() == null
+                || delayedPrice == null
+                || delayedPrice.tradingDate() == null
+                || !history.getTradingDate().equals(delayedPrice.tradingDate())) {
+            return true;
+        }
+        LocalDateTime cutoff = delayedPrice.displayedMarketTime() == null
+                ? delayedPrice.targetDisplayMarketTime()
+                : delayedPrice.displayedMarketTime();
+        return cutoff == null || !history.getTimestamp().isAfter(cutoff);
     }
 
     private int includedTradingDays(List<StockHistoryPointResponse> points) {

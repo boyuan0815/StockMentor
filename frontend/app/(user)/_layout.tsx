@@ -76,12 +76,9 @@ export default function UserLayout() {
         <Tabs.Screen
           name="stocks/search"
           options={{
+            href: null,
             title: 'Search',
             tabBarIcon: ({ color }) => <IconSymbol name="magnifyingglass" color={color} />,
-            tabBarItemStyle: {
-              borderLeftColor: Colors.light.border,
-              borderLeftWidth: 1,
-            },
           }}
         />
         <Tabs.Screen name="stocks/[symbol]" options={{ href: null }} />

@@ -1529,6 +1529,7 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   metric: {
+    backgroundColor: 'white',
     borderColor: Colors.light.border,
     borderRadius: Radius.md,
     borderWidth: 1,
@@ -1624,6 +1625,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   keyValueGrid: {
+    backgroundColor: 'white',
     borderColor: Colors.light.border,
     borderRadius: Radius.md,
     borderWidth: 1,

@@ -5,7 +5,10 @@ import net.boyuan.stockmentor.ai.service.StockAiSuggestionTriggerService;
 import net.boyuan.stockmentor.auth.entity.AppUser;
 import net.boyuan.stockmentor.auth.repository.AppUserRepository;
 import net.boyuan.stockmentor.auth.service.CurrentUserService;
+import net.boyuan.stockmentor.papertrading.entity.PaperTradingAccount;
+import net.boyuan.stockmentor.papertrading.repository.PaperTradingAccountRepository;
 import net.boyuan.stockmentor.userbehavior.dto.BehaviorSummaryForSuggestion;
+import net.boyuan.stockmentor.userbehavior.model.UserBehaviorStyle;
 import net.boyuan.stockmentor.userbehavior.service.UserBehaviorProfileService;
 import net.boyuan.stockmentor.userprofile.dto.BehaviorProfileSummaryResponse;
 import net.boyuan.stockmentor.userprofile.dto.InvestmentProfileResponse;
@@ -16,6 +19,7 @@ import net.boyuan.stockmentor.userprofile.dto.OnboardingQuestionResponse;
 import net.boyuan.stockmentor.userprofile.dto.OnboardingSubmitRequest;
 import net.boyuan.stockmentor.userprofile.dto.UserProfileResponse;
 import net.boyuan.stockmentor.userprofile.entity.UserInvestmentProfile;
+import net.boyuan.stockmentor.userprofile.model.BehaviorConfidence;
 import net.boyuan.stockmentor.userprofile.model.ExperienceLevel;
 import net.boyuan.stockmentor.userprofile.model.InvestmentGoal;
 import net.boyuan.stockmentor.userprofile.model.PreferredHorizon;
@@ -43,6 +47,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -100,6 +105,7 @@ public class UserProfileServiceImpl implements net.boyuan.stockmentor.userprofil
     private final CurrentUserService currentUserService;
     private final AppUserRepository appUserRepository;
     private final UserInvestmentProfileRepository profileRepository;
+    private final PaperTradingAccountRepository paperTradingAccountRepository;
     private final UserBehaviorProfileService behaviorProfileService;
     private final StockAiSuggestionTriggerService stockAiSuggestionTriggerService;
     private final PlatformTransactionManager transactionManager;
@@ -109,6 +115,7 @@ public class UserProfileServiceImpl implements net.boyuan.stockmentor.userprofil
             CurrentUserService currentUserService,
             AppUserRepository appUserRepository,
             UserInvestmentProfileRepository profileRepository,
+            PaperTradingAccountRepository paperTradingAccountRepository,
             UserBehaviorProfileService behaviorProfileService,
             StockAiSuggestionTriggerService stockAiSuggestionTriggerService,
             PlatformTransactionManager transactionManager,
@@ -117,6 +124,7 @@ public class UserProfileServiceImpl implements net.boyuan.stockmentor.userprofil
         this.currentUserService = currentUserService;
         this.appUserRepository = appUserRepository;
         this.profileRepository = profileRepository;
+        this.paperTradingAccountRepository = paperTradingAccountRepository;
         this.behaviorProfileService = behaviorProfileService;
         this.stockAiSuggestionTriggerService = stockAiSuggestionTriggerService;
         this.transactionManager = transactionManager;
@@ -341,7 +349,10 @@ public class UserProfileServiceImpl implements net.boyuan.stockmentor.userprofil
     }
 
     private UserProfileResponse toUserProfileResponse(AppUser user, UserInvestmentProfile profile) {
-        BehaviorSummaryForSuggestion behaviorSummary = behaviorProfileService.getBehaviorSummaryForSuggestion(user.getUserId());
+        BehaviorSummaryForSuggestion behaviorSummary = behaviorSummaryAfterResetBoundary(
+                user.getUserId(),
+                behaviorProfileService.getBehaviorSummaryForSuggestion(user.getUserId())
+        );
         return new UserProfileResponse(
                 user.getUserId(),
                 user.getEmail(),
@@ -375,6 +386,9 @@ public class UserProfileServiceImpl implements net.boyuan.stockmentor.userprofil
     }
 
     private BehaviorProfileSummaryResponse toBehaviorProfileSummaryResponse(BehaviorSummaryForSuggestion summary) {
+        if (summary == null) {
+            return null;
+        }
         return new BehaviorProfileSummaryResponse(
                 summary.behaviorProfileId(),
                 summary.behaviorConfidence() == null ? null : summary.behaviorConfidence().name(),
@@ -383,6 +397,44 @@ public class UserProfileServiceImpl implements net.boyuan.stockmentor.userprofil
                 summary.behaviorSummaryText(),
                 summary.sourceNote(),
                 summary.updatedAt()
+        );
+    }
+
+    private BehaviorSummaryForSuggestion behaviorSummaryAfterResetBoundary(Long userId, BehaviorSummaryForSuggestion summary) {
+        if (summary == null || summary.updatedAt() == null) {
+            return summary;
+        }
+        Optional<PaperTradingAccount> account = paperTradingAccountRepository.findByUserUserId(userId);
+        if (account.isEmpty()
+                || account.get().getLastResetAt() == null
+                || !account.get().getLastResetAt().isAfter(summary.updatedAt())) {
+            return summary;
+        }
+        return lowBehaviorSummary("Portfolio was reset after the last behavior profile update; behavior will rebuild after new paper trades.");
+    }
+
+    private BehaviorSummaryForSuggestion lowBehaviorSummary(String sourceNote) {
+        return new BehaviorSummaryForSuggestion(
+                null,
+                null,
+                null,
+                null,
+                UserBehaviorStyle.INSUFFICIENT_DATA,
+                BehaviorConfidence.LOW,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "No paper-trading behavior profile has been calculated yet.",
+                null,
+                sourceNote
         );
     }
 

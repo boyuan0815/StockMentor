@@ -1,15 +1,14 @@
 import { Link, type Href, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { profileApi } from '@/api/profile';
 import { ActionButton } from '@/components/foundation/action-button';
 import { EmptyState } from '@/components/foundation/empty-state';
 import { ErrorBanner } from '@/components/foundation/error-banner';
-import { PageHeader } from '@/components/foundation/page-header';
 import { Screen } from '@/components/foundation/screen';
 import { ProfileSummaryCard } from '@/components/profile/profile-summary-card';
-import { Spacing } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { useAuthSession } from '@/providers/auth-session-provider';
 import type { UserProfileResponse } from '@/types/profile';
 import { getApiErrorMessage } from '@/utils/api-error-copy';
@@ -73,11 +72,14 @@ export function OnboardingResultScreen() {
 
   return (
     <Screen scroll="auto" contentStyle={styles.content}>
-      <PageHeader
-        eyebrow="Profile saved"
-        title="Your beginner profile is ready"
-        description="StockMentor saved the backend-generated profile from your onboarding answers."
-      />
+      <View style={styles.resultHeader}>
+        <Text selectable style={styles.resultEyebrow}>
+          Profile saved
+        </Text>
+        <Text selectable style={styles.resultTitle}>
+          Your latest stock investment profile is ready
+        </Text>
+      </View>
 
       {errorMessage ? <ErrorBanner title="Profile could not load" message={errorMessage} /> : null}
 
@@ -115,11 +117,8 @@ export function OnboardingResultScreen() {
       )}
 
       <View style={styles.actions}>
-        <Link href={'/watchlist' as Href} asChild>
-          <ActionButton disabled={!hasProfile} label="Go to Watchlist" />
-        </Link>
-        <Link href={'/profile' as Href} asChild>
-          <ActionButton label="View full profile" variant="secondary" />
+        <Link href={'/suggestions' as Href} replace asChild>
+          <ActionButton disabled={!hasProfile} label="View Latest AI Stock Suggestions" />
         </Link>
       </View>
     </Screen>
@@ -132,11 +131,29 @@ const styles = StyleSheet.create({
     gap: Spacing.xl,
     maxWidth: 620,
     width: '100%',
+    marginTop: Spacing.xxl,
+    paddingTop: Spacing.xxl,
   },
   stack: {
     gap: Spacing.md,
   },
   actions: {
     gap: Spacing.sm,
+    marginTop: Spacing.md
+  },
+  resultEyebrow: {
+    color: Colors.light.secondaryTint,
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  resultHeader: {
+    gap: Spacing.xs,
+  },
+  resultTitle: {
+    color: Colors.light.text,
+    fontSize: 26,
+    fontWeight: '800',
+    lineHeight: 34,
   },
 });

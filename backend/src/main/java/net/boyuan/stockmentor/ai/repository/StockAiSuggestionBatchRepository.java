@@ -25,6 +25,12 @@ public interface StockAiSuggestionBatchRepository extends
             LocalDateTime now
     );
 
+    Optional<StockAiSuggestionBatch> findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(
+            Long userId,
+            Collection<StockAiSuggestionBatchStatus> statuses,
+            LocalDateTime now
+    );
+
     Optional<StockAiSuggestionBatch> findTopByUserUserIdAndStatusOrderByCreatedAtDesc(
             Long userId,
             StockAiSuggestionBatchStatus status

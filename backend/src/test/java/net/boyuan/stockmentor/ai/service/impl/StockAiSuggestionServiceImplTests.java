@@ -35,6 +35,7 @@ import net.boyuan.stockmentor.userbehavior.model.HighVolatilityExposure;
 import net.boyuan.stockmentor.userbehavior.model.UserBehaviorStyle;
 import net.boyuan.stockmentor.userbehavior.service.UserBehaviorProfileService;
 import net.boyuan.stockmentor.watchlist.entity.UserWatchlist;
+import net.boyuan.stockmentor.watchlist.model.WatchlistSource;
 import net.boyuan.stockmentor.watchlist.repository.UserWatchlistRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -149,7 +150,7 @@ class StockAiSuggestionServiceImplTests {
 
         @Test
         void getSuggestionsDoesNotCallOpenAiWhenNoStoredBatchExists() {
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
 
@@ -176,7 +177,7 @@ class StockAiSuggestionServiceImplTests {
                 storedBatch.setCreatedAt(manualCreatedAt);
                 storedBatch.setExpiresAt(LocalDateTime.now().plusHours(24));
 
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.of(storedBatch));
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(
@@ -204,7 +205,7 @@ class StockAiSuggestionServiceImplTests {
                 StockAiSuggestionBatch storedBatch = batch(profile, StockAiSuggestionBatchStatus.SUCCESS);
                 StockAiSuggestionItem item = suggestionItem(storedBatch, StockAiSuggestionItemStatus.ACTIVE);
 
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.of(storedBatch));
                 when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(storedBatch), anyCollection()))
@@ -226,12 +227,75 @@ class StockAiSuggestionServiceImplTests {
         }
 
         @Test
+        void getSuggestionsRendersOneVisibleItemPerRankWithoutMutatingStoredBatch() {
+                UserInvestmentProfile profile = profile();
+                StockAiSuggestionBatch storedBatch = batch(profile, StockAiSuggestionBatchStatus.SUCCESS);
+                StockAiSuggestionItem activeDuplicate = suggestionItem(storedBatch, StockAiSuggestionItemStatus.ACTIVE);
+                activeDuplicate.setSuggestionItemId(20L);
+                activeDuplicate.setSymbol("MSFT");
+                activeDuplicate.setRankNo(1);
+                activeDuplicate.setUpdatedAt(LocalDateTime.now().minusMinutes(20));
+                StockAiSuggestionItem watchlistedDuplicate = suggestionItem(storedBatch, StockAiSuggestionItemStatus.WATCHLISTED);
+                watchlistedDuplicate.setSuggestionItemId(21L);
+                watchlistedDuplicate.setSymbol("AAPL");
+                watchlistedDuplicate.setRankNo(1);
+                watchlistedDuplicate.setUpdatedAt(LocalDateTime.now().minusMinutes(10));
+                StockAiSuggestionItem rankTwo = suggestionItem(storedBatch, StockAiSuggestionItemStatus.ACTIVE);
+                rankTwo.setSuggestionItemId(22L);
+                rankTwo.setSymbol("KO");
+                rankTwo.setRankNo(2);
+
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
+                                anyCollection(), any()))
+                                .thenReturn(Optional.of(storedBatch));
+                when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(storedBatch), anyCollection()))
+                                .thenReturn(List.of(activeDuplicate, watchlistedDuplicate, rankTwo));
+
+                StockAiSuggestionResponse response = service.getSuggestionsForCurrentUser();
+
+                assertEquals(List.of("AAPL", "KO"),
+                                response.suggestedStocks().stream().map(stock -> stock.symbol()).toList());
+                assertEquals(6, response.remainingStocks().size());
+                verify(batchRepository, never()).save(any(StockAiSuggestionBatch.class));
+                verify(itemRepository, never()).save(any(StockAiSuggestionItem.class));
+        }
+
+        @Test
+        void getSuggestionsRendersNonDismissedStoredItemsWhenVisibleStatusesAreMissing() {
+                UserInvestmentProfile profile = profile();
+                StockAiSuggestionBatch storedBatch = batch(profile, StockAiSuggestionBatchStatus.SUCCESS);
+                StockAiSuggestionItem expiredOne = expiredItem(storedBatch, 31L, "NVDA", 1, LocalDateTime.now().minusMinutes(2));
+                StockAiSuggestionItem expiredTwo = expiredItem(storedBatch, 32L, "AMD", 2, LocalDateTime.now().minusMinutes(2));
+                StockAiSuggestionItem dismissed = suggestionItem(storedBatch, StockAiSuggestionItemStatus.DISMISSED);
+                dismissed.setSuggestionItemId(33L);
+                dismissed.setSymbol("TSLA");
+                dismissed.setRankNo(3);
+
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
+                                anyCollection(), any()))
+                                .thenReturn(Optional.of(storedBatch));
+                when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(storedBatch), anyCollection()))
+                                .thenReturn(List.of());
+                when(itemRepository.findBySuggestionBatchOrderByRankNoAsc(storedBatch))
+                                .thenReturn(List.of(expiredOne, expiredTwo, dismissed));
+
+                StockAiSuggestionResponse response = service.getSuggestionsForCurrentUser();
+
+                assertEquals(List.of("NVDA", "AMD"),
+                                response.suggestedStocks().stream().map(stock -> stock.symbol()).toList());
+                assertEquals(6, response.remainingStocks().size());
+                verify(batchRepository, never()).save(any(StockAiSuggestionBatch.class));
+                verify(itemRepository, never()).save(any(StockAiSuggestionItem.class));
+                verify(openAiClient, never()).generateSuggestion(anyString(), anyString());
+        }
+
+        @Test
         void refreshReusesExistingBatchWhenInputHashAlreadyExists() {
                 UserInvestmentProfile profile = profile();
                 StockAiSuggestionBatch existingBatch = batch(profile, StockAiSuggestionBatchStatus.SUCCESS);
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
@@ -281,7 +345,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
@@ -355,7 +419,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
@@ -424,7 +488,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
@@ -497,7 +561,7 @@ class StockAiSuggestionServiceImplTests {
                 List<StockAiSuggestionItem> savedItems = new ArrayList<>();
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
@@ -566,7 +630,7 @@ class StockAiSuggestionServiceImplTests {
                 List<StockAiSuggestionItem> savedItems = new ArrayList<>();
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
@@ -620,6 +684,68 @@ class StockAiSuggestionServiceImplTests {
         }
 
         @Test
+        void refreshNormalizesAiMatchScoreOrderInsteadOfFallingBack() {
+                UserInvestmentProfile profile = profile();
+                profile.setRiskTolerance(RiskTolerance.AGGRESSIVE);
+                List<StockAiSuggestionItem> savedItems = new ArrayList<>();
+                when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
+                                .thenReturn(Optional.of(profile));
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
+                                anyCollection(), any()))
+                                .thenReturn(Optional.empty());
+                when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
+                                eq(StockAiSuggestionTriggerReason.MANUAL_REFRESH)))
+                                .thenReturn(Optional.empty());
+                when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
+                                .thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+                when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+                when(batchRepository
+                                .findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(
+                                                eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v4"), anyString(),
+                                                anyCollection()))
+                                .thenReturn(Optional.empty());
+                when(openAiClient.generateSuggestion(anyString(), anyString())).thenReturn(new OpenAiSuggestionResult(
+                                true,
+                                outOfOrderScoreSuggestionJson(),
+                                100,
+                                80,
+                                180,
+                                "stop",
+                                null));
+                when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE))
+                                .thenReturn(List.of());
+                when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> {
+                        StockAiSuggestionBatch batch = invocation.getArgument(0);
+                        batch.setSuggestionBatchId(12L);
+                        return batch;
+                });
+                when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> {
+                        StockAiSuggestionItem item = invocation.getArgument(0);
+                        item.setSuggestionItemId((long) savedItems.size() + 40L);
+                        savedItems.add(item);
+                        return item;
+                });
+                when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(any(), anyCollection()))
+                                .thenAnswer(invocation -> savedItems.stream()
+                                                .sorted(Comparator.comparing(StockAiSuggestionItem::getRankNo))
+                                                .toList());
+
+                StockAiSuggestionResponse response = service.refreshSuggestionsForCurrentUser();
+
+                assertEquals("SUCCESS", response.batchStatus());
+                assertFalse(response.fallbackUsed());
+                assertEquals(List.of("NVDA", "AMD", "TSLA"),
+                                response.suggestedStocks().stream().map(stock -> stock.symbol()).toList());
+                assertEquals(List.of(1, 2, 3),
+                                response.suggestedStocks().stream().map(stock -> stock.rankNo()).toList());
+                assertEquals(List.of(88, 86, 84),
+                                response.suggestedStocks().stream().map(stock -> stock.matchScore()).toList());
+                verify(openAiClient, times(1)).generateSuggestion(anyString(), anyString());
+                verify(batchRepository).save(argThat(batch -> batch.getStatus() == StockAiSuggestionBatchStatus.SUCCESS
+                                && batch.getErrorMessage() == null));
+        }
+
+        @Test
         void openAiSuccessUpdatesExistingSameInputFallbackCachedBatchWithoutDuplicateInsert() {
                 UserInvestmentProfile profile = profile();
                 StockAiSuggestionBatch existingFallbackCached = batch(profile,
@@ -639,7 +765,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
@@ -935,7 +1061,7 @@ class StockAiSuggestionServiceImplTests {
                 List<StockAiSuggestionItem> savedItems = new ArrayList<>();
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
@@ -1015,7 +1141,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.of(fallbackCached));
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
@@ -1121,7 +1247,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.of(fallbackCached));
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
@@ -1193,7 +1319,7 @@ class StockAiSuggestionServiceImplTests {
                 List<StockAiSuggestionItem> savedItems = new ArrayList<>();
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenAnswer(invocation -> Optional.ofNullable(savedBatch.get()));
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
@@ -1255,7 +1381,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.of(recentManualBatch));
                 when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
@@ -1288,7 +1414,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
@@ -1422,7 +1548,7 @@ class StockAiSuggestionServiceImplTests {
                 profile.setPreferredVolatility(PreferredVolatility.LOW);
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
@@ -1519,7 +1645,7 @@ class StockAiSuggestionServiceImplTests {
                                 .thenReturn(List.of(paperPosition("KO", 9964, "996400.00"),
                                                 paperPosition("NVDA", 1, "1200.00"),
                                                 paperPosition("AMD", 1, "900.00")));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
@@ -1618,7 +1744,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(aggressiveProfile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
@@ -1805,7 +1931,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(aggressiveProfile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
@@ -1974,7 +2100,7 @@ class StockAiSuggestionServiceImplTests {
                 List<String> savedHashes = new ArrayList<>();
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
@@ -2030,7 +2156,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenAnswer(invocation -> savedRuleBased.get() == null
                                                 ? Optional.of(cachedSuccess)
@@ -2112,7 +2238,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
@@ -2199,7 +2325,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
@@ -2288,7 +2414,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
@@ -2361,7 +2487,7 @@ class StockAiSuggestionServiceImplTests {
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(aggressiveProfile));
                 when(behaviorProfileService.getBehaviorSummaryForSuggestion(1L)).thenReturn(highConservativeBehavior);
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.of(staleFallbackCached));
                 when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
@@ -2461,9 +2587,17 @@ class StockAiSuggestionServiceImplTests {
                 UserInvestmentProfile profile = profile();
                 StockAiSuggestionBatch batch = batch(profile, StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED);
                 StockAiSuggestionItem item = suggestionItem(batch, StockAiSuggestionItemStatus.ACTIVE);
+                UserWatchlist existingRow = new UserWatchlist();
+                existingRow.setUser(user);
+                existingRow.setSymbol("KO");
+                existingRow.setDisplayOrder(0);
+                existingRow.setCreatedAt(LocalDateTime.now().minusDays(1));
+                existingRow.setWatchlistId(10L);
 
                 when(itemRepository.findBySuggestionItemIdAndUserUserId(20L, 1L)).thenReturn(Optional.of(item));
                 when(watchlistRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.empty());
+                when(watchlistRepository.findByUserUserIdOrderByDisplayOrderAscCreatedAtAscWatchlistIdAsc(1L))
+                                .thenReturn(List.of(existingRow));
                 when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(batch), anyCollection()))
                                 .thenReturn(List.of(item));
 
@@ -2471,30 +2605,45 @@ class StockAiSuggestionServiceImplTests {
 
                 assertEquals("Suggestion added to watchlist", response.message());
                 assertEquals(StockAiSuggestionItemStatus.WATCHLISTED, item.getStatus());
-                verify(watchlistRepository).save(any(UserWatchlist.class));
+                verify(watchlistRepository).save(argThat(row ->
+                                "MSFT".equals(row.getSymbol())
+                                                && Integer.valueOf(1).equals(row.getDisplayOrder())
+                                                && row.getSource() == WatchlistSource.AI_SUGGESTION));
                 verify(itemRepository).save(item);
         }
 
         @Test
-        void watchlistAlreadyWatchlistedSuggestionItemIsIdempotent() {
+        void watchlistAlreadyWatchlistedSuggestionItemTogglesOff() {
                 UserInvestmentProfile profile = profile();
                 StockAiSuggestionBatch batch = batch(profile, StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED);
                 StockAiSuggestionItem item = suggestionItem(batch, StockAiSuggestionItemStatus.WATCHLISTED);
                 UserWatchlist existingWatchlist = new UserWatchlist();
+                existingWatchlist.setWatchlistId(5L);
                 existingWatchlist.setUser(user);
                 existingWatchlist.setSymbol("MSFT");
+                existingWatchlist.setDisplayOrder(0);
+                UserWatchlist remainingWatchlist = new UserWatchlist();
+                remainingWatchlist.setWatchlistId(6L);
+                remainingWatchlist.setUser(user);
+                remainingWatchlist.setSymbol("KO");
+                remainingWatchlist.setDisplayOrder(3);
+                remainingWatchlist.setCreatedAt(LocalDateTime.now());
 
                 when(itemRepository.findBySuggestionItemIdAndUserUserId(20L, 1L)).thenReturn(Optional.of(item));
                 when(watchlistRepository.findByUserUserIdAndSymbol(1L, "MSFT"))
                                 .thenReturn(Optional.of(existingWatchlist));
+                when(watchlistRepository.findByUserUserIdOrderByDisplayOrderAscCreatedAtAscWatchlistIdAsc(1L))
+                                .thenReturn(List.of(existingWatchlist, remainingWatchlist));
                 when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(batch), anyCollection()))
                                 .thenReturn(List.of(item));
 
                 StockAiSuggestionResponse response = service.watchlistSuggestionForCurrentUser(20L);
 
-                assertEquals("Suggestion added to watchlist", response.message());
-                assertEquals(StockAiSuggestionItemStatus.WATCHLISTED, item.getStatus());
-                verify(watchlistRepository).save(existingWatchlist);
+                assertEquals("Suggestion removed from watchlist", response.message());
+                assertEquals(StockAiSuggestionItemStatus.ACTIVE, item.getStatus());
+                verify(watchlistRepository).delete(existingWatchlist);
+                assertEquals(0, remainingWatchlist.getDisplayOrder());
+                verify(watchlistRepository).save(remainingWatchlist);
                 verify(itemRepository).save(item);
         }
 
@@ -2510,28 +2659,31 @@ class StockAiSuggestionServiceImplTests {
                                 IllegalArgumentException.class,
                                 () -> service.watchlistSuggestionForCurrentUser(20L));
 
-                assertTrue(exception.getMessage().contains("Only active or already watchlisted suggestion items"));
+                assertTrue(exception.getMessage().contains("Only active, expired, or already watchlisted suggestion items"));
                 assertEquals(StockAiSuggestionItemStatus.DISMISSED, item.getStatus());
                 verify(watchlistRepository, never()).save(any(UserWatchlist.class));
                 verify(itemRepository, never()).save(any(StockAiSuggestionItem.class));
         }
 
         @Test
-        void watchlistExpiredSuggestionItemIsRejected() {
+        void watchlistExpiredSuggestionItemSucceeds() {
                 UserInvestmentProfile profile = profile();
                 StockAiSuggestionBatch batch = batch(profile, StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED);
                 StockAiSuggestionItem item = suggestionItem(batch, StockAiSuggestionItemStatus.EXPIRED);
 
                 when(itemRepository.findBySuggestionItemIdAndUserUserId(20L, 1L)).thenReturn(Optional.of(item));
+                when(watchlistRepository.findByUserUserIdAndSymbol(1L, "MSFT")).thenReturn(Optional.empty());
+                when(watchlistRepository.findByUserUserIdOrderByDisplayOrderAscCreatedAtAscWatchlistIdAsc(1L))
+                                .thenReturn(List.of());
+                when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(batch), anyCollection()))
+                                .thenReturn(List.of(item));
 
-                IllegalArgumentException exception = assertThrows(
-                                IllegalArgumentException.class,
-                                () -> service.watchlistSuggestionForCurrentUser(20L));
+                StockAiSuggestionResponse response = service.watchlistSuggestionForCurrentUser(20L);
 
-                assertTrue(exception.getMessage().contains("Only active or already watchlisted suggestion items"));
-                assertEquals(StockAiSuggestionItemStatus.EXPIRED, item.getStatus());
-                verify(watchlistRepository, never()).save(any(UserWatchlist.class));
-                verify(itemRepository, never()).save(any(StockAiSuggestionItem.class));
+                assertEquals("Suggestion added to watchlist", response.message());
+                assertEquals(StockAiSuggestionItemStatus.WATCHLISTED, item.getStatus());
+                verify(watchlistRepository).save(any(UserWatchlist.class));
+                verify(itemRepository).save(item);
         }
 
         private UserInvestmentProfile profile() {
@@ -2568,7 +2720,7 @@ class StockAiSuggestionServiceImplTests {
                 AtomicReference<String> inputHash = new AtomicReference<>();
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
@@ -2620,7 +2772,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile()));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
@@ -2830,6 +2982,43 @@ class StockAiSuggestionServiceImplTests {
                                       "suggestionLabel": "Balanced trend learning",
                                       "shortReason": "Microsoft matches your moderate learning profile.",
                                       "detailReason": "Microsoft has risk category moderate, volatility moderate, trend is strong uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete for beginner-friendly paper-trading practice."
+                                    }
+                                  ]
+                                }
+                                """;
+        }
+
+        private String outOfOrderScoreSuggestionJson() {
+                return """
+                                {
+                                  "batchSummary": "These selected suggestions are educational paper-trading examples based on the provided fit signals.",
+                                  "suggestedStocks": [
+                                    {
+                                      "symbol": "AMD",
+                                      "rankNo": 1,
+                                      "matchScore": 86,
+                                      "riskLevel": "aggressive",
+                                      "suggestionLabel": "Higher-volatility practice",
+                                      "shortReason": "AMD offers paper-trading practice with aggressive risk and complete data.",
+                                      "detailReason": "AMD has risk category aggressive, volatility moderate, trend is strong uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete for educational paper-trading practice."
+                                    },
+                                    {
+                                      "symbol": "NVDA",
+                                      "rankNo": 2,
+                                      "matchScore": 88,
+                                      "riskLevel": "aggressive",
+                                      "suggestionLabel": "Momentum observation practice",
+                                      "shortReason": "NVDA offers paper-trading practice with aggressive risk and complete data.",
+                                      "detailReason": "NVDA has risk category aggressive, volatility moderate, trend is strong uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete for educational paper-trading practice."
+                                    },
+                                    {
+                                      "symbol": "TSLA",
+                                      "rankNo": 3,
+                                      "matchScore": 84,
+                                      "riskLevel": "aggressive",
+                                      "suggestionLabel": "Volatility learning example",
+                                      "shortReason": "TSLA offers paper-trading practice with aggressive risk and complete data.",
+                                      "detailReason": "TSLA has risk category aggressive, volatility moderate, trend is strong uptrend, price consistency smooth upward movement, volume trend stable, and data quality complete for educational paper-trading practice."
                                     }
                                   ]
                                 }
@@ -3060,7 +3249,7 @@ class StockAiSuggestionServiceImplTests {
 
                 when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
                                 .thenReturn(Optional.of(profile));
-                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
                                 anyCollection(), any()))
                                 .thenReturn(Optional.empty());
                 when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),

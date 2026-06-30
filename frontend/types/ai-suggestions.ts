@@ -49,7 +49,6 @@ export type SuggestedStockResponse = AiSuggestionQuoteFields & {
   suggestionLabel: string | null;
   shortReason: string | null;
   detailReason: string | null;
-  shortReasonHighlights?: TextHighlightSegmentResponse[] | null;
   detailReasonHighlights?: TextHighlightSegmentResponse[] | null;
   status: string | null;
   snapshotId: number | null;

@@ -12,8 +12,11 @@ import net.boyuan.stockmentor.ai.service.StockAiExplanationService;
 import net.boyuan.stockmentor.analysis.dto.StockExplanationResponse;
 import net.boyuan.stockmentor.analysis.entity.StockAnalysisSnapshot;
 import net.boyuan.stockmentor.analysis.service.StockAnalysisService;
+import net.boyuan.stockmentor.market.stock.model.DelayedMarketPrice;
+import net.boyuan.stockmentor.market.stock.service.DelayedMarketPriceService;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -24,53 +27,45 @@ public class StockAiExplanationServiceImpl implements StockAiExplanationService 
     private final StockAiExplanationRepository explanationRepository;
     private final OpenAiClient openAiClient;
     private final ObjectMapper objectMapper;
+    private final DelayedMarketPriceService delayedMarketPriceService;
 
-    private static final String PROMPT_VERSION = "stock-explanation-v2";
+    private static final String PROMPT_VERSION = "stock-explanation-v3";
     private static final String UNAVAILABLE_MESSAGE = "AI explanation is currently unavailable. Please try again later.";
     private static final String SYSTEM_PROMPT = """
             Follow all instructions strictly. If any rule is violated, regenerate the answer.
 
-            You are a financial data analyst writing explanations for beginner investors.
+            You are a StockMentor learning guide writing short explanations for beginner paper-trading users.
 
             You will be given structured stock data.
 
             Your job:
-            - Interpret relationships between trend, volatility, and volume
-            - You MUST explain how trend, volatility, and volume together indicate market behavior (not separately)
-            - Explicitly explain what the data suggests about investor behavior (e.g., steady demand, accumulation, uncertainty, speculation)
-            - You MUST explicitly refer to ALL of these inputs in your explanation: trend, volatility, volume trend, price consistency, price range (high/low), and percentage change
+            - Explain trend, volatility, volume, price range, and price consistency in simple language
+            - Include one simple "what to watch next" idea, such as volume, trend direction, recent high, or recent low
             - Do NOT invent any external news or reasons
             - Do NOT predict future prices
             - Do NOT give investment advice (e.g., do not say buy, sell, or opportunity)
+            - Do not quote exact price or percent change unless the user input explicitly marks them as visible quote fields
 
             Writing style:
             - Simple English for beginners
-            - Clear and concise
+            - Clear, concise, and mobile-readable
+            - Use shorter sentences
             - Avoid technical jargon unless explained simply
             - Avoid overconfident or absolute statements
+            - Prefer "may suggest", "could indicate", or "may reflect"
             - Prefer specific explanations over generic phrases
-            - Include at least one phrase describing investor behavior (e.g., accumulation, steady demand, controlled buying, cautious participation)
-
-            Output rules:
-            - 80-100 words total
-            - EXACTLY 2 short paragraphs
-            - Each paragraph should be roughly balanced in length
-            - The explanation MUST be data-driven and tied directly to the input values
+            - Avoid abstract phrases such as "cautious participation", "investor sentiment", or "controlled buying"
+            - If using "accumulation", explain it as gradual buying
+            - Do not say low-volatility data is highly erratic
+            - Do not describe volatile movement as fully controlled
             - Avoid generic statements such as "prices may fluctuate" without context
-
-            Paragraph 1:
-            - What happened (price movement, trend, volatility, volume)
-            - Explain how the combination of trend, volatility, and volume reflects investor behavior
-            - Explicitly reference price consistency and price range (high/low)
-
-            Paragraph 2:
-            - What this means for a beginner investor
-            - Include a conditional risk explanation based ONLY on the input data (e.g., what happens if volume weakens or consistency changes)
-            - Avoid generic risk statements
+            - One or two short paragraphs are fine
 
             Highlight rules:
             - Return up to 3 exact phrases from the final explanation that would help a beginner scan the reason.
             - Use style "positive" for supportive data, "negative" for caution/risk data, and "emphasis" for neutral important concepts.
+            - Highlight only short useful phrases, not long sentences.
+            - Do not over-highlight neutral wording.
             - Do not add visible tags or markdown in the explanation text.
             - If no phrase is worth highlighting, return an empty highlights array.
 
@@ -97,7 +92,7 @@ public class StockAiExplanationServiceImpl implements StockAiExplanationService 
     }
 
     private StockExplanationResponse generateAndStore(StockAnalysisSnapshot snapshot, String model) {
-        String userContent = stockAnalysisService.buildPromptUserContent(snapshot);
+        String userContent = buildExplanationUserContent(snapshot);
         OpenAiExplanationResult result = openAiClient.generateExplanation(SYSTEM_PROMPT, userContent);
 
         if (!result.success()) {
@@ -178,6 +173,59 @@ public class StockAiExplanationServiceImpl implements StockAiExplanationService 
         );
     }
 
+    private String buildExplanationUserContent(StockAnalysisSnapshot snapshot) {
+        if (!"1D".equalsIgnoreCase(snapshot.getTimeframe())) {
+            return stockAnalysisService.buildPromptUserContent(snapshot);
+        }
+
+        DelayedMarketPrice visibleQuote = resolveVisibleQuote(snapshot.getSymbol());
+        String dataNote = Boolean.TRUE.equals(snapshot.getIsFallback())
+                ? "\nData note: This analysis uses daily candle fallback because complete 1-minute intraday data was unavailable."
+                : "";
+        String exactQuoteInstruction = visibleQuote == null
+                ? "Do not mention exact price or percent change because the visible quote was unavailable."
+                : "If mentioning exact price or percent change, use only the visible quote fields because they match the stock detail header.";
+
+        return """
+                Symbol: %s
+                Time frame: %s
+                Visible quote price: %s
+                Visible quote percent change vs previous close: %s%%
+                Visible quote freshness: %s
+                Analysis trend: %s
+                Analysis volatility: %s
+                Analysis volume trend: %s
+                Analysis period high: %s
+                Analysis period low: %s
+                Risk category: %s
+                Price consistency: %s
+                Instruction: %s%s
+                """.formatted(
+                snapshot.getSymbol(),
+                snapshot.getTimeframe(),
+                format(visibleQuote == null ? null : visibleQuote.displayedPrice()),
+                formatSigned(visibleQuote == null ? null : visibleQuote.displayedPercentChange()),
+                visibleQuote == null ? "unavailable" : valueOrUnavailable(visibleQuote.priceFreshnessLabel()),
+                valueOrUnavailable(snapshot.getTrend()),
+                valueOrUnavailable(snapshot.getVolatilityLabel()),
+                valueOrUnavailable(snapshot.getVolumeTrend()),
+                format(snapshot.getHighPrice()),
+                format(snapshot.getLowPrice()),
+                valueOrUnavailable(snapshot.getRiskCategory()),
+                valueOrUnavailable(snapshot.getPriceConsistency()),
+                exactQuoteInstruction,
+                dataNote
+        );
+    }
+
+    private DelayedMarketPrice resolveVisibleQuote(String symbol) {
+        try {
+            return delayedMarketPriceService.resolveForDisplay(symbol);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
     private ParsedExplanation parseExplanation(String rawContent) {
         String cleanedJson = cleanJson(rawContent);
         try {
@@ -231,6 +279,22 @@ public class StockAiExplanationServiceImpl implements StockAiExplanationService 
                 .replaceAll("[\\t ]+", " ")
                 .replaceAll("\\n{3,}", "\n\n")
                 .trim();
+    }
+
+    private String format(BigDecimal value) {
+        return value == null ? "unavailable" : value.stripTrailingZeros().toPlainString();
+    }
+
+    private String formatSigned(BigDecimal value) {
+        if (value == null) {
+            return "unavailable";
+        }
+        String formatted = value.stripTrailingZeros().toPlainString();
+        return value.signum() > 0 ? "+" + formatted : formatted;
+    }
+
+    private String valueOrUnavailable(String value) {
+        return value == null || value.isBlank() ? "unavailable" : value;
     }
 
     private String limitText(String value, int maxLength) {

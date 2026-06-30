@@ -46,7 +46,7 @@ export function OnboardingScreen() {
   const submitProgress = useRef(new Animated.Value(0)).current;
 
   const isRetake = onboardingMode === 'retake';
-  const isManualCompletedVisit = user && !user.mustCompleteOnboarding && !isRetake;
+  const isManualCompletedVisit = user && !user.mustCompleteOnboarding && !isRetake && !isSubmitting;
 
   const loadQuestions = useCallback(async () => {
     if (!credentials) {
@@ -109,7 +109,7 @@ export function OnboardingScreen() {
     ? 'Saving answers...'
     : isLastQuestion
       ? isRetake
-        ? 'Save updated profile'
+        ? 'Update profile'
         : 'Finish onboarding'
       : 'Next';
   const primaryActionAccessibilityLabel = isSubmitting
@@ -478,7 +478,7 @@ export function OnboardingScreen() {
                 disabled={isSubmitting}
                 label="Cancel retake"
                 onPress={handleCancelRetake}
-                variant="ghost"
+                variant="secondary"
               />
             ) : null}
           </View>

@@ -6,16 +6,25 @@ import com.sun.net.httpserver.HttpServer;
 import net.boyuan.stockmentor.ai.dto.OpenAiExplanationResult;
 import net.boyuan.stockmentor.ai.dto.OpenAiSuggestionResult;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.reactive.function.client.ClientResponse;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.SocketException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -57,6 +66,69 @@ class OpenAiClientTests {
       assertEquals(2, server.requestBodies().size());
       assertTrue(server.requestBodies().get(0).contains("\"response_format\""));
       assertFalse(server.requestBodies().get(1).contains("\"response_format\""));
+    }
+  }
+
+  @Test
+  void suggestionRetriesTransientConnectionResetOnce() {
+    AtomicInteger attempts = new AtomicInteger();
+    OpenAiClient client = clientWithExchangeFailureThenSuccess(attempts, validSuggestionResponse(false));
+
+    OpenAiSuggestionResult result = client.generateSuggestion("system", "user");
+
+    assertTrue(result.success());
+    assertEquals(2, attempts.get());
+  }
+
+  @Test
+  void suggestionRetriesTransientRateLimitOnce() throws Exception {
+    try (StubOpenAiServer server = new StubOpenAiServer()) {
+      server.enqueue(429, "{\"error\":{\"message\":\"rate limit\"}}");
+      server.enqueue(200, validSuggestionResponse(false));
+      OpenAiClient client = client(server);
+
+      OpenAiSuggestionResult result = client.generateSuggestion("system", "user");
+
+      assertTrue(result.success());
+      assertEquals(2, server.requestBodies().size());
+    }
+  }
+
+  @Test
+  void explanationRetriesTransientConnectionResetOnce() {
+    AtomicInteger attempts = new AtomicInteger();
+    OpenAiClient client = clientWithExchangeFailureThenSuccess(attempts, """
+        {
+          "choices": [
+            {
+              "message": {
+                "role": "assistant",
+                "content": "{\\"explanation\\":\\"Educational explanation\\",\\"highlights\\":[]}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {"prompt_tokens": 5, "completion_tokens": 6, "total_tokens": 11}
+        }
+        """);
+
+    OpenAiExplanationResult result = client.generateExplanation("system", "user");
+
+    assertTrue(result.success());
+    assertEquals(2, attempts.get());
+  }
+
+  @Test
+  void explanationRetriesTransientServerErrorOnce() throws Exception {
+    try (StubOpenAiServer server = new StubOpenAiServer()) {
+      server.enqueue(500, "{\"error\":{\"message\":\"server overloaded\"}}");
+      server.enqueue(200, validExplanationResponse());
+      OpenAiClient client = client(server);
+
+      OpenAiExplanationResult result = client.generateExplanation("system", "user");
+
+      assertTrue(result.success());
+      assertEquals(2, server.requestBodies().size());
     }
   }
 
@@ -153,6 +225,28 @@ class OpenAiClientTests {
     return client;
   }
 
+  private OpenAiClient clientWithExchangeFailureThenSuccess(AtomicInteger attempts, String responseBody) {
+    OpenAiClient client = new OpenAiClient(
+        WebClient.builder().exchangeFunction(request -> {
+          if (attempts.incrementAndGet() == 1) {
+            return Mono.error(new WebClientRequestException(
+                new SocketException("Connection reset"),
+                HttpMethod.POST,
+                URI.create("https://api.openai.com/v1/chat/completions"),
+                HttpHeaders.EMPTY
+            ));
+          }
+          return Mono.just(ClientResponse.create(HttpStatus.OK)
+              .header("Content-Type", "application/json")
+              .body(responseBody)
+              .build());
+        }).build(),
+        objectMapper);
+    ReflectionTestUtils.setField(client, "apiKey", "test-key");
+    ReflectionTestUtils.setField(client, "model", "gpt-4o-mini");
+    return client;
+  }
+
   private String validSuggestionResponse(boolean includeUnknownUsageDetails) {
     String unknownUsageDetails = includeUnknownUsageDetails
         ? """
@@ -167,7 +261,7 @@ class OpenAiClientTests {
             {
               "message": {
                 "role": "assistant",
-                "content": "{\\"batchSummary\\":\\"ok\\",\\"suggestedStocks\\":[{\\"symbol\\":\\"MSFT\\",\\"rankNo\\":1,\\"matchScore\\":80,\\"riskLevel\\":\\"moderate\\",\\"suggestionLabel\\":\\"Balanced\\",\\"shortReason\\":\\"Microsoft matches the profile.\\",\\"detailReason\\":\\"Microsoft has moderate risk and complete data.\\",\\"shortReasonHighlights\\":[],\\"detailReasonHighlights\\":[]}]}"
+                "content": "{\\"batchSummary\\":\\"ok\\",\\"suggestedStocks\\":[{\\"symbol\\":\\"MSFT\\",\\"rankNo\\":1,\\"matchScore\\":80,\\"riskLevel\\":\\"moderate\\",\\"suggestionLabel\\":\\"Balanced\\",\\"shortReason\\":\\"Microsoft matches the profile.\\",\\"detailReason\\":\\"Microsoft has moderate risk and complete data.\\",\\"detailReasonHighlights\\":[]}]}"
               },
               "finish_reason": "stop"
             }
@@ -181,6 +275,23 @@ class OpenAiClientTests {
         }
         """
         .formatted(unknownUsageDetails);
+  }
+
+  private String validExplanationResponse() {
+    return """
+        {
+          "choices": [
+            {
+              "message": {
+                "role": "assistant",
+                "content": "{\\"explanation\\":\\"Educational explanation\\",\\"highlights\\":[]}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {"prompt_tokens": 5, "completion_tokens": 6, "total_tokens": 11}
+        }
+        """;
   }
 
   private static class StubOpenAiServer implements AutoCloseable {

@@ -6,12 +6,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { profileApi } from '@/api/profile';
 import { ActionButton } from '@/components/foundation/action-button';
-import { ConfirmationPanel } from '@/components/foundation/confirmation-panel';
 import { EmptyState } from '@/components/foundation/empty-state';
 import { ErrorBanner } from '@/components/foundation/error-banner';
-import { PaperHeader } from '@/components/paper-trading/paper-trading-ui';
+import { ConfirmOverlay, PaperHeader } from '@/components/paper-trading/paper-trading-ui';
 import { ProfileSummaryCard } from '@/components/profile/profile-summary-card';
-import { Colors, Radius, Spacing } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { useAuthSession } from '@/providers/auth-session-provider';
 import type { UserProfileResponse } from '@/types/profile';
 import { getApiErrorMessage } from '@/utils/api-error-copy';
@@ -33,8 +32,10 @@ export function ProfileScreen() {
   const [isRefreshingUser, setIsRefreshingUser] = useState(false);
   const [isRetakeConfirming, setIsRetakeConfirming] = useState(false);
   const [isRetakeStarting, setIsRetakeStarting] = useState(false);
+  const [isLogoutConfirming, setIsLogoutConfirming] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [profileAnimationKey, setProfileAnimationKey] = useState(0);
   const scrollRef = useRef<ScrollView | null>(null);
   const hasLoadedRef = useRef(false);
 
@@ -68,6 +69,8 @@ export function ProfileScreen() {
   useFocusEffect(
     useCallback(() => {
       scrollRef.current?.scrollTo({ animated: false, y: 0 });
+      setIsRetakeStarting(false);
+      setProfileAnimationKey((current) => current + 1);
       void loadProfile('soft');
       return undefined;
     }, [loadProfile]),
@@ -98,6 +101,7 @@ export function ProfileScreen() {
       return;
     }
 
+    setIsRetakeConfirming(false);
     setIsRetakeStarting(true);
     startOnboardingRetake();
     router.push('/onboarding');
@@ -108,12 +112,15 @@ export function ProfileScreen() {
       return;
     }
 
+    setIsLogoutConfirming(false);
     setIsLoggingOut(true);
     clearSession();
     router.replace('/');
   };
 
   const hasProfile = Boolean(profile?.investmentProfile);
+  const accountName = user?.username || profile?.username || 'Unknown user';
+  const accountInitial = accountName.trim().charAt(0).toUpperCase() || 'S';
 
   return (
     <View style={styles.container}>
@@ -134,21 +141,40 @@ export function ProfileScreen() {
         {errorMessage ? <ErrorBanner title="Profile needs attention" message={errorMessage} /> : null}
 
         <View style={styles.accountCard}>
-          <Text selectable style={styles.accountLabel}>
-            Signed in as
-          </Text>
-          <Text selectable style={styles.accountValue}>
-            {user?.username || profile?.username || 'Unknown user'}
-          </Text>
-          <Text selectable style={styles.accountMeta}>
-            {user?.email || profile?.email || 'Email unavailable'}
-          </Text>
+          <View style={styles.accountGlowLarge} />
+          <View style={styles.accountGlowSmall} />
+          <View style={styles.accountMark}>
+            <Text selectable style={styles.accountInitial}>
+              {accountInitial}
+            </Text>
+          </View>
+          <View style={styles.accountDivider} />
+          <View style={styles.accountCopy}>
+            <View style={styles.accountStatusRow}>
+              <Text selectable style={styles.accountLabel}>
+                Signed in as
+              </Text>
+              <View style={styles.activeBadge}>
+                <View style={styles.activeDot} />
+                <Text selectable style={styles.activeText}>
+                  Active
+                </Text>
+              </View>
+            </View>
+            <Text selectable style={styles.accountValue}>
+              {accountName}
+            </Text>
+            <Text selectable style={styles.accountMeta}>
+              {user?.email || profile?.email || 'Email unavailable'}
+            </Text>
+          </View>
         </View>
 
         {isLoading ? (
           <EmptyState title="Loading profile" description="StockMentor is loading your saved profile." />
         ) : hasProfile ? (
           <ProfileSummaryCard
+            animationKey={profileAnimationKey}
             behaviorSummary={profile?.behaviorSummary}
             investmentProfile={profile?.investmentProfile ?? null}
           />
@@ -173,34 +199,39 @@ export function ProfileScreen() {
           </View>
         )}
 
-        {isRetakeConfirming ? (
-          <ConfirmationPanel
-            confirmLabel="Start retake"
-            message="A retake will open the quiz again. StockMentor will only save a new profile version after you finish every question."
-            onCancel={() => setIsRetakeConfirming(false)}
-            onConfirm={handleStartRetake}
-            pending={isRetakeStarting}
-            pendingLabel="Opening quiz..."
-            title="Retake onboarding?"
+        <View style={styles.actions}>
+          <ActionButton
+            disabled={!hasProfile || isLoggingOut || isRetakeStarting}
+            label="Retake Quiz"
+            onPress={() => setIsRetakeConfirming(true)}
           />
-        ) : (
-          <View style={styles.actions}>
-            <ActionButton
-              disabled={!hasProfile || isRetakeStarting || isLoggingOut}
-              label="Retake onboarding"
-              onPress={() => setIsRetakeConfirming(true)}
-              variant="secondary"
-            />
-            <ActionButton
-              disabled={isLoggingOut}
-              label={isLoggingOut ? 'Logging out...' : 'Log out'}
-              onPress={handleLogout}
-              variant="ghost"
-            />
-          </View>
-        )}
+          <ActionButton
+            disabled={isLoggingOut}
+            label={isLoggingOut ? 'Logging out...' : 'Log out'}
+            onPress={() => setIsLogoutConfirming(true)}
+            variant="secondary"
+          />
+        </View>
         </View>
       </ScrollView>
+      <ConfirmOverlay
+        confirmLabel="Start quiz"
+        onCancel={() => setIsRetakeConfirming(false)}
+        onConfirm={handleStartRetake}
+        pending={isRetakeStarting}
+        pendingLabel="Opening quiz..."
+        title="Retake quiz?"
+        visible={isRetakeConfirming}
+      />
+      <ConfirmOverlay
+        confirmLabel="Log out"
+        onCancel={() => setIsLogoutConfirming(false)}
+        onConfirm={handleLogout}
+        pending={isLoggingOut}
+        pendingLabel="Logging out..."
+        title="Log out?"
+        visible={isLogoutConfirming}
+      />
     </View>
   );
 }
@@ -226,35 +257,115 @@ const styles = StyleSheet.create({
   },
   inner: {
     alignSelf: 'center',
-    gap: Spacing.xl,
+    gap: Spacing.md,
     maxWidth: 620,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
     width: '100%',
   },
   accountCard: {
-    backgroundColor: Colors.light.surface,
-    borderColor: Colors.light.border,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    gap: Spacing.xs,
+    alignItems: 'center',
+    backgroundColor: '#13294B',
+    borderRadius: 20,
+    flexDirection: 'row',
+    gap: Spacing.md,
+    overflow: 'hidden',
     padding: Spacing.lg,
   },
-  accountLabel: {
-    color: Colors.light.secondaryTint,
-    fontSize: 12,
+  accountMark: {
+    alignItems: 'center',
+    backgroundColor: '#E9B872',
+    borderRadius: 999,
+    height: 54,
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 0.24,
+    shadowRadius: 10,
+    width: 54,
+    zIndex: 1,
+  },
+  accountDivider: {
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(157,178,210,0.28)',
+    marginVertical: 2,
+    width: 1,
+    zIndex: 1,
+  },
+  accountGlowLarge: {
+    backgroundColor: 'rgba(255,255,255,0.17)',
+    borderRadius: 999,
+    height: 130,
+    position: 'absolute',
+    right: -30,
+    top: -30,
+    width: 130,
+  },
+  accountGlowSmall: {
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: 999,
+    bottom: -44,
+    height: 90,
+    position: 'absolute',
+    right: 24,
+    width: 90,
+  },
+  accountInitial: {
+    color: '#13294B',
+    fontSize: 23,
     fontWeight: '800',
+  },
+  accountCopy: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
+    zIndex: 1,
+  },
+  accountLabel: {
+    color: '#9DB2D2',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.4,
     textTransform: 'uppercase',
   },
   accountValue: {
-    color: Colors.light.text,
-    fontSize: 20,
+    color: '#FFFFFF',
+    fontSize: 18,
     fontWeight: '800',
   },
   accountMeta: {
-    color: Colors.light.mutedText,
-    fontSize: 14,
-    lineHeight: 20,
+    color: '#9DB2D2',
+    fontSize: 12.5,
+    fontWeight: '500',
+    lineHeight: 18,
+  },
+  accountStatusRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  activeBadge: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(127,227,176,0.12)',
+    borderRadius: 999,
+    flexDirection: 'row',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  activeDot: {
+    backgroundColor: '#3FD089',
+    borderRadius: 999,
+    height: 5,
+    width: 5,
+  },
+  activeText: {
+    color: '#7FE3B0',
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
   },
   stack: {
     gap: Spacing.md,

@@ -1,9 +1,7 @@
 import { Link, type Href } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { clearAuthDiagnostics } from '@/api/diagnostics';
-import { AuthDiagnosticsPanel } from '@/components/debug/auth-diagnostics-panel';
 import { ActionButton } from '@/components/foundation/action-button';
 import { AuthFormLayout } from '@/components/foundation/auth-form-layout';
 import { ErrorBanner } from '@/components/foundation/error-banner';
@@ -31,12 +29,7 @@ export function LoginScreen() {
     value: string;
   } | null>(null);
 
-  useEffect(() => {
-    clearAuthDiagnostics();
-  }, []);
-
   const handleIdentityChange = (value: string) => {
-    clearAuthDiagnostics();
     setIdentity(value);
     setFormError(null);
     setLoginAuthError(null);
@@ -46,7 +39,6 @@ export function LoginScreen() {
   };
 
   const handlePasswordChange = (value: string) => {
-    clearAuthDiagnostics();
     setPassword(value);
     setFormError(null);
     setLoginAuthError(null);
@@ -99,13 +91,12 @@ export function LoginScreen() {
     ? validateLoginFields({ identity, password })
     : {};
   const hasCurrentValidationErrors = Object.keys(currentValidationErrors).length > 0;
-  const hasDisplayedFieldErrors = Object.values(fieldErrors).some(Boolean);
+  const visibleFieldErrors = hasAttemptedSubmit ? currentValidationErrors : fieldErrors;
 
   return (
     <AuthFormLayout
-      eyebrow="Welcome back"
-      title="Sign in to StockMentor"
-      description="Use your email or username. Your password stays only in this app session.">
+      eyebrow="Welcome back,"
+      title="Sign in">
 
       {loginAuthError ? (
         <ErrorBanner title="Sign in failed">
@@ -118,13 +109,12 @@ export function LoginScreen() {
       ) : formError ? (
         <ErrorBanner title="Sign in failed" message={formError} />
       ) : null}
-      <AuthDiagnosticsPanel />
 
       <View style={styles.form}>
         <FormTextField
           autoComplete="username"
           editable={!isPending}
-          error={fieldErrors.identity}
+          error={visibleFieldErrors.identity}
           keyboardType="email-address"
           label="Email or username"
           onChangeText={handleIdentityChange}
@@ -136,7 +126,7 @@ export function LoginScreen() {
         <FormTextField
           autoComplete="current-password"
           editable={!isPending}
-          error={fieldErrors.password}
+          error={visibleFieldErrors.password}
           label="Password"
           onChangeText={handlePasswordChange}
           onSubmitEditing={handleSubmit}
@@ -148,7 +138,7 @@ export function LoginScreen() {
         />
         <ActionButton
           accessibilityLabel={isPending ? 'Signing in' : 'Sign in'}
-          disabled={isPending || hasCurrentValidationErrors || hasDisplayedFieldErrors}
+          disabled={isPending || hasCurrentValidationErrors}
           label={isPending ? 'Signing in...' : 'Sign in'}
           onPress={handleSubmit}
         />

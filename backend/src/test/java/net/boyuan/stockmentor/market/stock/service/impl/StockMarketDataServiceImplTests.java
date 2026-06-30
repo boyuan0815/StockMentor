@@ -258,7 +258,7 @@ class StockMarketDataServiceImplTests {
                 when(explanationRepository.existsByAnalysisSnapshotAndModelAndPromptVersion(
                                 snapshot,
                                 "gpt-4o-mini",
-                                "stock-explanation-v1")).thenReturn(true);
+                                "stock-explanation-v3")).thenReturn(true);
 
                 StockDetailResponse response = service.getStockDetailForCurrentUser("msft");
 
@@ -402,7 +402,7 @@ class StockMarketDataServiceImplTests {
                 when(explanationRepository.existsByAnalysisSnapshotAndModelAndPromptVersion(
                                 latestSnapshot,
                                 "gpt-4o-mini",
-                                "stock-explanation-v1")).thenReturn(false);
+                                "stock-explanation-v3")).thenReturn(false);
 
                 StockDetailResponse response = service.getStockDetailForCurrentUser("MSFT");
 
@@ -420,7 +420,7 @@ class StockMarketDataServiceImplTests {
                 when(explanationRepository.existsByAnalysisSnapshotAndModelAndPromptVersion(
                                 latestSnapshot,
                                 "gpt-4o-mini",
-                                "stock-explanation-v1")).thenReturn(true);
+                                "stock-explanation-v3")).thenReturn(true);
 
                 StockDetailResponse response = service.getStockDetailForCurrentUser("MSFT");
 
@@ -563,7 +563,8 @@ class StockMarketDataServiceImplTests {
                                                 intraday("MSFT", previousDay, 9, 30),
                                                 intraday("MSFT", previousDay, 16, 0),
                                                 intraday("MSFT", currentDay, 9, 29),
-                                                intraday("MSFT", currentDay, 10, 15)));
+                                                intraday("MSFT", currentDay, 10, 15),
+                                                intraday("MSFT", currentDay, 10, 16)));
 
                 StockHistoryResponse response = service.getStockHistoryForCurrentUser("MSFT", "5D");
 

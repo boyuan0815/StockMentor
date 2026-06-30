@@ -11,15 +11,12 @@ type AiExplanationCardProps = {
 
 export function AiExplanationCard({ explanation }: AiExplanationCardProps) {
   const hasExplanation = explanation.available && Boolean(explanation.explanation?.trim());
-  const explanationText = explanation.explanation?.trim() ?? '';
+  const explanationText = explanation.explanation?.trim().replace(/\n{3,}/g, '\n\n') ?? '';
 
   return (
     <View style={styles.container}>
       {hasExplanation ? (
         <View style={styles.explanationStack}>
-          <Text selectable style={styles.disclaimerText}>
-            {explanation.symbol} / {explanation.timeframe}. Learning content only, not financial advice.
-          </Text>
           <HighlightedText
             highlights={explanation.explanationHighlights}
             style={styles.explanationText}
@@ -43,13 +40,9 @@ const styles = StyleSheet.create({
   container: {
     gap: Spacing.md,
   },
-  disclaimerText: {
-    color: Colors.light.mutedText,
-    fontSize: 12,
-    lineHeight: 17,
-  },
   explanationStack: {
     gap: Spacing.sm,
+    paddingTop: Spacing.md,
   },
   explanationText: {
     color: Colors.light.text,

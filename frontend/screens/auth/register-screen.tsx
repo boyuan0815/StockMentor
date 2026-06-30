@@ -1,10 +1,8 @@
 import { Link, type Href } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { clearAuthDiagnostics } from '@/api/diagnostics';
 import { normalizeUnknownApiError } from '@/api/errors';
-import { AuthDiagnosticsPanel } from '@/components/debug/auth-diagnostics-panel';
 import { ActionButton } from '@/components/foundation/action-button';
 import { AuthFormLayout } from '@/components/foundation/auth-form-layout';
 import { ErrorBanner } from '@/components/foundation/error-banner';
@@ -31,12 +29,7 @@ export function RegisterScreen() {
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [isPending, setIsPending] = useState(false);
 
-  useEffect(() => {
-    clearAuthDiagnostics();
-  }, []);
-
   const handleEmailChange = (value: string) => {
-    clearAuthDiagnostics();
     setEmail(value);
     setFormError(null);
     if (hasAttemptedSubmit) {
@@ -51,7 +44,6 @@ export function RegisterScreen() {
   };
 
   const handleUsernameChange = (value: string) => {
-    clearAuthDiagnostics();
     setUsername(value);
     setFormError(null);
     if (hasAttemptedSubmit) {
@@ -66,7 +58,6 @@ export function RegisterScreen() {
   };
 
   const handlePasswordChange = (value: string) => {
-    clearAuthDiagnostics();
     setPassword(value);
     setFormError(null);
     if (hasAttemptedSubmit) {
@@ -85,7 +76,6 @@ export function RegisterScreen() {
   };
 
   const handleConfirmPasswordChange = (value: string) => {
-    clearAuthDiagnostics();
     setConfirmPassword(value);
     setFormError(null);
     if (hasAttemptedSubmit) {
@@ -178,12 +168,10 @@ export function RegisterScreen() {
 
   return (
     <AuthFormLayout
-      eyebrow="Start calmly"
-      title="Create your StockMentor account"
-      description="Registration creates a beginner account and sends you to the onboarding quiz.">
+      eyebrow="Start calmly,"
+      title="Create account">
 
       {formError ? <ErrorBanner title="Account was not created" message={formError} /> : null}
-      <AuthDiagnosticsPanel />
 
       <View style={styles.form}>
         <FormTextField
