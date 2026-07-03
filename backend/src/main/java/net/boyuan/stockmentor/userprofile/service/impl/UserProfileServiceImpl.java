@@ -407,10 +407,10 @@ public class UserProfileServiceImpl implements net.boyuan.stockmentor.userprofil
         Optional<PaperTradingAccount> account = paperTradingAccountRepository.findByUserUserId(userId);
         if (account.isEmpty()
                 || account.get().getLastResetAt() == null
-                || !account.get().getLastResetAt().isAfter(summary.updatedAt())) {
+                || account.get().getLastResetAt().isBefore(summary.updatedAt())) {
             return summary;
         }
-        return lowBehaviorSummary("Portfolio was reset after the last behavior profile update; behavior will rebuild after new paper trades.");
+        return lowBehaviorSummary("Portfolio was reset at or after the last behavior profile update; behavior will rebuild after new paper trades.");
     }
 
     private BehaviorSummaryForSuggestion lowBehaviorSummary(String sourceNote) {

@@ -42,7 +42,10 @@ import net.boyuan.stockmentor.watchlist.repository.UserWatchlistRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -72,13 +75,16 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
     private final DelayedMarketPriceService delayedMarketPriceService;
     private final PaperPositionRepository positionRepository;
     private final PaperTradingAccountRepository accountRepository;
+    private final PlatformTransactionManager transactionManager;
     private final ObjectMapper objectMapper;
+    private final Object[] generationLocks = buildGenerationLocks();
 
     private static final String PROMPT_VERSION = "stock-suggestion-v4";
     private static final String ANALYSIS_TIMEFRAME = "7D";
     private static final int MAX_SUGGESTIONS = 3;
     private static final int MANUAL_REFRESH_COOLDOWN_HOURS = 1;
     private static final int BATCH_EXPIRY_HOURS = 24;
+    private static final int GENERATION_LOCK_STRIPES = 32;
     private static final List<String> SUPPORTED_SYMBOLS = Arrays.stream(StockMetadata.SYMBOLS.split(","))
             .map(String::trim)
             .map(symbol -> symbol.toUpperCase(Locale.ROOT))
@@ -276,12 +282,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
     public StockAiSuggestionResponse getSuggestionsForCurrentUser() {
         AppUser user = currentUserService.getCurrentUser();
         LocalDateTime now = LocalDateTime.now();
-        Optional<StockAiSuggestionBatch> latestBatch = batchRepository
-                .findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(
-                        user.getUserId(),
-                        READABLE_BATCH_STATUSES,
-                        now
-                );
+        Optional<StockAiSuggestionBatch> latestBatch = findLatestGeneratedReadableBatch(user.getUserId(), now);
 
         return latestBatch
                 .map(batch -> buildResponse(user, batch, "Returned stored AI stock suggestions", false))
@@ -293,15 +294,27 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
     }
 
     @Override
-    @Transactional
     public StockAiSuggestionResponse refreshSuggestionsForCurrentUser() {
         AppUser user = currentUserService.getCurrentUser();
         return generateSuggestionsForUser(user, StockAiSuggestionTriggerReason.MANUAL_REFRESH, true);
     }
 
     @Override
-    @Transactional
     public StockAiSuggestionResponse generateSuggestionsForUser(
+            AppUser user,
+            StockAiSuggestionTriggerReason triggerReason,
+            boolean enforceManualCooldown
+    ) {
+        // ponytail: in-process striped lock is enough for the single backend instance used by this FYP app; use DB/advisory locks for multi-instance deployment.
+        synchronized (generationLock(user == null ? null : user.getUserId())) {
+            TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+            transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            return Objects.requireNonNull(transactionTemplate.execute(status ->
+                    generateSuggestionsForUserLocked(user, triggerReason, enforceManualCooldown)));
+        }
+    }
+
+    private StockAiSuggestionResponse generateSuggestionsForUserLocked(
             AppUser user,
             StockAiSuggestionTriggerReason triggerReason,
             boolean enforceManualCooldown
@@ -317,12 +330,7 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         }
 
         UserInvestmentProfile profile = profileOptional.get();
-        Optional<StockAiSuggestionBatch> latestBatch = batchRepository
-                .findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(
-                        user.getUserId(),
-                        READABLE_BATCH_STATUSES,
-                        now
-                );
+        Optional<StockAiSuggestionBatch> latestBatch = findLatestGeneratedReadableBatch(user.getUserId(), now);
         if (enforceManualCooldown) {
             Optional<StockAiSuggestionBatch> latestManualRefresh = batchRepository
                     .findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(
@@ -438,6 +446,31 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
                 ? "AI suggestions are temporarily unavailable, so a simple rule-based fallback is shown."
                 : "Returned existing suggestions because your profile and stock data are unchanged.";
         return buildResponse(user, fallbackBatch, message, fallbackUsed);
+    }
+
+    private static Object[] buildGenerationLocks() {
+        Object[] locks = new Object[GENERATION_LOCK_STRIPES];
+        Arrays.setAll(locks, ignored -> new Object());
+        return locks;
+    }
+
+    private Object generationLock(Long userId) {
+        return generationLocks[Math.floorMod(Objects.hashCode(userId), GENERATION_LOCK_STRIPES)];
+    }
+
+    private Optional<StockAiSuggestionBatch> findLatestGeneratedReadableBatch(Long userId, LocalDateTime now) {
+        Optional<StockAiSuggestionBatch> latestCreatedBatch = batchRepository
+                .findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(
+                        userId,
+                        READABLE_BATCH_STATUSES,
+                        now
+                );
+        return latestCreatedBatch.or(() -> batchRepository
+                .findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(
+                        userId,
+                        READABLE_BATCH_STATUSES,
+                        now
+                ));
     }
 
     @Override
@@ -2697,10 +2730,10 @@ public class StockAiSuggestionServiceImpl implements StockAiSuggestionService {
         Optional<PaperTradingAccount> account = accountRepository.findByUserUserId(userId);
         if (account.isEmpty()
                 || account.get().getLastResetAt() == null
-                || !account.get().getLastResetAt().isAfter(behaviorSummary.updatedAt())) {
+                || account.get().getLastResetAt().isBefore(behaviorSummary.updatedAt())) {
             return behaviorSummary;
         }
-        return lowBehaviorSummary("Portfolio was reset after the last behavior profile update; behavior will rebuild after new paper trades.");
+        return lowBehaviorSummary("Portfolio was reset at or after the last behavior profile update; behavior will rebuild after new paper trades.");
     }
 
     private BehaviorSummaryForSuggestion lowBehaviorSummary(String sourceNote) {

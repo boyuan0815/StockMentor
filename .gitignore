@@ -129,3 +129,11 @@ cloudflared.exe
 docs/frontend/ui-reference/phase_3b/*.jpg
 
 /frontend/.gitignore
+
+/docs/UAT_UI Screenshots
+/docs/diagram-style
+/docs/showcase
+/docs/superpowers
+/outputs
+/AGENTS.md
+/docs/

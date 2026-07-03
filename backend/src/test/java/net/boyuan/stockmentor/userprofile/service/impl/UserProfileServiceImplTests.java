@@ -340,6 +340,28 @@ class UserProfileServiceImplTests {
     }
 
     @Test
+    void currentProfileDowngradesBehaviorSummaryWhenPortfolioResetMatchesBehaviorTimestamp() {
+        user.setOnboardingCompleted(true);
+        UserInvestmentProfile profile = profile(user, 2);
+        LocalDateTime resetAt = LocalDateTime.of(2026, 6, 29, 9, 0);
+        PaperTradingAccount account = new PaperTradingAccount();
+        account.setLastResetAt(resetAt);
+
+        when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
+                .thenReturn(Optional.of(profile));
+        when(behaviorProfileService.getBehaviorSummaryForSuggestion(1L))
+                .thenReturn(behaviorSummary(BehaviorConfidence.MEDIUM, resetAt));
+        when(paperTradingAccountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+
+        UserProfileResponse response = service.getCurrentUserProfile();
+
+        assertEquals("LOW", response.behaviorSummary().behaviorConfidence());
+        assertEquals("INSUFFICIENT_DATA", response.behaviorSummary().behaviorStyle());
+        assertTrue(response.behaviorSummary().sourceNote().contains("Portfolio was reset"));
+        assertNull(response.behaviorSummary().updatedAt());
+    }
+
+    @Test
     void postServiceMethodsAreTransactional() throws Exception {
         assertNotNull(UserProfileServiceImpl.class
                 .getMethod("completeOnboarding", OnboardingSubmitRequest.class)

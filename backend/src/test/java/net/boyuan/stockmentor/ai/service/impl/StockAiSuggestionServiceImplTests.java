@@ -42,6 +42,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -50,7 +52,13 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -86,6 +94,8 @@ class StockAiSuggestionServiceImplTests {
         private PaperPositionRepository positionRepository;
         @Mock
         private PaperTradingAccountRepository accountRepository;
+        @Mock
+        private PlatformTransactionManager transactionManager;
 
         private StockAiSuggestionServiceImpl service;
         private AppUser user;
@@ -106,6 +116,7 @@ class StockAiSuggestionServiceImplTests {
                                 delayedMarketPriceService,
                                 positionRepository,
                                 accountRepository,
+                                transactionManager,
                                 new ObjectMapper().findAndRegisterModules());
 
                 user = new AppUser();
@@ -146,6 +157,7 @@ class StockAiSuggestionServiceImplTests {
                                 .thenReturn(behaviorSummary(LocalDateTime.now().minusMinutes(1)));
                 lenient().when(positionRepository.findByUserUserIdOrderBySymbolAsc(1L)).thenReturn(List.of());
                 lenient().when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.empty());
+                lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         }
 
         @Test
@@ -286,6 +298,44 @@ class StockAiSuggestionServiceImplTests {
                 assertEquals(6, response.remainingStocks().size());
                 verify(batchRepository, never()).save(any(StockAiSuggestionBatch.class));
                 verify(itemRepository, never()).save(any(StockAiSuggestionItem.class));
+                verify(openAiClient, never()).generateSuggestion(anyString(), anyString());
+        }
+
+        @Test
+        void getSuggestionsPrefersNewestGeneratedBatchOverOlderUpdatedBatch() {
+                UserInvestmentProfile profile = profile();
+                LocalDateTime now = LocalDateTime.now();
+                StockAiSuggestionBatch olderUpdatedBatch = batch(profile, StockAiSuggestionBatchStatus.SUCCESS);
+                olderUpdatedBatch.setSuggestionBatchId(307L);
+                olderUpdatedBatch.setCreatedAt(now.minusHours(2));
+                olderUpdatedBatch.setUpdatedAt(now.minusMinutes(1));
+                StockAiSuggestionBatch newestGeneratedBatch = batch(profile, StockAiSuggestionBatchStatus.SUCCESS);
+                newestGeneratedBatch.setSuggestionBatchId(323L);
+                newestGeneratedBatch.setCreatedAt(now.minusMinutes(5));
+                newestGeneratedBatch.setUpdatedAt(now.minusMinutes(5));
+                StockAiSuggestionItem olderItem = expiredItem(olderUpdatedBatch, 3070L, "TSLA", 1, now.minusMinutes(1));
+                StockAiSuggestionItem newestItem = suggestionItem(newestGeneratedBatch, StockAiSuggestionItemStatus.ACTIVE);
+                newestItem.setSuggestionItemId(3230L);
+                newestItem.setSymbol("AMD");
+
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByCreatedAtDesc(eq(1L),
+                                anyCollection(), any()))
+                                .thenReturn(Optional.of(newestGeneratedBatch));
+                lenient().when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
+                                anyCollection(), any()))
+                                .thenReturn(Optional.of(olderUpdatedBatch));
+                lenient().when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(olderUpdatedBatch), anyCollection()))
+                                .thenReturn(List.of());
+                lenient().when(itemRepository.findBySuggestionBatchOrderByRankNoAsc(olderUpdatedBatch))
+                                .thenReturn(List.of(olderItem));
+                when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(eq(newestGeneratedBatch), anyCollection()))
+                                .thenReturn(List.of(newestItem));
+
+                StockAiSuggestionResponse response = service.getSuggestionsForCurrentUser();
+
+                assertEquals(323L, response.batchId());
+                assertEquals(List.of("AMD"),
+                                response.suggestedStocks().stream().map(stock -> stock.symbol()).toList());
                 verify(openAiClient, never()).generateSuggestion(anyString(), anyString());
         }
 
@@ -1373,6 +1423,91 @@ class StockAiSuggestionServiceImplTests {
         }
 
         @Test
+        void onboardingGenerationAndManualRefreshForSameUserShareCompletedBatch() throws Exception {
+                UserInvestmentProfile profile = profile();
+                AtomicReference<StockAiSuggestionBatch> savedBatch = new AtomicReference<>();
+                AtomicReference<StockAiSuggestionBatch> pendingBatch = new AtomicReference<>();
+                List<StockAiSuggestionItem> savedItems = new ArrayList<>();
+                AtomicInteger openAiCalls = new AtomicInteger();
+                CountDownLatch firstOpenAiStarted = new CountDownLatch(1);
+                CountDownLatch releaseOpenAi = new CountDownLatch(1);
+
+                when(profileRepository.findTopByUserUserIdOrderByProfileVersionDescUpdatedAtDesc(1L))
+                                .thenReturn(Optional.of(profile));
+                when(batchRepository.findTopByUserUserIdAndStatusInAndExpiresAtAfterOrderByUpdatedAtDescCreatedAtDesc(eq(1L),
+                                anyCollection(), any()))
+                                .thenAnswer(invocation -> Optional.ofNullable(savedBatch.get()));
+                when(batchRepository.findTopByUserUserIdAndTriggerReasonOrderByCreatedAtDesc(eq(1L),
+                                eq(StockAiSuggestionTriggerReason.MANUAL_REFRESH)))
+                                .thenReturn(Optional.empty());
+                when(stockAnalysisService.createOrReuseSnapshot(anyString(), eq("7D")))
+                                .thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+                when(openAiClient.getModel()).thenReturn("gpt-4o-mini");
+                when(batchRepository
+                                .findTopByUserUserIdAndModelAndPromptVersionAndInputHashAndStatusInOrderByCreatedAtDesc(
+                                                eq(1L), eq("gpt-4o-mini"), eq("stock-suggestion-v4"), anyString(),
+                                                anyCollection()))
+                                .thenAnswer(invocation -> Optional.ofNullable(savedBatch.get()));
+                when(openAiClient.generateSuggestion(anyString(), anyString())).thenAnswer(invocation -> {
+                        openAiCalls.incrementAndGet();
+                        firstOpenAiStarted.countDown();
+                        assertTrue(releaseOpenAi.await(3, TimeUnit.SECONDS));
+                        return openAiSuccess(validSuggestionJson());
+                });
+                when(itemRepository.findByUserUserIdAndStatus(1L, StockAiSuggestionItemStatus.ACTIVE))
+                                .thenReturn(List.of());
+                when(itemRepository.findBySuggestionBatchOrderByRankNoAsc(any()))
+                                .thenAnswer(invocation -> savedItems.stream()
+                                                .filter(item -> item.getSuggestionBatch() == invocation.getArgument(0))
+                                                .toList());
+                when(batchRepository.save(any(StockAiSuggestionBatch.class))).thenAnswer(invocation -> {
+                        StockAiSuggestionBatch batch = invocation.getArgument(0);
+                        batch.setSuggestionBatchId(44L);
+                        pendingBatch.set(batch);
+                        return batch;
+                });
+                doAnswer(invocation -> {
+                        StockAiSuggestionBatch committedBatch = pendingBatch.getAndSet(null);
+                        if (committedBatch != null) {
+                                savedBatch.set(committedBatch);
+                        }
+                        return null;
+                }).when(transactionManager).commit(any());
+                when(itemRepository.save(any(StockAiSuggestionItem.class))).thenAnswer(invocation -> {
+                        StockAiSuggestionItem item = invocation.getArgument(0);
+                        item.setSuggestionItemId((long) savedItems.size() + 140L);
+                        savedItems.add(item);
+                        return item;
+                });
+                when(itemRepository.findBySuggestionBatchAndStatusInOrderByRankNoAsc(any(), anyCollection()))
+                                .thenAnswer(invocation -> savedItems.stream()
+                                                .filter(item -> item.getSuggestionBatch() == invocation.getArgument(0))
+                                                .toList());
+
+                ExecutorService executor = Executors.newFixedThreadPool(2);
+                try {
+                        Future<StockAiSuggestionResponse> onboardingFuture = executor.submit(() -> service.generateSuggestionsForUser(
+                                        user,
+                                        StockAiSuggestionTriggerReason.ONBOARDING_COMPLETED,
+                                        false));
+                        assertTrue(firstOpenAiStarted.await(3, TimeUnit.SECONDS));
+
+                        Future<StockAiSuggestionResponse> manualRefreshFuture = executor.submit(service::refreshSuggestionsForCurrentUser);
+
+                        releaseOpenAi.countDown();
+                        StockAiSuggestionResponse onboardingResponse = onboardingFuture.get(3, TimeUnit.SECONDS);
+                        StockAiSuggestionResponse manualRefreshResponse = manualRefreshFuture.get(3, TimeUnit.SECONDS);
+
+                        assertEquals(1, openAiCalls.get());
+                        assertEquals(onboardingResponse.batchId(), manualRefreshResponse.batchId());
+                        assertEquals("SUCCESS", manualRefreshResponse.batchStatus());
+                        assertTrue(manualRefreshResponse.message().contains("unchanged"));
+                } finally {
+                        executor.shutdownNow();
+                }
+        }
+
+        @Test
         void scheduledRefreshBypassesManualCooldownButReusesSameInputHash() {
                 UserInvestmentProfile profile = profile();
                 StockAiSuggestionBatch existingBatch = batch(profile, StockAiSuggestionBatchStatus.FALLBACK_RULE_BASED);
@@ -1701,6 +1836,29 @@ class StockAiSuggestionServiceImplTests {
                                 82,
                                 "aggressive",
                                 "NVDA,AMD,TSLA"));
+                JsonNode root = new ObjectMapper().readTree(userContent);
+
+                assertFalse(root.path("observedPaperTradingBehavior").path("hasBehaviorProfile").asBoolean());
+                assertEquals("LOW", root.path("observedPaperTradingBehavior").path("behaviorConfidence").asText());
+                assertTrue(root.path("observedPaperTradingBehavior").path("sourceNote").asText()
+                                .contains("Portfolio was reset"));
+        }
+
+        @Test
+        void promptTreatsBehaviorAsLowConfidenceWhenPortfolioResetMatchesBehaviorProfileTimestamp() throws Exception {
+                LocalDateTime resetAt = LocalDateTime.of(2026, 6, 8, 13, 0);
+                PaperTradingAccount account = new PaperTradingAccount();
+                account.setLastResetAt(resetAt);
+                when(accountRepository.findByUserUserId(1L)).thenReturn(Optional.of(account));
+
+                String userContent = promptForBehaviorSummary(behaviorSummary(
+                                resetAt,
+                                31L,
+                                BehaviorConfidence.MEDIUM,
+                                UserBehaviorStyle.BALANCED,
+                                55,
+                                "moderate",
+                                "MSFT,GOOG"));
                 JsonNode root = new ObjectMapper().readTree(userContent);
 
                 assertFalse(root.path("observedPaperTradingBehavior").path("hasBehaviorProfile").asBoolean());

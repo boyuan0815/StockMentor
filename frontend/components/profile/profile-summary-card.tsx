@@ -51,6 +51,7 @@ export function ProfileSummaryCard({ animationKey = 0, behaviorSummary, investme
       value: formatEnum(investmentProfile.experienceLevel),
     },
   ];
+  const behaviorConfidenceLabel = formatBehaviorConfidence(behaviorSummary?.behaviorConfidence);
 
   return (
     <View style={styles.stack}>
@@ -108,7 +109,7 @@ export function ProfileSummaryCard({ animationKey = 0, behaviorSummary, investme
           <View style={[styles.badge, styles.behaviorBadge]}>
             <IconSymbol color="#A75A22" name="chart.line.uptrend.xyaxis" size={11} />
             <Text selectable style={[styles.badgeText, styles.behaviorBadgeText]}>
-              {formatEnum(behaviorSummary?.behaviorConfidence) ?? 'Low'}
+              {behaviorConfidenceLabel}
             </Text>
           </View>
         </View>
@@ -128,7 +129,7 @@ export function ProfileSummaryCard({ animationKey = 0, behaviorSummary, investme
                 {formatNullableNumber(behaviorSummary?.behaviorRiskScore) ?? '-'}
               </Text>
               <Text selectable style={styles.confidenceBadge}>
-                {formatEnum(behaviorSummary?.behaviorConfidence) ?? 'Low'}
+                {behaviorConfidenceLabel}
               </Text>
             </View>
           </View>
@@ -238,6 +239,17 @@ function formatEnum(value: string | null | undefined) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function formatBehaviorConfidence(value: string | null | undefined) {
+  const confidence = value?.toUpperCase();
+  if (confidence === 'MEDIUM') {
+    return 'Forming';
+  }
+  if (confidence === 'HIGH') {
+    return 'Established';
+  }
+  return 'Learning';
 }
 
 function formatNullableNumber(value: number | null | undefined) {
