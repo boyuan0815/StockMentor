@@ -100,17 +100,24 @@ pipeline {
 
                     wait_for_up() {
                         path="$1"
-                        deadline=$((SECONDS + 120))
-                        while [ "${SECONDS}" -lt "${deadline}" ]; do
+                        start_time="$(date +%s)"
+                        timeout_seconds=120
+
+                        while [ $(( $(date +%s) - start_time )) -lt "${timeout_seconds}" ]; do
                             body="$(curl -fsS --max-time 5 "http://${JMETER_TARGET_HOST}:${JMETER_TARGET_PORT}${path}" 2>/dev/null || true)"
+
                             if printf '%s' "${body}" | grep -q '"status"' && printf '%s' "${body}" | grep -q '"UP"'; then
                                 echo "${path} is UP"
                                 return 0
                             fi
+
                             echo "Waiting for ${path}..."
                             sleep 5
                         done
+
                         echo "Timed out waiting for ${path}"
+                        docker compose -p "${COMPOSE_PROJECT_NAME}" ps || true
+                        docker compose -p "${COMPOSE_PROJECT_NAME}" logs --tail=100 backend || true
                         return 1
                     }
 
