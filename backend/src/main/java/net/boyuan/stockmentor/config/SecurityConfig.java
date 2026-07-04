@@ -8,6 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -25,6 +26,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -33,9 +35,15 @@ import java.util.Map;
 @EnableConfigurationProperties(SecurityConfig.StockMentorCorsProperties.class)
 @RequiredArgsConstructor
 public class SecurityConfig {
+    private static final List<String> DEFAULT_CORS_ALLOWED_ORIGINS = List.of(
+            "http://localhost:8081",
+            "http://127.0.0.1:8081"
+    );
+
     private final AppUserDetailsService appUserDetailsService;
     private final ObjectMapper objectMapper;
     private final StockMentorCorsProperties corsProperties;
+    private final Environment environment;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -47,6 +55,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/health", "/api/health/database").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/register").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
@@ -105,10 +114,32 @@ public class SecurityConfig {
     }
 
     private List<String> allowedOrigins() {
-        return corsProperties.allowedOrigins().stream()
+        List<String> configuredOrigins = exactEnvironmentAllowedOrigins();
+        if (configuredOrigins.isEmpty()) {
+            configuredOrigins = corsProperties.allowedOrigins();
+        }
+
+        List<String> allowedOrigins = configuredOrigins.stream()
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
+                .filter(origin -> !"*".equals(origin))
                 .distinct()
+                .toList();
+
+        return allowedOrigins.isEmpty() ? DEFAULT_CORS_ALLOWED_ORIGINS : allowedOrigins;
+    }
+
+    private List<String> exactEnvironmentAllowedOrigins() {
+        String rawOrigins = environment.getProperty("STOCKMENTOR_CORS_ALLOWED_ORIGINS");
+        if (rawOrigins == null || rawOrigins.isBlank()) {
+            rawOrigins = System.getenv("STOCKMENTOR_CORS_ALLOWED_ORIGINS");
+        }
+        if (rawOrigins == null || rawOrigins.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(rawOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
                 .toList();
     }
 
