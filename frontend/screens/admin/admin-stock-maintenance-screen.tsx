@@ -425,21 +425,21 @@ function getEndDateError(type: AdminBackfillType, message: string | null, endDat
 }
 
 function formatBackfillMessage(message: string, result: BackfillResultDto) {
+  const trimmedMessage = message.trim();
+  if (!trimmedMessage) {
+    return null;
+  }
+
   const noRowsChanged = result.savedRows === 0 && result.skippedRows === 0 && result.deletedRows === 0;
-  if (noRowsChanged && message.includes('max 2-symbol batches')) {
+  if (noRowsChanged && trimmedMessage.includes('max 2-symbol batches')) {
     return 'Twelve Data free-tier only allows data requests for up to 8 stocks per minute. Wait one minute, then try again.';
   }
 
-  if (message.toLowerCase().includes('rate limit')) {
+  if (trimmedMessage.toLowerCase().includes('rate limit')) {
     return 'Twelve Data free-tier limit reached. Wait one minute, then try again.';
   }
 
-  const lowerMessage = message.toLowerCase();
-  if (lowerMessage.includes('failed') || lowerMessage.includes('error') || lowerMessage.includes('unable')) {
-    return message;
-  }
-
-  return null;
+  return trimmedMessage;
 }
 
 function ResultMessages({ result }: { result: BackfillResultDto }) {
@@ -526,6 +526,9 @@ const styles = StyleSheet.create({
     color: Colors.light.mutedText,
     fontSize: 13,
     lineHeight: 18,
+  },
+  modeDescriptionActive: {
+    color: '#92400E',
   },
   checkbox: {
     alignItems: 'center',
