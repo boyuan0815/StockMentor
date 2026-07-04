@@ -137,3 +137,11 @@ docs/frontend/ui-reference/phase_3b/*.jpg
 /outputs
 /AGENTS.md
 /docs/
+
+# Coursework deployment evidence
+!.env.example
+!frontend/.env.example
+!/docs/
+/docs/*
+!/docs/deployment/
+!/docs/deployment/**
