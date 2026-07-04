@@ -181,6 +181,14 @@ pipeline {
     post {
         always {
             archiveArtifacts artifacts: 'build/jmeter-*/**', fingerprint: true, allowEmptyArchive: true
+            publishHTML(target: [
+                allowMissing: true,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: "build/jmeter-${BUILD_NUMBER}/html",
+                reportFiles: 'index.html',
+                reportName: 'JMeter HTML Report'
+            ])
         }
     }
 }
