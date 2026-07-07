@@ -195,8 +195,8 @@ export function StockListScreen() {
     } as Href);
   };
 
-  const openSuggestionsPlaceholder = () => {
-    showToast('AI Stock Suggestions will be added in the next phase.');
+  const openSuggestions = () => {
+    router.push('/suggestions' as Href);
   };
 
   const resetStocksPortfolioCard = async () => {
@@ -287,7 +287,7 @@ export function StockListScreen() {
                 loading={isPortfolioLoading && !portfolio}
                 onOpenPortfolio={() => router.push('/paper-trading' as Href)}
                 onReset={() => setResetConfirmVisible(true)}
-                onViewSuggestions={openSuggestionsPlaceholder}
+                onViewSuggestions={openSuggestions}
                 onViewWatchlist={() => router.push('/watchlist' as Href)}
                 portfolio={portfolio}
               />
