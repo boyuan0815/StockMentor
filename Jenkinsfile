@@ -64,6 +64,42 @@ pipeline {
             }
         }
 
+        stage('Docker-in-Docker verification') {
+            steps {
+                sh '''
+                    set -eu
+
+                    docker rm -f stockmentor-dind >/dev/null 2>&1 || true
+                    docker run -d --privileged --name stockmentor-dind docker:29.6.1-dind
+
+                    for attempt in $(seq 1 30); do
+                        if docker exec stockmentor-dind docker info >/dev/null 2>&1; then
+                            echo "Docker-in-Docker is ready"
+                            break
+                        fi
+
+                        if [ "${attempt}" -eq 30 ]; then
+                            echo "Timed out waiting for Docker-in-Docker"
+                            docker logs stockmentor-dind --tail=100 || true
+                            exit 1
+                        fi
+
+                        echo "Waiting for Docker-in-Docker..."
+                        sleep 2
+                    done
+
+                    docker exec stockmentor-dind docker version
+                    docker exec stockmentor-dind sh -c 'mkdir -p /tmp/stockmentor-dind-smoke && printf "%s\\n" "stockmentor-dind-smoke" > /tmp/stockmentor-dind-smoke/smoke.txt && printf "%s\\n" "FROM scratch" "COPY smoke.txt /smoke.txt" > /tmp/stockmentor-dind-smoke/Dockerfile && docker build -t stockmentor-dind-smoke:latest /tmp/stockmentor-dind-smoke'
+                    docker exec stockmentor-dind docker images stockmentor-dind-smoke:latest
+                '''
+            }
+            post {
+                always {
+                    sh 'docker rm -f stockmentor-dind >/dev/null 2>&1 || true'
+                }
+            }
+        }
+
         stage('Docker build backend/frontend') {
             steps {
                 sh '''
