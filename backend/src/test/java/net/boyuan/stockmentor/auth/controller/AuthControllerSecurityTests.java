@@ -402,11 +402,11 @@ class AuthControllerSecurityTests {
     @Test
     void corsPreflightForConfiguredExpoOriginIsAllowedWithoutBasicAuth() throws Exception {
         mockMvc.perform(options("/api/auth/register")
-                        .header(HttpHeaders.ORIGIN, "http://10.157.40.167:8081")
+                        .header(HttpHeaders.ORIGIN, "http://192.0.2.10:8081")
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type,authorization"))
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://10.157.40.167:8081"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://192.0.2.10:8081"))
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, containsString("POST")))
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, containsString("OPTIONS")))
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, containsString("content-type")))
