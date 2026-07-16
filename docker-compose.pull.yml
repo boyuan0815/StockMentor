@@ -10,7 +10,7 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
     ports:
-      - "3306:3306"
+      - "${MYSQL_HOST_PORT:-3307}:3306"
     volumes:
       - stockmentor_mysql_data:/var/lib/mysql
     healthcheck:
@@ -52,9 +52,9 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "8081:80"
+      - "${FRONTEND_HOST_PORT:-8081}:80"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/ >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 6

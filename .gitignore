@@ -130,18 +130,13 @@ docs/frontend/ui-reference/phase_3b/*.jpg
 
 /frontend/.gitignore
 
-/docs/UAT_UI Screenshots
-/docs/diagram-style
-/docs/showcase
-/docs/superpowers
 /outputs
 /AGENTS.md
-/docs/
 
-# Coursework deployment evidence
+# Public-safe examples
 !.env.example
 !frontend/.env.example
-!/docs/
-/docs/*
-!/docs/deployment/
-!/docs/deployment/**
+
+# Local/private project documents and performance plans
+/docs/
+/tests/performance/

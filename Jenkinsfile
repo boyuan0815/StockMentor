@@ -225,23 +225,6 @@ pipeline {
                 reportFiles: 'index.html',
                 reportName: 'JMeter HTML Report'
             ])
-            jiraSendBuildInfo site: 'limboyuan.atlassian.net', branch: 'G8-1-G8-2-G8-3-G8-4-G8-5'
-        }
-        success {
-            jiraSendDeploymentInfo site: 'limboyuan.atlassian.net',
-                environmentId: 'stockmentor-local-docker',
-                environmentName: 'StockMentor Local Docker',
-                environmentType: 'testing',
-                state: 'successful',
-                issueKeys: ['G8-1', 'G8-2', 'G8-3', 'G8-4', 'G8-5']
-        }
-        failure {
-            jiraSendDeploymentInfo site: 'limboyuan.atlassian.net',
-                environmentId: 'stockmentor-local-docker',
-                environmentName: 'StockMentor Local Docker',
-                environmentType: 'testing',
-                state: 'failed',
-                issueKeys: ['G8-1', 'G8-2', 'G8-3', 'G8-4', 'G8-5']
         }
     }
 }
